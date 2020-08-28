@@ -1,0 +1,48 @@
+#include "path.gen.bff"
+
+// TODO: Exec gen_config.py if path.gen.bff not exists
+
+Settings
+{
+    #import TMP
+    .Environment = {
+        'TMP=$TMP$'
+        'SystemRoot=C:\Windows'
+    }
+}
+
+Compiler('Compiler-MSVC-x64')
+{
+    .Executable = '$VSBinPath_x64$\cl.exe'
+}
+
+.Base_Config = [
+    .CompilerInputPath = '../src'
+    .CompilerOutputPath = '../bin'
+]
+
+.MSVC_x64_Config = [
+    Using(.Base_Config)
+    .CompilerOptions = ''
+    .Compiler = 'Compiler-MSVC-x64'
+    .CompilerOptions = ' "%1" /Fo"%2" /MTd /c /nologo /I"$VSIncludePath$" /I"$WindowsSDKIncludePath$" /I"$WindowsSDKUcrtIncludePath$"'
+    .Linker = '$VSBinPath_x64$\link.exe'
+    .LinkerOptions = ' /OUT:"%2" "%1" /NOLOGO /DEBUG /LIBPATH:"$VSLibPath_x64$" /LIBPATH:"$WindowsSDKLibPath_x64$" /LIBPATH:"$WindowsSDKUcrtLibPath_x64$"'
+]
+
+ObjectList('HelloWorld-Obj')
+{
+    Using(.MSVC_x64_Config)
+}
+
+Executable('HelloWorld-Exe')
+{
+    Using(.MSVC_x64_Config)
+    .Libraries = 'HelloWorld-Obj'
+    .LinkerOutput = '../bin/HelloWorld.exe'
+}
+
+Alias('all')
+{
+    .Targets = {'HelloWorld-Exe'}
+}
