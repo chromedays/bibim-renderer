@@ -1,3 +1,6 @@
 *.fdb
 bin/
 *.gen.bff
+*.sln
+*.vcxproj
+*.vcxproj.filters
