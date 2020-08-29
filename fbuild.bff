@@ -109,17 +109,32 @@ ForEach (.Project_Config in .Project_Configs)
         .LinkerOutput = .CompilerOutputPath + '\$ConfigName$\$ProjectName$.exe'
     }
 
-    .VSConfig = [
-        .ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache $ProjectName$-$ConfigName$-Exe'
-        .ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache -clean $ProjectName$-$ConfigName$-Exe'
-        .OutputDirectory = '^$(SolutionDir)\bin\tmp'
-        .IntermediateDirectory = '^$(SolutionDir)\bin\tmp'
-        .Platform = 'x64'
-        .PlatformToolset = 'v141'
-        .Config = .ConfigName
-    ]
+    {
+        .PreprocessorDefinitions = ''
+        ForEach(.Define in .Defines)
+        {
+            ^PreprocessorDefinitions + '$Define$;'
+        }
+        .IncludeSearchPath = ''
+        ForEach(.IncludePath in .IncludePaths)
+        {
+            ^IncludeSearchPath + '$IncludePath$;'
+        }
+        .VSConfig = [
+            .ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache $ProjectName$-$ConfigName$-Exe'
+            .ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache -clean $ProjectName$-$ConfigName$-Exe'
+            .OutputDirectory = '^$(SolutionDir)\bin\tmp'
+            .IntermediateDirectory = '^$(SolutionDir)\bin\tmp'
+            .Platform = 'x64'
+            .PlatformToolset = 'v141'
+            .Config = .ConfigName
+            .PreprocessorDefinitions = .PreprocessorDefinitions
+            .IncludeSearchPath = .IncludeSearchPath
+            .LocalDebuggerCommand = .CompilerOutputPath + '\$ConfigName$\$ProjectName$.exe'
+        ]
 
-    ^VSConfigs + {.VSConfig}
+        ^VSConfigs + {.VSConfig}
+    }
 }
 
 {
@@ -127,6 +142,7 @@ ForEach (.Project_Config in .Project_Configs)
     VCXProject('$ProjectName$-VCXProject')
     {
         .ProjectOutput = '$ProjectName$.vcxproj'
+        .ProjectInputPaths = .CompilerInputPath
         .ProjectConfigs = .VSConfigs
     }
 

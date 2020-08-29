@@ -7,3 +7,4 @@ bin/
 *.vcxproj.user
 .vs/
 compile_commands.json
+*.log
