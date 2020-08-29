@@ -1,0 +1,157 @@
+#include "path.gen.bff"
+Settings
+{
+    #import TMP
+    .Environment = {
+        'TMP=$TMP$'
+        'SystemRoot=C:\Windows'
+    }
+}
+
+.Project_Config_Base = [
+    .ProjectName = 'Bibim'
+    .Compiler = '$VSBinPath_x64$\cl.exe'
+    .CompilerOptions = ' "%1" /Fo"%2" /c /nologo /Z7'
+                     + ' /Zc:inline' // Remove unreferenced COMDATs at compile time
+                     + ' /Zc:strictStrings' // Require const only usage of string literals
+                     + ' /fp:fast'
+    .CompilerInputPath = 'src'
+    .CompilerOutputPath = 'bin'
+    .Linker = '$VSBinPath_x64$\link.exe'
+    .LinkerOptions = ' /OUT:"%2" "%1" /NOLOGO /DEBUG /WX'
+                   + ' /INCREMENTAL:NO /NODEFAULTLIB'
+                   + ' /MACHINE:X64'
+                   //+ ' /LIBPATH:"$VSLibPath_x64$" /LIBPATH:"$WindowsSDKLibPath_x64$" /LIBPATH:"$WindowsSDKUcrtLibPath_x64$"'
+                   + ' /SUBSYSTEM:CONSOLE'
+                   + ' libcmt.lib'
+                   + ' libucrt.lib'
+                   + ' libvcruntime.lib'
+                   + ' kernel32.lib'
+                   + ' user32.lib'
+                   + ' gdi32.lib'
+                   + ' winspool.lib'
+                   + ' comdlg32.lib'
+                   + ' advapi32.lib'
+                   + ' shell32.lib'
+                   + ' ole32.lib'
+                   + ' oleaut32.lib'
+                   + ' uuid.lib'
+                   + ' odbc32.lib'
+                   + ' odbccp32.lib'
+    .Defines = {
+        'WIN32_LEAN_AND_MEAN'
+        'NOMINMAX'
+        '_WIN32'
+        '__WINDOWS__'
+        'WIN64'
+        '_CRT_SECURE_NO_WARNINGS'
+    }
+
+    .IncludePaths = {
+        .VSIncludePath,
+        .WindowsSDKIncludePath,
+        .WindowsSDKUcrtIncludePath
+    }
+
+    .LibPaths = {
+        .VSLibPath_x64,
+        .WindowsSDKLibPath_x64,
+        .WindowsSDKUcrtLibPath_x64
+    }
+]
+
+.Project_Config_Debug =
+[
+    Using(.Project_Config_Base)
+    .ConfigName = 'Debug'
+    .CompilerOptions + ' /MTd /Od /RTC1 /GS /Oy- /GR- /EHsc'
+    .Defines + {
+        'DEBUG'
+    }
+]
+
+.Project_Config_Release =
+[
+    Using(.Project_Config_Base)
+    .ConfigName = 'Release'
+    .CompilerOptions + ' /MT /Ox /Oy /Oi /GS- /GF /GL /Gy /Gw /GR- /EHsc'
+    .LinkerOptions + ' /LTCG /OPT:REF,ICF'
+]
+
+.Project_Configs = {.Project_Config_Debug, .Project_Config_Release}
+
+.VCXProject_Configs = {}
+
+ForEach (.Project_Config in .Project_Configs)
+{
+    Using(.Project_Config)
+    ForEach (.Define in .Defines)
+    {
+        ^CompilerOptions + ' /D$Define$'
+    }
+    ForEach (.IncludePath in .IncludePaths)
+    {
+        ^CompilerOptions + ' /I"$IncludePath$"'
+    }
+    ForEach (.LibPath in .LibPaths)
+    {
+        ^LinkerOptions + ' /LIBPATH:"$LibPath$"'
+    }
+
+    ObjectList('$ProjectName$-$ConfigName$-Obj')
+    {
+        .CompilerOutputPath + '\$ConfigName$'
+    }
+
+    Executable('$ProjectName$-$ConfigName$-Exe')
+    {
+        .Libraries = {'$ProjectName$-$ConfigName$-Obj'}
+        .LinkerOutput = .CompilerOutputPath + '\$ConfigName$\$ProjectName$.exe'
+    }
+
+    .ASDF = [
+        .ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache $ProjectName$-$ConfigName$-Exe'
+        .ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache -clean $ProjectName$-$ConfigName$-Exe'
+        .OutputDirectory = '^$(SolutionDir)\bin\tmp'
+        .IntermediateDirectory = '^$(SolutionDir)\bin\tmp'
+        .Platform = 'x64'
+        .PlatformToolset = 'v141'
+        .Config = .ConfigName
+    ]
+
+    ^VCXProject_Configs + {.ASDF}
+}
+
+{
+    Using(.Project_Config_Base)
+    VCXProject('$ProjectName$-VCXProject')
+    {
+        .ProjectOutput = '$ProjectName$.vcxproj'
+        .ProjectConfigs = .VCXProject_Configs
+    }
+
+    VSSolution('$ProjectName$-VSSolution')
+    {
+        .SolutionOutput = '$ProjectName$.sln'
+        .SolutionProjects = '$ProjectName$-VCXProject'
+        .SolutionConfigs = .VCXProject_Configs
+    }
+
+    Alias('$ProjectName$-VisualStudio')
+    {
+        .Targets = {
+            '$ProjectName$-VCXProject',
+            '$ProjectName$-VSSolution'
+        }
+    }
+}
+
+Alias('All')
+{
+    Using(.Project_Config_Base)
+    .Targets = {
+        '$ProjectName$-Debug-Exe',
+        '$ProjectName$-Release-Exe',
+        '$ProjectName$-VisualStudio',
+    }
+}
