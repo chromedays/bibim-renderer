@@ -22,12 +22,9 @@ Settings
     .CompilerOutputPath = 'bin'
     .Linker = '$VSBinPath_x64$\link.exe'
     .LinkerOptions = ' /OUT:"%2" "%1" /NOLOGO /DEBUG /WX'
-                   + ' /INCREMENTAL:NO /NODEFAULTLIB'
+                   + ' /INCREMENTAL:NO'
                    + ' /MACHINE:X64'
                    + ' /SUBSYSTEM:CONSOLE'
-                   + ' libcmt.lib'
-                   + ' libucrt.lib'
-                   + ' libvcruntime.lib'
                    + ' kernel32.lib'
                    + ' user32.lib'
                    + ' gdi32.lib'
@@ -73,8 +70,10 @@ Settings
     Using(.Project_Config_Base)
     .ConfigName = 'Debug'
     .CompilerOptions + ' /MTd /Od /RTC1 /GS /Oy- /GR- /EHsc'
+    .LinkerOptions + ' libcmtd.lib libucrtd.lib libvcruntimed.lib'
     .Defines + {
         'DEBUG',
+        '_DEBUG',
         'BB_DEBUG'
     }
 ]
@@ -85,6 +84,7 @@ Settings
     .ConfigName = 'Release'
     .CompilerOptions + ' /MT /Ox /Oy /Oi /GS- /GF /GL /Gy /Gw /GR- /EHsc'
     .LinkerOptions + ' /LTCG /OPT:REF,ICF'
+    .LinkerOptions + ' libcmt.lib libucrt.lib libvcruntime.lib'
 ]
 
 .Project_Configs = {.Project_Config_Debug, .Project_Config_Release}
