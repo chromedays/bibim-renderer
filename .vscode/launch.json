@@ -16,7 +16,7 @@
       "name": "(Windows) Launch",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/bin/ige.exe",
+      "program": "${workspaceFolder}/bin/Debug/Bibim.exe",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
