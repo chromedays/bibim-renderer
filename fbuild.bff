@@ -80,7 +80,7 @@ Settings
 
 .Project_Configs = {.Project_Config_Debug, .Project_Config_Release}
 
-.VCXProject_Configs = {}
+.VSConfigs = {}
 
 ForEach (.Project_Config in .Project_Configs)
 {
@@ -109,7 +109,7 @@ ForEach (.Project_Config in .Project_Configs)
         .LinkerOutput = .CompilerOutputPath + '\$ConfigName$\$ProjectName$.exe'
     }
 
-    .ASDF = [
+    .VSConfig = [
         .ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache $ProjectName$-$ConfigName$-Exe'
         .ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; FBuild.exe -vs -dist -cache -clean $ProjectName$-$ConfigName$-Exe'
         .OutputDirectory = '^$(SolutionDir)\bin\tmp'
@@ -119,7 +119,7 @@ ForEach (.Project_Config in .Project_Configs)
         .Config = .ConfigName
     ]
 
-    ^VCXProject_Configs + {.ASDF}
+    ^VSConfigs + {.VSConfig}
 }
 
 {
@@ -127,14 +127,14 @@ ForEach (.Project_Config in .Project_Configs)
     VCXProject('$ProjectName$-VCXProject')
     {
         .ProjectOutput = '$ProjectName$.vcxproj'
-        .ProjectConfigs = .VCXProject_Configs
+        .ProjectConfigs = .VSConfigs
     }
 
     VSSolution('$ProjectName$-VSSolution')
     {
         .SolutionOutput = '$ProjectName$.sln'
         .SolutionProjects = '$ProjectName$-VCXProject'
-        .SolutionConfigs = .VCXProject_Configs
+        .SolutionConfigs = .VSConfigs
     }
 
     Alias('$ProjectName$-VisualStudio')
@@ -151,6 +151,24 @@ Alias('All')
     Using(.Project_Config_Base)
     .Targets = {
         '$ProjectName$-Debug-Exe',
+        '$ProjectName$-Release-Exe',
+        '$ProjectName$-VisualStudio',
+    }
+}
+
+Alias('Debug')
+{
+    Using(.Project_Config_Base)
+    .Targets = {
+        '$ProjectName$-Debug-Exe',
+        '$ProjectName$-VisualStudio',
+    }
+}
+
+Alias('Release')
+{
+    Using(.Project_Config_Base)
+    .Targets = {
         '$ProjectName$-Release-Exe',
         '$ProjectName$-VisualStudio',
     }
