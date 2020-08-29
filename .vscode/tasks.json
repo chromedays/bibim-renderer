@@ -18,10 +18,7 @@
             "type": "shell",
             "command": "./FBuild.exe Release",
             "problemMatcher": [],
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            }
+            "group": "build"
         }
     ]
 }
