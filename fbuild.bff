@@ -1,4 +1,5 @@
 #include "path.gen.bff"
+#import VULKAN_SDK
 Settings
 {
     #import TMP
@@ -15,7 +16,9 @@ Settings
                      + ' /Zc:inline' // Remove unreferenced COMDATs at compile time
                      + ' /Zc:strictStrings' // Require const only usage of string literals
                      + ' /fp:fast'
+                     + ' /std:c++17'
     .CompilerInputPath = 'src'
+    .CompilerInputPattern = {'*.cpp', '*.c'}
     .CompilerOutputPath = 'bin'
     .Linker = '$VSBinPath_x64$\link.exe'
     .LinkerOptions = ' /OUT:"%2" "%1" /NOLOGO /DEBUG /WX'
@@ -45,18 +48,21 @@ Settings
         '__WINDOWS__'
         'WIN64'
         '_CRT_SECURE_NO_WARNINGS'
+        'VK_USE_PLATFORM_WIN32_KHR'
     }
 
     .IncludePaths = {
         .VSIncludePath,
         .WindowsSDKIncludePath,
-        .WindowsSDKUcrtIncludePath
+        .WindowsSDKUcrtIncludePath,
+        '$VULKAN_SDK$\Include'
     }
 
     .LibPaths = {
         .VSLibPath_x64,
         .WindowsSDKLibPath_x64,
-        .WindowsSDKUcrtLibPath_x64
+        .WindowsSDKUcrtLibPath_x64,
+        '$VULKAN_SDK$\Lib'
     }
 ]
 
@@ -66,7 +72,8 @@ Settings
     .ConfigName = 'Debug'
     .CompilerOptions + ' /MTd /Od /RTC1 /GS /Oy- /GR- /EHsc'
     .Defines + {
-        'DEBUG'
+        'DEBUG',
+        'BB_DEBUG'
     }
 ]
 
