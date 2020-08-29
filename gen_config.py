@@ -27,6 +27,7 @@ def main():
     winsdk_include_base_path = os.path.join(winsdk_base_path, 'Include', winsdk_version)
     path_table['WindowsSDKLibPath_x64'] = os.path.join(winsdk_lib_base_path, 'um\\x64')
     path_table['WindowsSDKIncludePath'] = os.path.join(winsdk_include_base_path, 'um')
+    path_table['WindowsSDKSharedIncludePath'] = os.path.join(winsdk_include_base_path, 'shared')
     path_table['WindowsSDKUcrtLibPath_x64'] = os.path.join(winsdk_lib_base_path, 'ucrt\\x64')
     path_table['WindowsSDKUcrtIncludePath'] = os.path.join(winsdk_include_base_path, 'ucrt')
 
