@@ -114,14 +114,14 @@ inline float dot(const Float4 &_a, const Float4 &_b) {
 struct Mat4 {
   float M[4][4] = {};
 
-  Float4 row(int n) const {
-    BB_ASSERT(n >= 0 && n < 4);
-    return {M[0][n], M[1][n], M[2][n], M[3][n]};
+  Float4 row(int _n) const {
+    BB_ASSERT(_n >= 0 && _n < 4);
+    return {M[0][_n], M[1][_n], M[2][_n], M[3][_n]};
   }
 
-  Float4 column(int n) const {
-    BB_ASSERT(n >= 0 && n < 4);
-    return {M[n][0], M[n][1], M[n][2], M[n][3]};
+  Float4 column(int _n) const {
+    BB_ASSERT(_n >= 0 && _n < 4);
+    return {M[_n][0], M[_n][1], M[_n][2], M[_n][3]};
   }
 
   static Mat4 identity() {
@@ -133,10 +133,10 @@ struct Mat4 {
     }};
   }
 
-  static Mat4 lookAt(const Float3 &eye, const Float3 &target,
-                     const Float3 &upAxis = {0, 1, 0}) {
-    Float3 forward = (eye - target).normalize();
-    Float3 right = cross(upAxis, forward).normalize();
+  static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
+                     const Float3 &_upAxis = {0, 1, 0}) {
+    Float3 forward = (_eye - _target).normalize();
+    Float3 right = cross(_upAxis, forward).normalize();
     Float3 up = cross(forward, right).normalize();
 
     // clang-format off
@@ -144,42 +144,43 @@ struct Mat4 {
       {right.X, up.X, forward.X, 0},
       {right.Y, up.Y, forward.Y, 0},
       {right.Z, up.Z, forward.Z, 0},
-      {-dot(eye, right), -dot(eye, up), -dot(eye, forward), 1},
+      {-dot(_eye, right), -dot(_eye, up), -dot(_eye, forward), 1},
     }};
     // clang-format on
   }
 
 // TODO(ilgwon): Need to be adjusted
-#if 0
-  static Mat4 ortho(float left, float right, float top, float bottom,
-                    float nearZ, float farZ) {
+#if 1
+  static Mat4 ortho(float _left, float _right, float _top, float _bottom,
+                    float _nearZ, float _farZ) {
 #define NDC_MIN_Z 0
 #define NDC_MAX_Z 1
     // clang-format off
     Mat4 result = {{
-        {2.f / (right - left), 0, 0, 0},
-        {0, 2.f / (top - bottom), 0, 0},
-        {0, 0, (NDC_MAX_Z - NDC_MIN_Z) / (farZ - nearZ), 0},
-        {(left + right) / (left - right), (bottom + top) / (bottom - top),
-         farZ * (NDC_MAX_Z - NDC_MIN_Z) / (farZ - nearZ), 1},
+        {2.f / (_right - _left), 0, 0, 0},
+        {0, 2.f / (_top - _bottom), 0, 0},
+        {0, 0, (NDC_MAX_Z - NDC_MIN_Z) / (_farZ - _nearZ), 0},
+        {(_left + _right) / (_left - _right), (_bottom + _top) / (_bottom - _top),
+         _farZ * (NDC_MAX_Z - NDC_MIN_Z) / (_farZ - _nearZ), 1},
     }};
     // clang-format on
     return result;
   }
 
-  static Mat4 orthoCenter(float width, float height, float nearZ, float farZ) {
-    float halfWidth = width * 0.5f;
-    float halfHeight = height * 0.5f;
+  static Mat4 orthoCenter(float _width, float _height, float _nearZ,
+                          float _farZ) {
+    float halfWidth = _width * 0.5f;
+    float halfHeight = _height * 0.5f;
     Mat4 result =
-        ortho(-halfWidth, halfWidth, halfHeight, -halfHeight, nearZ, farZ);
+        ortho(-halfWidth, halfWidth, halfHeight, -halfHeight, _nearZ, _farZ);
     return result;
   }
 #endif
 };
 
-inline Mat4 operator*(const Mat4 &a, const Mat4 &b) {
-  Float4 rows[4] = {a.row(0), a.row(1), a.row(2), a.row(3)};
-  Float4 columns[4] = {b.column(0), b.column(1), b.column(2), b.column(3)};
+inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
+  Float4 rows[4] = {_a.row(0), _a.row(1), _a.row(2), _a.row(3)};
+  Float4 columns[4] = {_b.column(0), _b.column(1), _b.column(2), _b.column(3)};
   Mat4 result;
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 4; ++j) {
