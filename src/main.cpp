@@ -240,53 +240,54 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
   return VK_FALSE;
 }
 
-struct QueueFamilyIndices{
+struct QueueFamilyIndices {
   std::optional<uint32_t> Graphics;
   std::optional<uint32_t> Transfer0;
 
   bool isCompleted() { return Graphics.has_value() && Transfer0.has_value(); }
 };
 
-QueueFamilyIndices GetQueueFamily(VkPhysicalDevice const& _device)
-{
+QueueFamilyIndices getQueueFamily(VkPhysicalDevice _device) {
   QueueFamilyIndices result = {};
 
-  unsigned numQueueFamily = 0;
-  vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamily, nullptr);
-  VkQueueFamilyProperties* queueFamilyProperties = new VkQueueFamilyProperties[numQueueFamily];
-  vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamily, queueFamilyProperties);
+  uint32_t numQueueFamilyProperties = 0;
+  std::vector<VkQueueFamilyProperties> queueFamilyProperties;
+  vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamilyProperties,
+                                           queueFamilyProperties.data());
 
-  for(unsigned i = 0; i < numQueueFamily; i++)
-  {
+  for (unsigned i = 0; i < numQueueFamilyProperties; i++) {
     // Make queues exclusive per task.
-    if(queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && !result.Graphics.has_value())
+    if (queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+        !result.Graphics.has_value())
       result.Graphics = i;
-    else if(queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT && !result.Graphics.has_value())
+    else if (queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT &&
+             !result.Graphics.has_value())
       result.Transfer0 = i;
 
-
-    if(result.isCompleted())
+    if (result.isCompleted())
       break;
   }
 
-  delete[] queueFamilyProperties;
   return result;
 }
 
-bool checkPhysicalDevice(VkPhysicalDevice const& _device)
-{
+bool checkPhysicalDevice(VkPhysicalDevice _device) {
   VkPhysicalDeviceProperties deviceProperties = {};
   VkPhysicalDeviceFeatures deviceFeatures = {};
 
   vkGetPhysicalDeviceProperties(_device, &deviceProperties);
   vkGetPhysicalDeviceFeatures(_device, &deviceFeatures);
 
-  QueueFamilyIndices queue = GetQueueFamily(_device);
+  QueueFamilyIndices queue = getQueueFamily(_device);
 
-  return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU 
-  & deviceFeatures.geometryShader & deviceFeatures.tessellationShader 
-  & deviceFeatures.fillModeNonSolid & deviceFeatures.depthClamp
-  && queue.isCompleted();
+  bool isProperType =
+      deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+  bool isFeatureComplete =
+      deviceFeatures.geometryShader && deviceFeatures.tessellationShader &&
+      deviceFeatures.fillModeNonSolid && deviceFeatures.depthClamp;
+  bool isQueueComplte = queue.isCompleted();
+
+  return isProperType && isFeatureComplete && isQueueComplte;
 }
 
 } // namespace bb
@@ -297,9 +298,9 @@ int main(int _argc, char **_argv) {
   SDL_Init(SDL_INIT_VIDEO);
   int width = 1280;
   int height = 720;
-  SDL_Window *window =
-      SDL_CreateWindow("Bibim Renderer", SDL_WINDOWPOS_CENTERED,
-                       SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_VULKAN);
+  SDL_Window *window = SDL_CreateWindow(
+      "Bibim Renderer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width,
+      height, SDL_WINDOW_VULKAN);
 
   SDL_SysWMinfo sysinfo = {};
   SDL_VERSION(&sysinfo.version);
@@ -358,13 +359,13 @@ int main(int _argc, char **_argv) {
   if (enableValidationLayers) {
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
-  
+
   unsigned numExtraInstantExtensions = extensions.size();
   extensions.resize(numExtraInstantExtensions + numInstantExtensions);
 
-  SDL_Vulkan_GetInstanceExtensions(window, &numInstantExtensions, 
-  extensions.data() + numExtraInstantExtensions);
-
+  SDL_Vulkan_GetInstanceExtensions(window, &numInstantExtensions,
+                                   extensions.data() +
+                                       numExtraInstantExtensions);
 
   instanceCreateInfo.enabledExtensionCount = (uint32_t)extensions.size();
   instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
@@ -392,46 +393,20 @@ int main(int _argc, char **_argv) {
   }
 
   VkSurfaceKHR surface = {};
-  BB_VK_ASSERT (!SDL_Vulkan_CreateSurface(window, instance, &surface)); // ! to convert SDL_bool to VkResult
+  BB_VK_ASSERT(!SDL_Vulkan_CreateSurface(
+      window, instance, &surface)); // ! to convert SDL_bool to VkResult
 
-
-  unsigned numPhysicalDevices = 0;
-  BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, nullptr));
-  VkPhysicalDevice* physicalDevices = new VkPhysicalDevice[numPhysicalDevices];
-  BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, physicalDevices));
-
-  constexpr unsigned numRequiredExtensions = 1;
-  char* requiredExtensions[numRequiredExtensions];
-  VkPhysicalDeviceProperties requiredProperties = {};
-  VkPhysicalDeviceFeatures requiredFeatures   = {};
-  
-  for(int i = 0; i < numRequiredExtensions; i++)
-    requiredExtensions[i] = new char[VK_MAX_EXTENSION_NAME_SIZE];
-
-  strcpy_s(requiredExtensions[0], VK_MAX_EXTENSION_NAME_SIZE, "VK_KHR_swapchain");
-  
-  requiredProperties.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-
-  // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkPhysicalDeviceFeatures.html
-  requiredFeatures.geometryShader = VK_TRUE;
-  requiredFeatures.tessellationShader = VK_TRUE;
-  requiredFeatures.fillModeNonSolid = VK_TRUE;
-  requiredFeatures.depthClamp = VK_TRUE;
-
-
+  uint32_t numPhysicalDevices = 0;
+  std::vector<VkPhysicalDevice> physicalDevices;
+  BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices,
+                                          physicalDevices.data()));
 
   VkPhysicalDevice physicalDevice = {};
-  for(int i = 0; i < numPhysicalDevices; i++)
-  {
-    if(bb::checkPhysicalDevice(physicalDevices[i]))
-    {
-      physicalDevice = physicalDevices[i];
+  for (VkPhysicalDevice currentPhysicalDevice : physicalDevices)
+    if (bb::checkPhysicalDevice(currentPhysicalDevice)) {
+      physicalDevice = currentPhysicalDevice;
       break;
     }
-  }
-  delete[] physicalDevices;
-
-
 
   std::string resourceRootPath = SDL_GetBasePath();
   resourceRootPath += "\\..\\..\\resources\\";
@@ -463,10 +438,6 @@ int main(int _argc, char **_argv) {
 
   SDL_DestroyWindow(window);
   SDL_Quit();
-
-  for(int i = 0; i < numRequiredExtensions; i++)
-    delete requiredExtensions[i];
-  
 
   return 0;
 }
