@@ -257,11 +257,11 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _device) {
 
   for (uint32_t i = 0; i < numQueueFamilyProperties; i++) {
     // Make queues exclusive per task.
-    if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) 
-        && !result.Graphics.has_value())
+    if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+        !result.Graphics.has_value())
       result.Graphics = i;
-    else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) 
-        && !result.Graphics.has_value())
+    else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+             !result.Graphics.has_value())
       result.Transfer0 = i;
 
     if (result.isCompleted())
