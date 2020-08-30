@@ -8,6 +8,7 @@
 #include "external/assimp/scene.h"
 #include "external/assimp/postprocess.h"
 #include <vector>
+#include <optional>
 #include <stdio.h>
 #include <assert.h>
 
@@ -239,6 +240,55 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
   return VK_FALSE;
 }
 
+struct QueueFamilyIndices{
+  std::optional<uint32_t> Graphics;
+  std::optional<uint32_t> Transfer0;
+
+  bool isCompleted() { return Graphics.has_value() && Transfer0.has_value(); }
+};
+
+QueueFamilyIndices GetQueueFamily(VkPhysicalDevice const& _device)
+{
+  QueueFamilyIndices result = {};
+
+  unsigned numQueueFamily = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamily, nullptr);
+  VkQueueFamilyProperties* queueFamilyProperties = new VkQueueFamilyProperties[numQueueFamily];
+  vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamily, queueFamilyProperties);
+
+  for(unsigned i = 0; i < numQueueFamily; i++)
+  {
+    // Make queues exclusive per task.
+    if(queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && !result.Graphics.has_value())
+      result.Graphics = i;
+    else if(queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT && !result.Graphics.has_value())
+      result.Transfer0 = i;
+
+
+    if(result.isCompleted())
+      break;
+  }
+
+  delete[] queueFamilyProperties;
+  return result;
+}
+
+bool checkPhysicalDevice(VkPhysicalDevice const& _device)
+{
+  VkPhysicalDeviceProperties deviceProperties = {};
+  VkPhysicalDeviceFeatures deviceFeatures = {};
+
+  vkGetPhysicalDeviceProperties(_device, &deviceProperties);
+  vkGetPhysicalDeviceFeatures(_device, &deviceFeatures);
+
+  QueueFamilyIndices queue = GetQueueFamily(_device);
+
+  return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU 
+  & deviceFeatures.geometryShader & deviceFeatures.tessellationShader 
+  & deviceFeatures.fillModeNonSolid & deviceFeatures.depthClamp
+  && queue.isCompleted();
+}
+
 } // namespace bb
 
 int main(int _argc, char **_argv) {
@@ -302,9 +352,19 @@ int main(int _argc, char **_argv) {
   }
 
   std::vector<const char *> extensions;
+  // TODO: ADD vk_win32_surface extension.
+  unsigned numInstantExtensions = 0;
+  SDL_Vulkan_GetInstanceExtensions(window, &numInstantExtensions, nullptr);
   if (enableValidationLayers) {
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
+  
+  unsigned numExtraInstantExtensions = extensions.size();
+  extensions.resize(numExtraInstantExtensions + numInstantExtensions);
+
+  SDL_Vulkan_GetInstanceExtensions(window, &numInstantExtensions, 
+  extensions.data() + numExtraInstantExtensions);
+
 
   instanceCreateInfo.enabledExtensionCount = (uint32_t)extensions.size();
   instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
@@ -331,15 +391,47 @@ int main(int _argc, char **_argv) {
                                                 nullptr, &messenger));
   }
 
-  VkSurfaceKHR surface;
-  BB_VK_ASSERT(! SDL_Vulkan_CreateSurface(window, (SDL_vulkanInstance)instance, 
-  (SDL_vulkanSurface*)&surface) ); // SDL function returns SDL_BOOL, which is opposite.
+  VkSurfaceKHR surface = {};
+  BB_VK_ASSERT (!SDL_Vulkan_CreateSurface(window, instance, &surface)); // ! to convert SDL_bool to VkResult
 
 
   unsigned numPhysicalDevices = 0;
   BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, nullptr));
   VkPhysicalDevice* physicalDevices = new VkPhysicalDevice[numPhysicalDevices];
   BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, physicalDevices));
+
+  constexpr unsigned numRequiredExtensions = 1;
+  char* requiredExtensions[numRequiredExtensions];
+  VkPhysicalDeviceProperties requiredProperties = {};
+  VkPhysicalDeviceFeatures requiredFeatures   = {};
+  
+  for(int i = 0; i < numRequiredExtensions; i++)
+    requiredExtensions[i] = new char[VK_MAX_EXTENSION_NAME_SIZE];
+
+  strcpy_s(requiredExtensions[0], VK_MAX_EXTENSION_NAME_SIZE, "VK_KHR_swapchain");
+  
+  requiredProperties.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+
+  // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkPhysicalDeviceFeatures.html
+  requiredFeatures.geometryShader = VK_TRUE;
+  requiredFeatures.tessellationShader = VK_TRUE;
+  requiredFeatures.fillModeNonSolid = VK_TRUE;
+  requiredFeatures.depthClamp = VK_TRUE;
+
+
+
+  VkPhysicalDevice physicalDevice = {};
+  for(int i = 0; i < numPhysicalDevices; i++)
+  {
+    if(bb::checkPhysicalDevice(physicalDevices[i]))
+    {
+      physicalDevice = physicalDevices[i];
+      break;
+    }
+  }
+  delete[] physicalDevices;
+
+
 
   std::string resourceRootPath = SDL_GetBasePath();
   resourceRootPath += "\\..\\..\\resources\\";
@@ -372,7 +464,9 @@ int main(int _argc, char **_argv) {
   SDL_DestroyWindow(window);
   SDL_Quit();
 
-  delete physicalDevices;
+  for(int i = 0; i < numRequiredExtensions; i++)
+    delete requiredExtensions[i];
+  
 
   return 0;
 }
