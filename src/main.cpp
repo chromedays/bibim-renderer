@@ -2,14 +2,17 @@
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
 #include "external/SDL2/SDL_syswm.h"
+#include "external/fmt/format.h"
 #include <vector>
 #include <stdio.h>
 #include <assert.h>
 
 #if BB_DEBUG
 #define BB_ASSERT(exp) assert(exp)
+#define BB_LOG(...) bb::print(__VA_ARGS__)
 #else
 #define BB_ASSERT(exp)
+#define BB_LOG(...)
 #endif
 #define BB_VK_ASSERT(exp)                                                      \
   do {                                                                         \
@@ -17,7 +20,15 @@
     BB_ASSERT(result == VK_SUCCESS);                                           \
   } while (0)
 
-namespace bb {}
+namespace bb {
+
+template <typename... Args> void print(Args... args) {
+  std::string formatted = fmt::format(args...);
+  formatted += "\n";
+  OutputDebugStringA(formatted.c_str());
+}
+
+} // namespace bb
 
 int main(int _argc, char **_argv) {
   BB_VK_ASSERT(volkInitialize());
