@@ -2,7 +2,6 @@
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
 #include "external/SDL2/SDL_syswm.h"
-#include "vulkan/vulkan_core.h"
 #include <vector>
 #include <stdio.h>
 #include <assert.h>
