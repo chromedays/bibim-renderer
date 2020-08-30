@@ -53,7 +53,8 @@ Settings
         .WindowsSDKIncludePath,
         .WindowsSDKSharedIncludePath,
         .WindowsSDKUcrtIncludePath,
-        '$VULKAN_SDK$\Include'
+        '$VULKAN_SDK$\Include',
+        '$CompilerInputPath$\external'
     }
 
     .LibPaths = {
@@ -62,7 +63,10 @@ Settings
         .WindowsSDKUcrtLibPath_x64,
         '$VULKAN_SDK$\Lib'
         '$CompilerInputPath$\external\SDL2'
+        '$CompilerInputPath$\external\assimp'
     }
+
+    .DLLs = {'$CompilerInputPath$\external\SDL2\SDL2.dll'}
 ]
 
 .Project_Config_Debug =
@@ -71,6 +75,10 @@ Settings
     .ConfigName = 'Debug'
     .CompilerOptions + ' /MTd /Od /RTC1 /GS /Oy- /GR- /EHsc'
     .LinkerOptions + ' libcmtd.lib libucrtd.lib libvcruntimed.lib'
+                   + ' assimp-vc142-mtd.lib zlibstaticd.lib IrrXMLd.lib'
+    .DLLs + {
+        '$CompilerInputPath$\external\assimp\assimp-vc142-mtd.dll'
+    }
     .Defines + {
         'DEBUG',
         '_DEBUG',
@@ -85,6 +93,10 @@ Settings
     .CompilerOptions + ' /MT /Ox /Oy /Oi /GS- /GF /GL /Gy /Gw /GR- /EHsc'
     .LinkerOptions + ' /LTCG /OPT:REF,ICF'
     .LinkerOptions + ' libcmt.lib libucrt.lib libvcruntime.lib'
+                   + ' assimp-vc142-mt.lib zlibstatic.lib IrrXML.lib'
+    .DLLs + {
+        '$CompilerInputPath$\external\assimp\assimp-vc142-mt.dll'
+    }
 ]
 
 .Project_Configs = {.Project_Config_Debug, .Project_Config_Release}
@@ -114,8 +126,8 @@ ForEach (.Project_Config in .Project_Configs)
 
     Copy('$ProjectName$-$ConfigName$-CopyDLL')
     {
-        .Source = '$CompilerInputPath$\external\SDL2\SDL2.dll'
-        .Dest = '$CompilerOutputPath$\$ConfigName$\SDL2.dll'
+        .Source = .DLLs
+        .Dest = '$CompilerOutputPath$\$ConfigName$\'
     }
 
     Executable('$ProjectName$-$ConfigName$-Exe')
