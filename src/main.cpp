@@ -3,6 +3,9 @@
 #include "external/SDL2/SDL_main.h"
 #include "external/SDL2/SDL_syswm.h"
 #include "external/fmt/format.h"
+#include "external/assimp/Importer.hpp"
+#include "external/assimp/scene.h"
+#include "external/assimp/postprocess.h"
 #include <vector>
 #include <stdio.h>
 #include <assert.h>
@@ -326,6 +329,14 @@ int main(int _argc, char **_argv) {
     BB_VK_ASSERT(vkCreateDebugUtilsMessengerEXT(instance, &messengerCreateInfo,
                                                 nullptr, &messenger));
   }
+
+  std::string resourceRootPath = SDL_GetBasePath();
+  resourceRootPath += "\\..\\..\\resources\\";
+
+  Assimp::Importer importer;
+  const aiScene *scene =
+      importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
+                        aiProcess_Triangulate | aiProcess_FlipUVs);
 
   bool running = true;
   SDL_Event e = {};
