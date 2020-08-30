@@ -228,6 +228,8 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
   case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
     BB_LOG_ERROR("Vulkan validation: {}", _callbackData->pMessage);
     break;
+  default:
+    break;
   }
 
   return VK_FALSE;
