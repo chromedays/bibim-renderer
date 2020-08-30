@@ -9,3 +9,5 @@ bin/
 compile_commands.json
 *.log
 .clangd/
+.vscode/c_cpp_properties.json
+.vscode/settings.json

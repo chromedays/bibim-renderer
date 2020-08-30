@@ -2,6 +2,7 @@
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
 #include "external/SDL2/SDL_syswm.h"
+#include "external/SDL2/SDL_vulkan.h"
 #include "external/fmt/format.h"
 #include "external/assimp/Importer.hpp"
 #include "external/assimp/scene.h"
@@ -248,7 +249,7 @@ int main(int _argc, char **_argv) {
   int height = 720;
   SDL_Window *window =
       SDL_CreateWindow("Bibim Renderer", SDL_WINDOWPOS_CENTERED,
-                       SDL_WINDOWPOS_CENTERED, width, height, 0);
+                       SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_VULKAN);
 
   SDL_SysWMinfo sysinfo = {};
   SDL_VERSION(&sysinfo.version);
@@ -330,6 +331,16 @@ int main(int _argc, char **_argv) {
                                                 nullptr, &messenger));
   }
 
+  VkSurfaceKHR surface;
+  BB_VK_ASSERT(! SDL_Vulkan_CreateSurface(window, (SDL_vulkanInstance)instance, 
+  (SDL_vulkanSurface*)&surface) ); // SDL function returns SDL_BOOL, which is opposite.
+
+
+  unsigned numPhysicalDevices = 0;
+  BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, nullptr));
+  VkPhysicalDevice* physicalDevices = new VkPhysicalDevice[numPhysicalDevices];
+  BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, physicalDevices));
+
   std::string resourceRootPath = SDL_GetBasePath();
   resourceRootPath += "\\..\\..\\resources\\";
 
@@ -355,9 +366,13 @@ int main(int _argc, char **_argv) {
     vkDestroyDebugUtilsMessengerEXT(instance, messenger, nullptr);
     messenger = VK_NULL_HANDLE;
   }
+  vkDestroySurfaceKHR(instance, surface, nullptr);
   vkDestroyInstance(instance, nullptr);
 
   SDL_DestroyWindow(window);
   SDL_Quit();
+
+  delete physicalDevices;
+
   return 0;
 }
