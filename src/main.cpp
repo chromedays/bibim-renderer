@@ -9,10 +9,14 @@
 
 #if BB_DEBUG
 #define BB_ASSERT(exp) assert(exp)
-#define BB_LOG(...) bb::print(__VA_ARGS__)
+#define BB_LOG_INFO(...) bb::log(bb::LogLevel::Info, __VA_ARGS__)
+#define BB_LOG_WARNING(...) bb::log(bb::LogLevel::Warning, __VA_ARGS__)
+#define BB_LOG_ERROR(...) bb::log(bb::LogLevel::Error, __VA_ARGS__)
 #else
 #define BB_ASSERT(exp)
-#define BB_LOG(...)
+#define BB_LOG_INFO(...)
+#define BB_LOG_WARNING(...)
+#define BB_LOG_ERROR(...)
 #endif
 #define BB_VK_ASSERT(exp)                                                      \
   do {                                                                         \
@@ -22,10 +26,28 @@
 
 namespace bb {
 
+enum class LogLevel { Info, Warning, Error };
+
 template <typename... Args> void print(Args... args) {
   std::string formatted = fmt::format(args...);
   formatted += "\n";
   OutputDebugStringA(formatted.c_str());
+}
+
+template <typename... Args> void log(LogLevel level, Args... args) {
+  switch (level) {
+  case LogLevel::Info:
+    OutputDebugStringA("[Info]:    ");
+    break;
+  case LogLevel::Warning:
+    OutputDebugStringA("[Warning]: ");
+    break;
+  case LogLevel::Error:
+    OutputDebugStringA("[Error]:   ");
+    break;
+  }
+
+  print(args...);
 }
 
 template <typename E, typename T> struct EnumArray {
@@ -190,6 +212,27 @@ inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   return result;
 }
 
+VKAPI_ATTR VkBool32 VKAPI_CALL
+vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
+                    VkDebugUtilsMessageTypeFlagsEXT _type,
+                    const VkDebugUtilsMessengerCallbackDataEXT *_callbackData,
+                    void *_userData) {
+  switch (_severity) {
+  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+    BB_LOG_INFO("Vulkan validation: {}", _callbackData->pMessage);
+    break;
+  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+    BB_LOG_WARNING("Vulkan validation: {}", _callbackData->pMessage);
+    break;
+  case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+    BB_LOG_ERROR("Vulkan validation: {}", _callbackData->pMessage);
+    break;
+  }
+
+  return VK_FALSE;
+}
+
 } // namespace bb
 
 int main(int _argc, char **_argv) {
@@ -252,9 +295,35 @@ int main(int _argc, char **_argv) {
     instanceCreateInfo.ppEnabledLayerNames = validationLayers.data();
   }
 
-  BB_VK_ASSERT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
+  std::vector<const char *> extensions;
+  if (enableValidationLayers) {
+    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
 
+  instanceCreateInfo.enabledExtensionCount = (uint32_t)extensions.size();
+  instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
+
+  BB_VK_ASSERT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
   volkLoadInstance(instance);
+
+  VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
+  if (enableValidationLayers) {
+    VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
+    messengerCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    messengerCreateInfo.messageSeverity =
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    messengerCreateInfo.messageType =
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    messengerCreateInfo.pfnUserCallback = &bb::vulkanDebugCallback;
+    BB_VK_ASSERT(vkCreateDebugUtilsMessengerEXT(instance, &messengerCreateInfo,
+                                                nullptr, &messenger));
+  }
 
   bool running = true;
   SDL_Event e = {};
@@ -269,6 +338,10 @@ int main(int _argc, char **_argv) {
     // draw();
   }
 
+  if (messenger != VK_NULL_HANDLE) {
+    vkDestroyDebugUtilsMessengerEXT(instance, messenger, nullptr);
+    messenger = VK_NULL_HANDLE;
+  }
   vkDestroyInstance(instance, nullptr);
 
   SDL_DestroyWindow(window);
