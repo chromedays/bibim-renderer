@@ -253,6 +253,9 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _device) {
   uint32_t numQueueFamilyProperties = 0;
   std::vector<VkQueueFamilyProperties> queueFamilyProperties;
   vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamilyProperties,
+                                           nullptr);
+  queueFamilyProperties.resize(numQueueFamilyProperties);
+  vkGetPhysicalDeviceQueueFamilyProperties(_device, &numQueueFamilyProperties,
                                            queueFamilyProperties.data());
 
   for (uint32_t i = 0; i < numQueueFamilyProperties; i++) {
@@ -261,7 +264,7 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _device) {
         !result.Graphics.has_value())
       result.Graphics = i;
     else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-             !result.Graphics.has_value())
+             !result.Transfer0.has_value())
       result.Transfer0 = i;
 
     if (result.isCompleted())
@@ -271,28 +274,40 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _device) {
   return result;
 }
 
-bool checkPhysicalDevice(VkPhysicalDevice _device) {
+bool checkPhysicalDevice(VkPhysicalDevice _device,
+                         VkPhysicalDeviceFeatures *_outDeviceFeatures,
+                         QueueFamilyIndices *_outQueueFamilyIndices) {
   VkPhysicalDeviceProperties deviceProperties = {};
   VkPhysicalDeviceFeatures deviceFeatures = {};
 
   vkGetPhysicalDeviceProperties(_device, &deviceProperties);
   vkGetPhysicalDeviceFeatures(_device, &deviceFeatures);
 
-  QueueFamilyIndices queue = getQueueFamily(_device);
+  QueueFamilyIndices queueFamilyIndices = getQueueFamily(_device);
 
   bool isProperType =
-      deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+      (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) ||
+      (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU);
   bool isFeatureComplete =
       deviceFeatures.geometryShader && deviceFeatures.tessellationShader &&
       deviceFeatures.fillModeNonSolid && deviceFeatures.depthClamp;
-  bool isQueueComplte = queue.isCompleted();
+  bool isQueueComplete = queueFamilyIndices.isCompleted();
 
-  return isProperType && isFeatureComplete && isQueueComplte;
+  if (_outDeviceFeatures) {
+    *_outDeviceFeatures = deviceFeatures;
+  }
+  if (_outQueueFamilyIndices) {
+    *_outQueueFamilyIndices = queueFamilyIndices;
+  }
+
+  return isProperType && isFeatureComplete && isQueueComplete;
 }
 
 } // namespace bb
 
 int main(int _argc, char **_argv) {
+  using namespace bb;
+
   BB_VK_ASSERT(volkInitialize());
 
   SDL_Init(SDL_INIT_VIDEO);
@@ -387,7 +402,7 @@ int main(int _argc, char **_argv) {
         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    messengerCreateInfo.pfnUserCallback = &bb::vulkanDebugCallback;
+    messengerCreateInfo.pfnUserCallback = &vulkanDebugCallback;
     BB_VK_ASSERT(vkCreateDebugUtilsMessengerEXT(instance, &messengerCreateInfo,
                                                 nullptr, &messenger));
   }
@@ -398,15 +413,57 @@ int main(int _argc, char **_argv) {
 
   uint32_t numPhysicalDevices = 0;
   std::vector<VkPhysicalDevice> physicalDevices;
+  BB_VK_ASSERT(
+      vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, nullptr));
+  physicalDevices.resize(numPhysicalDevices);
   BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices,
                                           physicalDevices.data()));
 
-  VkPhysicalDevice physicalDevice = {};
-  for (VkPhysicalDevice currentPhysicalDevice : physicalDevices)
-    if (bb::checkPhysicalDevice(currentPhysicalDevice)) {
+  VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+  VkPhysicalDeviceFeatures deviceFeatures = {};
+  QueueFamilyIndices queueFamilyIndices = {};
+  for (VkPhysicalDevice currentPhysicalDevice : physicalDevices) {
+    if (checkPhysicalDevice(currentPhysicalDevice, &deviceFeatures,
+                            &queueFamilyIndices)) {
       physicalDevice = currentPhysicalDevice;
       break;
     }
+  }
+  BB_ASSERT(physicalDevice != VK_NULL_HANDLE);
+
+  std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+
+  queueCreateInfos.resize(2);
+  float queuePriority = 1.f;
+  queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  queueCreateInfos[0].queueFamilyIndex = queueFamilyIndices.Graphics.value();
+  queueCreateInfos[0].queueCount = 1;
+  queueCreateInfos[0].pQueuePriorities = &queuePriority;
+  queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  queueCreateInfos[1].queueFamilyIndex = queueFamilyIndices.Transfer0.value();
+  queueCreateInfos[1].queueCount = 1;
+  queueCreateInfos[1].pQueuePriorities = &queuePriority;
+
+  std::vector<const char *> deviceExtensions = {
+      VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+  VkDeviceCreateInfo deviceCreateInfo = {};
+  deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  deviceCreateInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
+  deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
+  deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
+  deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+  deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+  VkDevice device;
+  BB_VK_ASSERT(
+      vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
+  VkQueue graphicsQueue;
+  VkQueue transferQueue;
+  vkGetDeviceQueue(device, queueFamilyIndices.Graphics.value(), 0,
+                   &graphicsQueue);
+  vkGetDeviceQueue(device, queueFamilyIndices.Transfer0.value(), 0,
+                   &transferQueue);
+  BB_ASSERT(graphicsQueue != VK_NULL_HANDLE && transferQueue != VK_NULL_HANDLE);
 
   std::string resourceRootPath = SDL_GetBasePath();
   resourceRootPath += "\\..\\..\\resources\\";
@@ -429,11 +486,12 @@ int main(int _argc, char **_argv) {
     // draw();
   }
 
+  vkDestroyDevice(device, nullptr);
+  vkDestroySurfaceKHR(instance, surface, nullptr);
   if (messenger != VK_NULL_HANDLE) {
     vkDestroyDebugUtilsMessengerEXT(instance, messenger, nullptr);
     messenger = VK_NULL_HANDLE;
   }
-  vkDestroySurfaceKHR(instance, surface, nullptr);
   vkDestroyInstance(instance, nullptr);
 
   SDL_DestroyWindow(window);
