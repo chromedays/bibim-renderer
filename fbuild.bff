@@ -103,6 +103,32 @@ Settings
 
 .VSConfigs = {}
 
+.Shaders = {
+    'test.frag',
+    'test.vert'
+}
+
+ForEach (.Shader in .Shaders)
+{
+    Exec('CompileShaders-$Shader$')
+    {
+        .ExecExecutable = '$VULKAN_SDK$\Bin\glslc.exe'
+        .ExecInput = 'src\shaders\$Shader$'
+        .ExecOutput = '$ExecInput$.spv'
+        .ExecArguments = '"%1" -o "%2"'
+        .ExecUseStdOutAsOutput = false
+    }
+}
+
+Alias('CompileShaders')
+{
+    .Targets = {}
+    ForEach (.Shader in .Shaders)
+    {
+        ^Targets + 'CompileShaders-$Shader$'
+    }
+}
+
 ForEach (.Project_Config in .Project_Configs)
 {
     Using(.Project_Config)
@@ -194,6 +220,7 @@ Alias('All')
 {
     Using(.Project_Config_Base)
     .Targets = {
+        'CompileShaders'
         '$ProjectName$-Debug-Exe',
         '$ProjectName$-Release-Exe',
         '$ProjectName$-VisualStudio',
@@ -204,6 +231,7 @@ Alias('Debug')
 {
     Using(.Project_Config_Base)
     .Targets = {
+        'CompileShaders'
         '$ProjectName$-Debug-Exe',
         '$ProjectName$-VisualStudio',
     }
@@ -213,6 +241,7 @@ Alias('Release')
 {
     Using(.Project_Config_Base)
     .Targets = {
+        'CompileShaders'
         '$ProjectName$-Release-Exe',
         '$ProjectName$-VisualStudio',
     }
