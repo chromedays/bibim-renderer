@@ -225,6 +225,7 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
                     VkDebugUtilsMessageTypeFlagsEXT _type,
                     const VkDebugUtilsMessengerCallbackDataEXT *_callbackData,
                     void *_userData) {
+  printf("%s\n", _callbackData->pMessage);
   switch (_severity) {
   case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
   case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
@@ -414,6 +415,150 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
 
   return areAllExtensionsSupported && isSwapChainAdequate && isProperType &&
          isFeatureComplete && isQueueComplete;
+}
+
+// Important : You need to delete every cmd used by swapchain
+// through queue. Dont forget to add it here too when you add another cmd.
+void updateSwapChain(SDL_Window *_window, VkDevice _device,
+                     std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
+                     VkCommandPool _graphicsCmdPool,
+                     std::vector<VkFramebuffer> &_swapChainFramebuffers,
+                     VkPipeline &_graphicsPipeline, VkRenderPass &_renderPass,
+                     VkSwapchainKHR &_swapChain,
+                     const VkFormat &_swapChainImageFormat,
+                     std::vector<VkImage> &_swapChainImages,
+                     VkSwapchainCreateInfoKHR &_swapChainCreateInfo,
+                     const SwapChainSupportDetails &_swapChainSupportDetails,
+                     const VkRenderPassCreateInfo &_renderPassCreateInfo,
+                     VkGraphicsPipelineCreateInfo &_graphicsPipelineCreateInfo,
+                     uint32_t &_numSwapChainImages,
+                     const VkExtent2D &_swapChainExtent,
+                     std::vector<VkImageView> &_swapChainImageViews,
+                     std::vector<VkFramebuffer> &_outSwapChainFramebuffers,
+                     const VkCommandPoolCreateInfo &_cmdPoolCreateInfo) {
+  int width = 0, height = 0;
+
+  if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
+    SDL_WaitEvent(nullptr);
+
+  SDL_GetWindowSize(_window, &width, &height);
+
+  vkDeviceWaitIdle(_device); // Ensure that device finished using swap chain.
+
+  vkFreeCommandBuffers(_device, _graphicsCmdPool,
+                       (uint32_t)_graphicsCmdBuffers.size(),
+                       _graphicsCmdBuffers.data());
+  vkDestroyCommandPool(_device, _graphicsCmdPool, nullptr);
+
+  for (VkFramebuffer fb : _swapChainFramebuffers) {
+    vkDestroyFramebuffer(_device, fb, nullptr);
+  }
+  _swapChainFramebuffers.clear();
+
+  vkDestroyPipeline(_device, _graphicsPipeline, nullptr);
+  vkDestroyRenderPass(_device, _renderPass, nullptr);
+  for (VkImageView imageView : _swapChainImageViews) {
+    vkDestroyImageView(_device, imageView, nullptr);
+  }
+  _swapChainImageViews.clear();
+  vkDestroySwapchainKHR(_device, _swapChain, nullptr);
+  _swapChain = nullptr;
+  // Destroy any other buffers used by queues here, including uniform buffers.
+
+  // recreate
+  BB_VK_ASSERT(vkCreateSwapchainKHR(_device, &_swapChainCreateInfo, nullptr,
+                                    &_swapChain));
+
+  vkGetSwapchainImagesKHR(_device, _swapChain, &_numSwapChainImages, nullptr);
+  _swapChainImages.resize(_numSwapChainImages);
+  vkGetSwapchainImagesKHR(_device, _swapChain, &_numSwapChainImages,
+                          _swapChainImages.data());
+  _swapChainImageViews.resize(_numSwapChainImages);
+  for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
+    VkImageViewCreateInfo swapChainImageViewCreateInfo = {};
+    swapChainImageViewCreateInfo.sType =
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    swapChainImageViewCreateInfo.image = _swapChainImages[i];
+    swapChainImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    swapChainImageViewCreateInfo.format = _swapChainImageFormat;
+    swapChainImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    swapChainImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    swapChainImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    swapChainImageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    swapChainImageViewCreateInfo.subresourceRange.aspectMask =
+        VK_IMAGE_ASPECT_COLOR_BIT;
+    swapChainImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+    swapChainImageViewCreateInfo.subresourceRange.levelCount = 1;
+    swapChainImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+    swapChainImageViewCreateInfo.subresourceRange.layerCount = 1;
+    BB_VK_ASSERT(vkCreateImageView(_device, &swapChainImageViewCreateInfo,
+                                   nullptr, &_swapChainImageViews[i]));
+  }
+
+  BB_VK_ASSERT(vkCreateRenderPass(_device, &_renderPassCreateInfo, nullptr,
+                                  &_renderPass));
+  _graphicsPipelineCreateInfo.renderPass = _renderPass;
+  BB_VK_ASSERT(vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1,
+                                         &_graphicsPipelineCreateInfo, nullptr,
+                                         &_graphicsPipeline));
+
+  _outSwapChainFramebuffers.resize(_numSwapChainImages);
+  for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
+    VkFramebufferCreateInfo fbCreateInfo = {};
+    fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbCreateInfo.renderPass = _renderPass;
+    fbCreateInfo.attachmentCount = 1;
+    fbCreateInfo.pAttachments = &_swapChainImageViews[i];
+    fbCreateInfo.width = _swapChainExtent.width;
+    fbCreateInfo.height = _swapChainExtent.height;
+    fbCreateInfo.layers = 1;
+
+    BB_VK_ASSERT(vkCreateFramebuffer(_device, &fbCreateInfo, nullptr,
+                                     &_outSwapChainFramebuffers[i]));
+  }
+
+  BB_VK_ASSERT(vkCreateCommandPool(_device, &_cmdPoolCreateInfo, nullptr,
+                                   &_graphicsCmdPool));
+
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.commandPool = _graphicsCmdPool;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandBufferCount = (uint32_t)_graphicsCmdBuffers.size();
+  BB_VK_ASSERT(vkAllocateCommandBuffers(_device, &cmdBufferAllocInfo,
+                                        _graphicsCmdBuffers.data()));
+
+  // TODO: this is insane, I need to seperate some of these functions.
+  for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
+    VkCommandBuffer cmdBuffer = _graphicsCmdBuffers[i];
+
+    VkCommandBufferBeginInfo cmdBeginInfo = {};
+    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmdBeginInfo.flags = 0;
+    cmdBeginInfo.pInheritanceInfo = nullptr;
+
+    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+
+    VkRenderPassBeginInfo renderPassInfo = {};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = _renderPass;
+    renderPassInfo.framebuffer = _outSwapChainFramebuffers[i];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = _swapChainExtent;
+
+    VkClearValue clearColor = {0.f, 0.f, 0.f, 1.f};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo,
+                         VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      _graphicsPipeline);
+    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmdBuffer);
+
+    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+  }
 }
 
 VkShaderModule createShaderModuleFromFile(VkDevice _device,
@@ -962,9 +1107,20 @@ int main(int _argc, char **_argv) {
     }
 
     uint32_t imageIndex;
-    BB_VK_ASSERT(vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
-                                       imageAvailableSemaphores[currentFrame],
-                                       VK_NULL_HANDLE, &imageIndex));
+    VkResult acquireNextImageResult = vkAcquireNextImageKHR(
+        device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame],
+        VK_NULL_HANDLE, &imageIndex);
+
+    if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
+      updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
+                      swapChainFramebuffers, graphicsPipeline, renderPass,
+                      swapChain, swapChainImageFormat, swapChainImages,
+                      swapChainCreateInfo, swapChainSupportDetails,
+                      renderPassCreateInfo, pipelineCreateInfo,
+                      numSwapChainImages, swapChainExtent, swapChainImageViews,
+                      swapChainFramebuffers, cmdPoolCreateInfo);
+      continue;
+    }
 
     vkWaitForFences(device, 1, &imageAvailableFences[currentFrame], VK_TRUE,
                     UINT64_MAX);
@@ -993,7 +1149,18 @@ int main(int _argc, char **_argv) {
     presentInfo.pSwapchains = &swapChain;
     presentInfo.pImageIndices = &imageIndex;
 
-    BB_VK_ASSERT(vkQueuePresentKHR(presentQueue, &presentInfo));
+    VkResult queuePresentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+    if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
+        queuePresentResult == VK_SUBOPTIMAL_KHR) {
+      updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
+                      swapChainFramebuffers, graphicsPipeline, renderPass,
+                      swapChain, swapChainImageFormat, swapChainImages,
+                      swapChainCreateInfo, swapChainSupportDetails,
+                      renderPassCreateInfo, pipelineCreateInfo,
+                      numSwapChainImages, swapChainExtent, swapChainImageViews,
+                      swapChainFramebuffers, cmdPoolCreateInfo);
+      continue;
+    }
 
     currentFrame = (currentFrame + 1) % numSwapChainImages;
   }
