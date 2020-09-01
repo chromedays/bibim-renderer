@@ -13,10 +13,22 @@
       "cwd": "${workspaceFolder}/fastbuild"
     },
     {
-      "name": "(Windows) Launch",
+      "name": "(Windows) Launch Debug",
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bin/Debug/Bibim.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "visualizerFile": ""
+    },
+    {
+      "name": "(Windows) Launch Release",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/Release/Bibim.exe",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
