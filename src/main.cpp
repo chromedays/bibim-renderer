@@ -664,8 +664,8 @@ int main(int _argc, char **_argv) {
   vkGetSwapchainImagesKHR(device, swapChain, &numSwapChainImages,
                           swapChainImages.data());
 
-  std::vector<VkImageView> swapChainImageViews(swapChainImages.size());
-  for (size_t i = 0; i < swapChainImages.size(); ++i) {
+  std::vector<VkImageView> swapChainImageViews(numSwapChainImages);
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
     VkImageViewCreateInfo swapChainImageViewCreateInfo = {};
     swapChainImageViewCreateInfo.sType =
         VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -816,12 +816,24 @@ int main(int _argc, char **_argv) {
   subpass.colorAttachmentCount = 1;
   subpass.pColorAttachments = &colorAttachmentRef;
 
+  VkSubpassDependency subpassDependency = {};
+  subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+  subpassDependency.dstSubpass = 0;
+  subpassDependency.srcStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependency.srcAccessMask = 0;
+  subpassDependency.dstStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
   VkRenderPassCreateInfo renderPassCreateInfo = {};
   renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
   renderPassCreateInfo.attachmentCount = 1;
   renderPassCreateInfo.pAttachments = &colorAttachment;
   renderPassCreateInfo.subpassCount = 1;
   renderPassCreateInfo.pSubpasses = &subpass;
+  renderPassCreateInfo.dependencyCount = 1;
+  renderPassCreateInfo.pDependencies = &subpassDependency;
 
   VkRenderPass renderPass;
   BB_VK_ASSERT(
@@ -850,6 +862,91 @@ int main(int _argc, char **_argv) {
                                          &pipelineCreateInfo, nullptr,
                                          &graphicsPipeline));
 
+  std::vector<VkFramebuffer> swapChainFramebuffers(numSwapChainImages);
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
+    VkFramebufferCreateInfo fbCreateInfo = {};
+    fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbCreateInfo.renderPass = renderPass;
+    fbCreateInfo.attachmentCount = 1;
+    fbCreateInfo.pAttachments = &swapChainImageViews[i];
+    fbCreateInfo.width = swapChainExtent.width;
+    fbCreateInfo.height = swapChainExtent.height;
+    fbCreateInfo.layers = 1;
+
+    BB_VK_ASSERT(vkCreateFramebuffer(device, &fbCreateInfo, nullptr,
+                                     &swapChainFramebuffers[i]));
+  }
+
+  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Graphics.value();
+  cmdPoolCreateInfo.flags = 0;
+
+  VkCommandPool graphicsCmdPool;
+  BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
+                                   &graphicsCmdPool));
+
+  std::vector<VkCommandBuffer> graphicsCmdBuffers(numSwapChainImages);
+
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.commandPool = graphicsCmdPool;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandBufferCount = (uint32_t)graphicsCmdBuffers.size();
+  BB_VK_ASSERT(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo,
+                                        graphicsCmdBuffers.data()));
+
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
+    VkCommandBuffer cmdBuffer = graphicsCmdBuffers[i];
+
+    VkCommandBufferBeginInfo cmdBeginInfo = {};
+    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmdBeginInfo.flags = 0;
+    cmdBeginInfo.pInheritanceInfo = nullptr;
+
+    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+
+    VkRenderPassBeginInfo renderPassInfo = {};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.framebuffer = swapChainFramebuffers[i];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = swapChainExtent;
+
+    VkClearValue clearColor = {0.f, 0.f, 0.f, 1.f};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo,
+                         VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      graphicsPipeline);
+    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmdBuffer);
+
+    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+  }
+
+  std::vector<VkSemaphore> imageAvailableSemaphores(numSwapChainImages);
+  std::vector<VkSemaphore> renderFinishedSemaphores(numSwapChainImages);
+  std::vector<VkFence> imageAvailableFences(numSwapChainImages);
+
+  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  VkFenceCreateInfo fenceCreateInfo = {};
+  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceCreateInfo.flags =  VK_FENCE_CREATE_SIGNALED_BIT;
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
+    BB_VK_ASSERT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr,
+                                   &imageAvailableSemaphores[i]));
+    BB_VK_ASSERT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr,
+                                   &renderFinishedSemaphores[i]));
+    BB_VK_ASSERT(vkCreateFence(device, &fenceCreateInfo, nullptr,
+                               &imageAvailableFences[i]));
+  }
+
+  uint32_t currentFrame = 0;
+
   Assimp::Importer importer;
   const aiScene *scene =
       importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
@@ -864,13 +961,57 @@ int main(int _argc, char **_argv) {
       }
     }
 
-    // update(1.f / 60.f);
-    // draw();
+    uint32_t imageIndex;
+    BB_VK_ASSERT(vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
+                                       imageAvailableSemaphores[currentFrame],
+                                       VK_NULL_HANDLE, &imageIndex));
+
+    vkWaitForFences(device, 1, &imageAvailableFences[currentFrame], VK_TRUE, UINT64_MAX);
+    vkResetFences(device, 1, &imageAvailableFences[currentFrame]);
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrame];
+    VkPipelineStageFlags waitStage =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    submitInfo.pWaitDstStageMask = &waitStage;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &graphicsCmdBuffers[currentFrame];
+
+    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &submitInfo, imageAvailableFences[currentFrame]));
+
+    VkPresentInfoKHR presentInfo = {};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &swapChain;
+    presentInfo.pImageIndices = &imageIndex;
+
+    BB_VK_ASSERT(vkQueuePresentKHR(presentQueue, &presentInfo));
+
+    currentFrame = (currentFrame + 1) % numSwapChainImages;
   }
 
   vkQueueWaitIdle(graphicsQueue);
   vkQueueWaitIdle(transferQueue);
   vkQueueWaitIdle(presentQueue);
+
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
+    vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+    vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+    vkDestroyFence(device, imageAvailableFences[i], nullptr);
+  }
+  vkFreeCommandBuffers(device, graphicsCmdPool,
+                       (uint32_t)graphicsCmdBuffers.size(),
+                       graphicsCmdBuffers.data());
+  vkDestroyCommandPool(device, graphicsCmdPool, nullptr);
+  for (VkFramebuffer fb : swapChainFramebuffers) {
+    vkDestroyFramebuffer(device, fb, nullptr);
+  }
   vkDestroyPipeline(device, graphicsPipeline, nullptr);
   vkDestroyRenderPass(device, renderPass, nullptr);
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
