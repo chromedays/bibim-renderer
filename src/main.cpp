@@ -7,10 +7,10 @@
 #include "external/assimp/Importer.hpp"
 #include "external/assimp/scene.h"
 #include "external/assimp/postprocess.h"
-#include "vulkan/vulkan_core.h"
 #include <algorithm>
 #include <stdint.h>
 #include <vector>
+#include <array>
 #include <optional>
 #include <stdio.h>
 #include <assert.h>
@@ -219,6 +219,33 @@ inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   }
   return result;
 }
+
+struct Vertex {
+  Float2 Pos;
+  Float3 Color;
+
+  static VkVertexInputBindingDescription getBindingDesc() {
+    VkVertexInputBindingDescription bindingDesc = {};
+    bindingDesc.binding = 0;
+    bindingDesc.stride = sizeof(Vertex);
+    bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    return bindingDesc;
+  }
+
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescs() {
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescs = {};
+    attributeDescs[0].binding = 0;
+    attributeDescs[0].location = 0;
+    attributeDescs[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescs[0].offset = offsetof(Vertex, Pos);
+    attributeDescs[1].binding = 0;
+    attributeDescs[1].location = 1;
+    attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[1].offset = offsetof(Vertex, Color);
+
+    return attributeDescs;
+  }
+};
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
@@ -585,6 +612,27 @@ VkShaderModule createShaderModuleFromFile(VkDevice _device,
   return shaderModule;
 }
 
+uint32_t findMemoryType(VkPhysicalDevice _physicalDevice, uint32_t _typeFilter,
+                        VkMemoryPropertyFlags _properties) {
+  VkPhysicalDeviceMemoryProperties memProperties;
+  vkGetPhysicalDeviceMemoryProperties(_physicalDevice, &memProperties);
+
+  for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i) {
+    if ((_typeFilter & (1 << i)) &&
+        ((memProperties.memoryTypes[i].propertyFlags & _properties) ==
+         _properties)) {
+      return i;
+    }
+  }
+
+  BB_ASSERT(false);
+  return 0;
+}
+
+template <typename T> uint32_t size_bytes32(const T &_container) {
+  return (uint32_t)(sizeof(typename T::value_type) * _container.size());
+}
+
 } // namespace bb
 
 int main(int _argc, char **_argv) {
@@ -849,13 +897,17 @@ int main(int _argc, char **_argv) {
   shaderStages[1].module = testFragShaderModule;
   shaderStages[1].pName = "main";
 
+  VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDesc();
+  std::array<VkVertexInputAttributeDescription, 2> attributeDescs =
+      Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertexInputState.vertexBindingDescriptionCount = 0;
-  vertexInputState.pVertexBindingDescriptions = nullptr;
-  vertexInputState.vertexAttributeDescriptionCount = 0;
-  vertexInputState.pVertexAttributeDescriptions = nullptr;
+  vertexInputState.vertexBindingDescriptionCount = 1;
+  vertexInputState.pVertexBindingDescriptions = &bindingDesc;
+  vertexInputState.vertexAttributeDescriptionCount =
+      (uint32_t)attributeDescs.size();
+  vertexInputState.pVertexAttributeDescriptions = attributeDescs.data();
 
   VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = {};
   inputAssemblyState.sType =
@@ -1022,6 +1074,42 @@ int main(int _argc, char **_argv) {
                                      &swapChainFramebuffers[i]));
   }
 
+  std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+                                  {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+                                  {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+
+  VkBufferCreateInfo bufferCreateInfo = {};
+  bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferCreateInfo.size = size_bytes32(vertices);
+  bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VkBuffer vertexBuffer;
+  BB_VK_ASSERT(
+      vkCreateBuffer(device, &bufferCreateInfo, nullptr, &vertexBuffer));
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex =
+      findMemoryType(physicalDevice, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  VkDeviceMemory vertexBufferMemory;
+  BB_VK_ASSERT(
+      vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory));
+  vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+  {
+    void *data;
+    vkMapMemory(device, vertexBufferMemory, 0, bufferCreateInfo.size, 0, &data);
+    memcpy(data, vertices.data(), bufferCreateInfo.size);
+    vkUnmapMemory(device, vertexBufferMemory);
+  }
+
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Graphics.value();
@@ -1066,7 +1154,9 @@ int main(int _argc, char **_argv) {
                          VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       graphicsPipeline);
-    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer, &offset);
+    vkCmdDraw(cmdBuffer, (uint32_t)vertices.size(), 1, 0, 0);
     vkCmdEndRenderPass(cmdBuffer);
 
     BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
@@ -1178,6 +1268,8 @@ int main(int _argc, char **_argv) {
                        (uint32_t)graphicsCmdBuffers.size(),
                        graphicsCmdBuffers.data());
   vkDestroyCommandPool(device, graphicsCmdPool, nullptr);
+  vkFreeMemory(device, vertexBufferMemory, nullptr);
+  vkDestroyBuffer(device, vertexBuffer, nullptr);
   for (VkFramebuffer fb : swapChainFramebuffers) {
     vkDestroyFramebuffer(device, fb, nullptr);
   }
