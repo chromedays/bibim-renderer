@@ -935,7 +935,7 @@ int main(int _argc, char **_argv) {
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
   VkFenceCreateInfo fenceCreateInfo = {};
   fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceCreateInfo.flags =  VK_FENCE_CREATE_SIGNALED_BIT;
+  fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
   for (uint32_t i = 0; i < numSwapChainImages; ++i) {
     BB_VK_ASSERT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr,
                                    &imageAvailableSemaphores[i]));
@@ -966,7 +966,8 @@ int main(int _argc, char **_argv) {
                                        imageAvailableSemaphores[currentFrame],
                                        VK_NULL_HANDLE, &imageIndex));
 
-    vkWaitForFences(device, 1, &imageAvailableFences[currentFrame], VK_TRUE, UINT64_MAX);
+    vkWaitForFences(device, 1, &imageAvailableFences[currentFrame], VK_TRUE,
+                    UINT64_MAX);
     vkResetFences(device, 1, &imageAvailableFences[currentFrame]);
 
     VkSubmitInfo submitInfo = {};
@@ -981,7 +982,8 @@ int main(int _argc, char **_argv) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &graphicsCmdBuffers[currentFrame];
 
-    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &submitInfo, imageAvailableFences[currentFrame]));
+    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &submitInfo,
+                               imageAvailableFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo = {};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
