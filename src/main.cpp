@@ -9,6 +9,7 @@
 #include "external/assimp/postprocess.h"
 #include <algorithm>
 #include <stdint.h>
+#include <unordered_map>
 #include <vector>
 #include <array>
 #include <optional>
@@ -65,9 +66,9 @@ template <typename E, typename T> struct EnumArray {
 
   T &operator[](E _e) { return Elems[(int)_e]; }
 
-  auto begin() { return Elems.begin(); }
+  T *begin() { return Elems; }
 
-  auto end() { return Elems.end(); }
+  T *end() { return Elems + (size_t)(E::COUNT); }
 
   static_assert(std::is_enum_v<E>);
   static_assert((int64_t)(E::COUNT) > 0);
@@ -275,9 +276,11 @@ struct QueueFamilyIndices {
   std::optional<uint32_t> Graphics;
   std::optional<uint32_t> Transfer0;
   std::optional<uint32_t> Present;
+  std::optional<uint32_t> Compute;
 
-  bool isCompleted() {
-    return Graphics.has_value() && Transfer0.has_value() && Present.has_value();
+  bool isCompleted() const {
+    return Graphics.has_value() && Transfer0.has_value() &&
+           Present.has_value() && Compute.has_value();
   }
 };
 
@@ -341,7 +344,10 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
     } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
                !result.Transfer0.has_value()) {
       result.Transfer0 = i;
-    } else {
+    } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+               !result.Compute.has_value()) {
+      result.Compute = i;
+    } else if (!result.Present.has_value()) {
       VkBool32 supportPresent = false;
       vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
                                            &supportPresent);
@@ -352,6 +358,33 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
 
     if (result.isCompleted())
       break;
+  }
+
+  // Failed to retrieve unique queue family index per queue type - get
+  // duplicated queue family index with others
+  if (!result.isCompleted()) {
+    for (uint32_t i = 0; i < numQueueFamilyProperties; i++) {
+      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+          !result.Graphics.has_value()) {
+        result.Graphics = i;
+      }
+      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+          !result.Transfer0.has_value()) {
+        result.Transfer0 = i;
+      }
+      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+          !result.Compute.has_value()) {
+        result.Compute = i;
+      }
+      if (!result.Present.has_value()) {
+        VkBool32 supportPresent = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
+                                             &supportPresent);
+        if (supportPresent) {
+          result.Present = i;
+        }
+      }
+    }
   }
 
   return result;
@@ -768,21 +801,37 @@ int main(int _argc, char **_argv) {
   BB_ASSERT(physicalDevice != VK_NULL_HANDLE);
 
   std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+  std::unordered_map<uint32_t, uint32_t> queueMap;
+  uint32_t maxNumQueues = 0;
+  auto incrementNumQueues = [&](uint32_t queueFamilyIndex) {
+    auto it = queueMap.find(queueFamilyIndex);
+    if (it == queueMap.end()) {
+      it = queueMap.emplace(queueFamilyIndex, 1).first;
+    } else {
+      ++it->second;
+    }
+    maxNumQueues = std::max(maxNumQueues, it->second);
+  };
 
-  queueCreateInfos.resize(3);
-  float queuePriority = 1.f;
-  queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfos[0].queueFamilyIndex = queueFamilyIndices.Graphics.value();
-  queueCreateInfos[0].queueCount = 1;
-  queueCreateInfos[0].pQueuePriorities = &queuePriority;
-  queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfos[1].queueFamilyIndex = queueFamilyIndices.Transfer0.value();
-  queueCreateInfos[1].queueCount = 1;
-  queueCreateInfos[1].pQueuePriorities = &queuePriority;
-  queueCreateInfos[2].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfos[2].queueFamilyIndex = queueFamilyIndices.Present.value();
-  queueCreateInfos[2].queueCount = 1;
-  queueCreateInfos[2].pQueuePriorities = &queuePriority;
+  incrementNumQueues(queueFamilyIndices.Graphics.value());
+  incrementNumQueues(queueFamilyIndices.Transfer0.value());
+  incrementNumQueues(queueFamilyIndices.Present.value());
+  incrementNumQueues(queueFamilyIndices.Compute.value());
+
+  std::vector<float> queuePriorities(maxNumQueues, 1.f);
+  queueCreateInfos.reserve(queueMap.size());
+  std::unordered_map<uint32_t, uint32_t> obtainedQueueCounters;
+
+  for (auto [queueFamilyIndex, numQueues] : queueMap) {
+    VkDeviceQueueCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    createInfo.queueFamilyIndex = queueFamilyIndex;
+    createInfo.queueCount = numQueues;
+    createInfo.pQueuePriorities = queuePriorities.data();
+    queueCreateInfos.push_back(createInfo);
+
+    obtainedQueueCounters.emplace(queueFamilyIndex, 0);
+  }
 
   VkDeviceCreateInfo deviceCreateInfo = {};
   deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -794,17 +843,27 @@ int main(int _argc, char **_argv) {
   VkDevice device;
   BB_VK_ASSERT(
       vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
+
   VkQueue graphicsQueue;
   VkQueue transferQueue;
   VkQueue presentQueue;
-  vkGetDeviceQueue(device, queueFamilyIndices.Graphics.value(), 0,
+  VkQueue computeQueue;
+  vkGetDeviceQueue(device, queueFamilyIndices.Graphics.value(),
+                   obtainedQueueCounters[queueFamilyIndices.Graphics.value()]++,
                    &graphicsQueue);
-  vkGetDeviceQueue(device, queueFamilyIndices.Transfer0.value(), 0,
-                   &transferQueue);
-  vkGetDeviceQueue(device, queueFamilyIndices.Present.value(), 0,
+  vkGetDeviceQueue(
+      device, queueFamilyIndices.Transfer0.value(),
+      obtainedQueueCounters[queueFamilyIndices.Transfer0.value()]++,
+      &transferQueue);
+  vkGetDeviceQueue(device, queueFamilyIndices.Present.value(),
+                   obtainedQueueCounters[queueFamilyIndices.Present.value()]++,
                    &presentQueue);
+  vkGetDeviceQueue(device, queueFamilyIndices.Compute.value(),
+                   obtainedQueueCounters[queueFamilyIndices.Compute.value()]++,
+                   &computeQueue);
   BB_ASSERT(graphicsQueue != VK_NULL_HANDLE &&
-            transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE);
+            transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE &&
+            computeQueue != VK_NULL_HANDLE);
 
   VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
   swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1255,6 +1314,7 @@ int main(int _argc, char **_argv) {
     currentFrame = (currentFrame + 1) % numSwapChainImages;
   }
 
+  vkQueueWaitIdle(computeQueue);
   vkQueueWaitIdle(graphicsQueue);
   vkQueueWaitIdle(transferQueue);
   vkQueueWaitIdle(presentQueue);
