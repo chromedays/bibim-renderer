@@ -703,11 +703,55 @@ Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
   return result;
 };
 
+Buffer createStagingBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
+                           const Buffer &_orgBuffer) {
+  Buffer result = createBuffer(_device, _physicalDevice, _orgBuffer.Size,
+                               VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  return result;
+}
+
 void destroyBuffer(VkDevice _device, Buffer &_buffer) {
   vkDestroyBuffer(_device, _buffer.Buffer, nullptr);
   _buffer.Buffer = VK_NULL_HANDLE;
   vkFreeMemory(_device, _buffer.Memory, nullptr);
   _buffer.Memory = VK_NULL_HANDLE;
+}
+
+void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
+                Buffer &_dstBuffer, Buffer &_srcBuffer, VkDeviceSize _size) {
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandPool = _cmdPool;
+  cmdBufferAllocInfo.commandBufferCount = 1;
+  VkCommandBuffer cmdBuffer;
+  BB_VK_ASSERT(
+      vkAllocateCommandBuffers(_device, &cmdBufferAllocInfo, &cmdBuffer));
+
+  VkCommandBufferBeginInfo cmdBeginInfo = {};
+  cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+
+  VkBufferCopy copyRegion = {};
+  copyRegion.srcOffset = 0;
+  copyRegion.dstOffset = 0;
+  copyRegion.size = _size;
+  vkCmdCopyBuffer(cmdBuffer, _srcBuffer.Buffer, _dstBuffer.Buffer, 1,
+                  &copyRegion);
+
+  BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &cmdBuffer;
+  vkQueueSubmit(_queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(_queue);
+
+  vkFreeCommandBuffers(_device, cmdBufferAllocInfo.commandPool, 1, &cmdBuffer);
 }
 
 } // namespace bb
@@ -1192,20 +1236,26 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
                                    &transferCmdPool));
 
-  std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-                                  {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-                                  {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+  std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                  {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                                  {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+                                  {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
 
-  Buffer vertexStagingBuffer =
-      createBuffer(device, physicalDevice, size_bytes32(vertices),
-                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
 
   Buffer vertexBuffer = createBuffer(
       device, physicalDevice, size_bytes32(vertices),
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer vertexStagingBuffer =
+      createStagingBuffer(device, physicalDevice, vertexBuffer);
+
+  Buffer indexBuffer = createBuffer(
+      device, physicalDevice, size_bytes32(indices),
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer indexStagingBuffer =
+      createStagingBuffer(device, physicalDevice, indexBuffer);
 
   {
     void *data;
@@ -1213,38 +1263,15 @@ int main(int _argc, char **_argv) {
                 0, &data);
     memcpy(data, vertices.data(), vertexStagingBuffer.Size);
     vkUnmapMemory(device, vertexStagingBuffer.Memory);
+    vkMapMemory(device, indexStagingBuffer.Memory, 0, indexStagingBuffer.Size,
+                0, &data);
+    memcpy(data, indices.data(), indexStagingBuffer.Size);
+    vkUnmapMemory(device, indexStagingBuffer.Memory);
 
-    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdBufferAllocInfo.commandPool = transferCmdPool;
-    cmdBufferAllocInfo.commandBufferCount = 1;
-    VkCommandBuffer cmdBuffer;
-    BB_VK_ASSERT(
-        vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &cmdBuffer));
-
-    VkCommandBufferBeginInfo cmdBeginInfo = {};
-    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
-
-    VkBufferCopy copyRegion = {};
-    copyRegion.srcOffset = 0;
-    copyRegion.dstOffset = 0;
-    copyRegion.size = vertexStagingBuffer.Size;
-    vkCmdCopyBuffer(cmdBuffer, vertexStagingBuffer.Buffer, vertexBuffer.Buffer,
-                    1, &copyRegion);
-
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-
-    VkSubmitInfo submitInfo = {};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-    vkQueueSubmit(transferQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(transferQueue);
-
-    vkFreeCommandBuffers(device, cmdBufferAllocInfo.commandPool, 1, &cmdBuffer);
+    copyBuffer(device, transferCmdPool, transferQueue, vertexBuffer,
+               vertexStagingBuffer, vertexStagingBuffer.Size);
+    copyBuffer(device, transferCmdPool, transferQueue, indexBuffer,
+               indexStagingBuffer, indexStagingBuffer.Size);
   }
 
   std::vector<VkCommandBuffer> graphicsCmdBuffers(numSwapChainImages);
@@ -1284,7 +1311,9 @@ int main(int _argc, char **_argv) {
                       graphicsPipeline);
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer.Buffer, &offset);
-    vkCmdDraw(cmdBuffer, (uint32_t)vertices.size(), 1, 0, 0);
+    vkCmdBindIndexBuffer(cmdBuffer, indexBuffer.Buffer, 0,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmdBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(cmdBuffer);
 
     BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
@@ -1398,8 +1427,10 @@ int main(int _argc, char **_argv) {
                        (uint32_t)graphicsCmdBuffers.size(),
                        graphicsCmdBuffers.data());
 
-  destroyBuffer(device, vertexBuffer);
+  destroyBuffer(device, indexBuffer);
+  destroyBuffer(device, indexStagingBuffer);
   destroyBuffer(device, vertexStagingBuffer);
+  destroyBuffer(device, vertexBuffer);
 
   vkDestroyCommandPool(device, transferCmdPool, nullptr);
   vkDestroyCommandPool(device, graphicsCmdPool, nullptr);
