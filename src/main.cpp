@@ -7,6 +7,7 @@
 #include "external/assimp/Importer.hpp"
 #include "external/assimp/scene.h"
 #include "external/assimp/postprocess.h"
+#include <chrono>
 #include <algorithm>
 #include <stdint.h>
 #include <unordered_map>
@@ -77,6 +78,35 @@ template <typename E, typename T> struct EnumArray {
   static_assert(std::is_enum_v<E>);
   static_assert((int64_t)(E::COUNT) > 0);
 };
+
+using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
+
+Time getCurrentTime() { return std::chrono::high_resolution_clock::now(); }
+
+static_assert(sizeof(Time) <= sizeof(Time *));
+float getElapsedTimeInSeconds(Time start, Time end) {
+  float result =
+      (float)(std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+                  .count()) /
+      1000.f;
+  return result;
+}
+
+/*
+
+Timer timer;
+auto timer = getCurrentTime();
+
+while (running)
+{
+  timer.getElapsedTime();
+  timer.update();
+  auto newTimer = getCurrentTime();
+  auto dt = newTimer - timer;
+
+  timer = newTimer;
+}
+*/
 
 constexpr float pi32 = 3.141592f;
 
@@ -174,7 +204,7 @@ struct Mat4 {
 
   static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
                      const Float3 &_upAxis = {0, 1, 0}) {
-    Float3 forward = (_eye - _target).normalize();
+    Float3 forward = (_target - _eye).normalize();
     Float3 right = cross(_upAxis, forward).normalize();
     Float3 up = cross(forward, right).normalize();
 
@@ -1413,6 +1443,9 @@ int main(int _argc, char **_argv) {
                         aiProcess_Triangulate | aiProcess_FlipUVs);
 
   bool running = true;
+
+  Time lastTime = getCurrentTime();
+
   SDL_Event e = {};
   while (running) {
     while (SDL_PollEvent(&e) != 0) {
@@ -1420,6 +1453,10 @@ int main(int _argc, char **_argv) {
         running = false;
       }
     }
+
+    Time currentTime = getCurrentTime();
+    float dt = getElapsedTimeInSeconds(lastTime, currentTime);
+    lastTime = currentTime;
 
     uint32_t imageIndex;
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
@@ -1443,7 +1480,7 @@ int main(int _argc, char **_argv) {
 
     UniformBlock uniformBlock = {};
     uniformBlock.ModelMat = Mat4::identity();
-    uniformBlock.ViewMat = Mat4::identity();
+    uniformBlock.ViewMat = Mat4::lookAt({3, 0, -3}, {0, 0, 0});
     uniformBlock.ProjMat =
         Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
     {
