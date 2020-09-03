@@ -80,6 +80,10 @@ template <typename E, typename T> struct EnumArray {
 
 constexpr float pi32 = 3.141592f;
 
+float degToRad(float degrees) { return degrees * pi32 / 180.f; }
+
+float radToDeg(float radians) { return radians * 180.f / pi32; }
+
 struct Int2 {
   int X = 0;
   int Y = 0;
@@ -184,33 +188,20 @@ struct Mat4 {
     // clang-format on
   }
 
-// TODO(ilgwon): Need to be adjusted
-#if 1
-  static Mat4 ortho(float _left, float _right, float _top, float _bottom,
-                    float _nearZ, float _farZ) {
-#define NDC_MIN_Z 0
-#define NDC_MAX_Z 1
+  static Mat4 perspective(float _fovDegrees, float aspectRatio, float nearZ,
+                          float farZ) {
+    float d = tan(degToRad(_fovDegrees) * 0.5f);
+    float fSubN = farZ - nearZ;
     // clang-format off
     Mat4 result = {{
-        {2.f / (_right - _left), 0, 0, 0},
-        {0, 2.f / (_top - _bottom), 0, 0},
-        {0, 0, (NDC_MAX_Z - NDC_MIN_Z) / (_farZ - _nearZ), 0},
-        {(_left + _right) / (_left - _right), (_bottom + _top) / (_bottom - _top),
-         _farZ * (NDC_MAX_Z - NDC_MIN_Z) / (_farZ - _nearZ), 1},
+      {d / aspectRatio, 0, 0,                    0},
+      {0,               d, 0,                    0},
+      {0,               0, -nearZ / fSubN,       1},
+      {0,               0, nearZ * farZ / fSubN, 0},
     }};
     // clang-format on
     return result;
   }
-
-  static Mat4 orthoCenter(float _width, float _height, float _nearZ,
-                          float _farZ) {
-    float halfWidth = _width * 0.5f;
-    float halfHeight = _height * 0.5f;
-    Mat4 result =
-        ortho(-halfWidth, halfWidth, halfHeight, -halfHeight, _nearZ, _farZ);
-    return result;
-  }
-#endif
 };
 
 inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
@@ -1453,7 +1444,8 @@ int main(int _argc, char **_argv) {
     UniformBlock uniformBlock = {};
     uniformBlock.ModelMat = Mat4::identity();
     uniformBlock.ViewMat = Mat4::identity();
-    uniformBlock.ProjMat = Mat4::identity();
+    uniformBlock.ProjMat =
+        Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
     {
       void *data;
       vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
