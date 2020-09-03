@@ -84,35 +84,19 @@ using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
 Time getCurrentTime() { return std::chrono::high_resolution_clock::now(); }
 
 static_assert(sizeof(Time) <= sizeof(Time *));
-float getElapsedTimeInSeconds(Time start, Time end) {
-  float result =
-      (float)(std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-                  .count()) /
-      1000.f;
+float getElapsedTimeInSeconds(Time _start, Time _end) {
+  float result = (float)(std::chrono::duration_cast<std::chrono::milliseconds>(
+                             _end - _start)
+                             .count()) /
+                 1000.f;
   return result;
 }
 
-/*
-
-Timer timer;
-auto timer = getCurrentTime();
-
-while (running)
-{
-  timer.getElapsedTime();
-  timer.update();
-  auto newTimer = getCurrentTime();
-  auto dt = newTimer - timer;
-
-  timer = newTimer;
-}
-*/
-
 constexpr float pi32 = 3.141592f;
 
-float degToRad(float degrees) { return degrees * pi32 / 180.f; }
+float degToRad(float _degrees) { return _degrees * pi32 / 180.f; }
 
-float radToDeg(float radians) { return radians * 180.f / pi32; }
+float radToDeg(float _radians) { return _radians * 180.f / pi32; }
 
 struct Int2 {
   int X = 0;
@@ -200,6 +184,70 @@ struct Mat4 {
         {0, 0, 1, 0},
         {0, 0, 0, 1},
     }};
+  }
+
+  static Mat4 translate(const Float3 &_delta) {
+    // clang-format off
+    return {{
+      {1, 0, 0, 0},
+      {0, 1, 0, 0},
+      {0, 0, 1, 0},
+      {_delta.X, _delta.Y, _delta.Z, 1},
+    }};
+    // clang-format on
+  }
+
+  static Mat4 scale(const Float3 &_scale) {
+    // clang-format off
+    return {{
+      {_scale.X, 0, 0, 0},
+      {0, _scale.Y, 0, 0},
+      {0, 0, _scale.Z, 0},
+      {0, 0, 0, 1},
+    }};
+    // clang-format on
+  }
+
+  static Mat4 rotateX(float _degrees) {
+    float radians = degToRad(_degrees);
+    float cr = cosf(radians);
+    float sr = sinf(radians);
+    // clang-format off
+    return {{
+      {1, 0,   0,  0},
+      {0, cr,  sr, 0},
+      {0, -sr, cr, 0},
+      {0, 0,   0,  1},
+    }};
+    // clang-format on
+  };
+
+  static Mat4 rotateY(float _degrees) {
+    float radians = degToRad(_degrees);
+    float cr = cosf(radians);
+    float sr = sinf(radians);
+    // clang-format off
+    return {{
+      {cr,  0, sr, 0},
+      {0,   1, 0,  0},
+      {-sr, 0, cr, 0},
+      {0,   0, 0,  1},
+    }};
+    // clang-format on
+  }
+
+  static Mat4 rotateZ(float _degrees) {
+    float radians = degToRad(_degrees);
+    float cr = cosf(radians);
+    float sr = sinf(radians);
+    // clang-format off
+    return {{
+      {cr,  sr, 0, 0},
+      {-sr, cr, 0, 0},
+      {0,   0,  1, 0},
+      {0,   0,  0, 1},
+    }};
+    // clang-format on
   }
 
   static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
@@ -1478,8 +1526,13 @@ int main(int _argc, char **_argv) {
                     UINT64_MAX);
     vkResetFences(device, 1, &imageAvailableFences[currentFrame]);
 
+    static float angle = 0;
+    angle += 30.f * dt;
+    if (angle > 360.f) {
+      angle -= 360.f;
+    }
     UniformBlock uniformBlock = {};
-    uniformBlock.ModelMat = Mat4::identity();
+    uniformBlock.ModelMat = Mat4::rotateZ(angle);
     uniformBlock.ViewMat = Mat4::lookAt({3, 0, -3}, {0, 0, 0});
     uniformBlock.ProjMat =
         Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
