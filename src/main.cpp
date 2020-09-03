@@ -225,6 +225,12 @@ inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   return result;
 }
 
+struct UniformBlock {
+  Mat4 ModelMat;
+  Mat4 ViewMat;
+  Mat4 ProjMat;
+};
+
 struct Vertex {
   Float2 Pos;
   Float3 Color;
@@ -1129,11 +1135,28 @@ int main(int _argc, char **_argv) {
   colorBlendState.blendConstants[2] = 0.f;
   colorBlendState.blendConstants[3] = 0.f;
 
+  VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {};
+  descriptorSetLayoutBinding.binding = 0;
+  descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorSetLayoutBinding.descriptorCount = 1;
+  descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  descriptorSetLayoutBinding.pImmutableSamplers = nullptr;
+
+  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+  descriptorSetLayoutCreateInfo.sType =
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  descriptorSetLayoutCreateInfo.bindingCount = 1;
+  descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
+
+  VkDescriptorSetLayout descriptorSetLayout;
+  BB_VK_ASSERT(vkCreateDescriptorSetLayout(
+      device, &descriptorSetLayoutCreateInfo, nullptr, &descriptorSetLayout));
+
   VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
   pipelineLayoutCreateInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutCreateInfo.setLayoutCount = 0;
-  pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+  pipelineLayoutCreateInfo.setLayoutCount = 1;
+  pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
   pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
   pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
 
@@ -1274,6 +1297,57 @@ int main(int _argc, char **_argv) {
                indexStagingBuffer, indexStagingBuffer.Size);
   }
 
+  std::vector<Buffer> uniformBuffers(numSwapChainImages);
+  for (Buffer &uniformBuffer : uniformBuffers) {
+    uniformBuffer = createBuffer(device, physicalDevice, sizeof(UniformBlock),
+                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  }
+
+  VkDescriptorPoolSize descriptorPoolSize = {};
+  descriptorPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorPoolSize.descriptorCount = numSwapChainImages;
+  VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+  descriptorPoolCreateInfo.sType =
+      VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  descriptorPoolCreateInfo.poolSizeCount = 1;
+  descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;
+  descriptorPoolCreateInfo.maxSets = numSwapChainImages;
+
+  VkDescriptorPool descriptorPool;
+  BB_VK_ASSERT(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo,
+                                      nullptr, &descriptorPool));
+
+  std::vector<VkDescriptorSet> descriptorSets(numSwapChainImages);
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts(numSwapChainImages,
+                                                          descriptorSetLayout);
+  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  descriptorSetAllocInfo.descriptorPool = descriptorPool;
+  descriptorSetAllocInfo.descriptorSetCount = numSwapChainImages;
+  descriptorSetAllocInfo.pSetLayouts = descriptorSetLayouts.data();
+  BB_VK_ASSERT(vkAllocateDescriptorSets(device, &descriptorSetAllocInfo,
+                                        descriptorSets.data()));
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
+    VkDescriptorBufferInfo descriptorBufferInfo = {};
+    descriptorBufferInfo.buffer = uniformBuffers[i].Buffer;
+    descriptorBufferInfo.offset = 0;
+    descriptorBufferInfo.range = sizeof(UniformBlock);
+
+    VkWriteDescriptorSet write = {};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descriptorSets[i];
+    write.dstBinding = 0;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write.descriptorCount = 1;
+    write.pBufferInfo = &descriptorBufferInfo;
+    write.pImageInfo = nullptr;
+    write.pTexelBufferView = nullptr;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+  }
+
   std::vector<VkCommandBuffer> graphicsCmdBuffers(numSwapChainImages);
 
   VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
@@ -1313,6 +1387,9 @@ int main(int _argc, char **_argv) {
     vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer.Buffer, &offset);
     vkCmdBindIndexBuffer(cmdBuffer, indexBuffer.Buffer, 0,
                          VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 1, &descriptorSets[i], 0,
+                            nullptr);
     vkCmdDrawIndexed(cmdBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(cmdBuffer);
 
@@ -1373,6 +1450,18 @@ int main(int _argc, char **_argv) {
                     UINT64_MAX);
     vkResetFences(device, 1, &imageAvailableFences[currentFrame]);
 
+    UniformBlock uniformBlock = {};
+    uniformBlock.ModelMat = Mat4::identity();
+    uniformBlock.ViewMat = Mat4::identity();
+    uniformBlock.ProjMat = Mat4::identity();
+    {
+      void *data;
+      vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
+                  sizeof(UniformBlock), 0, &data);
+      memcpy(data, &uniformBlock, sizeof(UniformBlock));
+      vkUnmapMemory(device, uniformBuffers[currentFrame].Memory);
+    }
+
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.waitSemaphoreCount = 1;
@@ -1427,6 +1516,11 @@ int main(int _argc, char **_argv) {
                        (uint32_t)graphicsCmdBuffers.size(),
                        graphicsCmdBuffers.data());
 
+  vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+  for (Buffer &uniformBuffer : uniformBuffers) {
+    destroyBuffer(device, uniformBuffer);
+  }
   destroyBuffer(device, indexBuffer);
   destroyBuffer(device, indexStagingBuffer);
   destroyBuffer(device, vertexStagingBuffer);
@@ -1441,6 +1535,7 @@ int main(int _argc, char **_argv) {
   vkDestroyPipeline(device, graphicsPipeline, nullptr);
   vkDestroyRenderPass(device, renderPass, nullptr);
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+  vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
   vkDestroyShaderModule(device, testVertShaderModule, nullptr);
   vkDestroyShaderModule(device, testFragShaderModule, nullptr);
   for (VkImageView imageView : swapChainImageViews) {
