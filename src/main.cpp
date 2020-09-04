@@ -555,7 +555,11 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
   return areAllExtensionsSupported && isSwapChainAdequate && isProperType &&
          isFeatureComplete && isQueueComplete;
 }
-
+struct Buffer {
+  VkBuffer Buffer;
+  VkDeviceMemory Memory;
+  uint32_t Size;
+};
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void updateSwapChain(SDL_Window *_window, VkDevice _device,
@@ -577,7 +581,11 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
                      std::vector<VkFramebuffer> &_outSwapChainFramebuffers,
                      const VkCommandPoolCreateInfo &_cmdPoolCreateInfo,
                      const std::vector<Vertex>& _vertices,
-                     VkBuffer _vertexBuffer) {
+                     Buffer& _vertexBuffer,
+                     const std::vector<uint32_t>& _indices,
+                     Buffer& _indexBuffer,
+                     VkPipelineLayout _pipelineLayout,
+                     const std::vector<VkDescriptorSet>& _descriptorSets) {
   int width = 0, height = 0;
 
   if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
@@ -586,11 +594,6 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
   SDL_GetWindowSize(_window, &width, &height);
 
   vkDeviceWaitIdle(_device); // Ensure that device finished using swap chain.
-
-  vkFreeCommandBuffers(_device, _graphicsCmdPool,
-                       (uint32_t)_graphicsCmdBuffers.size(),
-                       _graphicsCmdBuffers.data());
-  vkDestroyCommandPool(_device, _graphicsCmdPool, nullptr);
 
   for (VkFramebuffer fb : _swapChainFramebuffers) {
     vkDestroyFramebuffer(_device, fb, nullptr);
@@ -664,17 +667,6 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
                                      &_outSwapChainFramebuffers[i]));
   }
 
-  BB_VK_ASSERT(vkCreateCommandPool(_device, &_cmdPoolCreateInfo, nullptr,
-                                   &_graphicsCmdPool));
-
-  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  cmdBufferAllocInfo.commandPool = _graphicsCmdPool;
-  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  cmdBufferAllocInfo.commandBufferCount = (uint32_t)_graphicsCmdBuffers.size();
-  BB_VK_ASSERT(vkAllocateCommandBuffers(_device, &cmdBufferAllocInfo,
-                                        _graphicsCmdBuffers.data()));
-
   // TODO: this is insane, I need to seperate some of these functions.
   for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
     VkCommandBuffer cmdBuffer = _graphicsCmdBuffers[i];
@@ -703,8 +695,13 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _graphicsPipeline);
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer, &offset);
-    vkCmdDraw(cmdBuffer, (uint32_t)_vertices.size(), 1, 0, 0);
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Buffer, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Buffer, 0,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            _pipelineLayout, 0, 1, &_descriptorSets[i], 0,
+                            nullptr);
+    vkCmdDrawIndexed(cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(cmdBuffer);
 
     BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
@@ -751,12 +748,6 @@ uint32_t findMemoryType(VkPhysicalDevice _physicalDevice, uint32_t _typeFilter,
   BB_ASSERT(false);
   return 0;
 }
-
-struct Buffer {
-  VkBuffer Buffer;
-  VkDeviceMemory Memory;
-  uint32_t Size;
-};
 
 Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
                     VkDeviceSize _size, VkBufferUsageFlags _usage,
@@ -1533,7 +1524,8 @@ int main(int _argc, char **_argv) {
                       swapChainCreateInfo, swapChainSupportDetails,
                       renderPassCreateInfo, viewport, pipelineCreateInfo,
                       numSwapChainImages, swapChainExtent, swapChainImageViews,
-                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer);
+                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer,
+                      indices, indexBuffer, pipelineLayout, descriptorSets);
       continue;
     }
 
@@ -1594,7 +1586,8 @@ int main(int _argc, char **_argv) {
                       swapChainCreateInfo, swapChainSupportDetails,
                       renderPassCreateInfo, viewport, pipelineCreateInfo,
                       numSwapChainImages, swapChainExtent, swapChainImageViews,
-                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer);
+                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer,
+                      indices, indexBuffer, pipelineLayout, descriptorSets);
     }
 
     currentFrame = (currentFrame + 1) % numSwapChainImages;
