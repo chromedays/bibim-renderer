@@ -556,7 +556,7 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
          isFeatureComplete && isQueueComplete;
 }
 struct Buffer {
-  VkBuffer Buffer;
+  VkBuffer Handle;
   VkDeviceMemory Memory;
   uint32_t Size;
 };
@@ -653,8 +653,8 @@ void recordCommand(const uint32_t &_numSwapChainImages,
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _graphicsPipeline);
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Buffer, &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Buffer, 0,
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             _pipelineLayout, 0, 1, &_descriptorSets[i], 0,
@@ -827,10 +827,10 @@ Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
   bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   BB_VK_ASSERT(
-      vkCreateBuffer(_device, &bufferCreateInfo, nullptr, &result.Buffer));
+      vkCreateBuffer(_device, &bufferCreateInfo, nullptr, &result.Handle));
 
   VkMemoryRequirements memRequirements;
-  vkGetBufferMemoryRequirements(_device, result.Buffer, &memRequirements);
+  vkGetBufferMemoryRequirements(_device, result.Handle, &memRequirements);
 
   VkMemoryAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -839,7 +839,7 @@ Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
       _physicalDevice, memRequirements.memoryTypeBits, _properties);
 
   BB_VK_ASSERT(vkAllocateMemory(_device, &allocInfo, nullptr, &result.Memory));
-  BB_VK_ASSERT(vkBindBufferMemory(_device, result.Buffer, result.Memory, 0));
+  BB_VK_ASSERT(vkBindBufferMemory(_device, result.Handle, result.Memory, 0));
 
   result.Size = _size;
 
@@ -856,8 +856,8 @@ Buffer createStagingBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
 }
 
 void destroyBuffer(VkDevice _device, Buffer &_buffer) {
-  vkDestroyBuffer(_device, _buffer.Buffer, nullptr);
-  _buffer.Buffer = VK_NULL_HANDLE;
+  vkDestroyBuffer(_device, _buffer.Handle, nullptr);
+  _buffer.Handle = VK_NULL_HANDLE;
   vkFreeMemory(_device, _buffer.Memory, nullptr);
   _buffer.Memory = VK_NULL_HANDLE;
 }
@@ -882,7 +882,7 @@ void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
   copyRegion.srcOffset = 0;
   copyRegion.dstOffset = 0;
   copyRegion.size = _size;
-  vkCmdCopyBuffer(cmdBuffer, _srcBuffer.Buffer, _dstBuffer.Buffer, 1,
+  vkCmdCopyBuffer(cmdBuffer, _srcBuffer.Handle, _dstBuffer.Handle, 1,
                   &copyRegion);
 
   BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
@@ -1429,7 +1429,7 @@ int main(int _argc, char **_argv) {
                                         descriptorSets.data()));
   for (uint32_t i = 0; i < numSwapChainImages; ++i) {
     VkDescriptorBufferInfo descriptorBufferInfo = {};
-    descriptorBufferInfo.buffer = uniformBuffers[i].Buffer;
+    descriptorBufferInfo.buffer = uniformBuffers[i].Handle;
     descriptorBufferInfo.offset = 0;
     descriptorBufferInfo.range = sizeof(UniformBlock);
 
