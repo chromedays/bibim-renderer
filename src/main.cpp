@@ -7,8 +7,10 @@
 #include "external/assimp/Importer.hpp"
 #include "external/assimp/scene.h"
 #include "external/assimp/postprocess.h"
+#include <chrono>
 #include <algorithm>
 #include <stdint.h>
+#include <unordered_map>
 #include <vector>
 #include <array>
 #include <optional>
@@ -28,11 +30,15 @@
 #endif
 #define BB_VK_ASSERT(exp)                                                      \
   do {                                                                         \
-    auto result = exp;                                                         \
-    BB_ASSERT(result == VK_SUCCESS);                                           \
+    auto result##__LINE__ = exp;                                               \
+    BB_ASSERT(result##__LINE__ == VK_SUCCESS);                                 \
   } while (0)
 
 namespace bb {
+
+template <typename T> uint32_t size_bytes32(const T &_container) {
+  return (uint32_t)(sizeof(typename T::value_type) * _container.size());
+}
 
 enum class LogLevel { Info, Warning, Error };
 
@@ -65,15 +71,32 @@ template <typename E, typename T> struct EnumArray {
 
   T &operator[](E _e) { return Elems[(int)_e]; }
 
-  auto begin() { return Elems.begin(); }
+  T *begin() { return Elems; }
 
-  auto end() { return Elems.end(); }
+  T *end() { return Elems + (size_t)(E::COUNT); }
 
   static_assert(std::is_enum_v<E>);
   static_assert((int64_t)(E::COUNT) > 0);
 };
 
+using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
+
+Time getCurrentTime() { return std::chrono::high_resolution_clock::now(); }
+
+static_assert(sizeof(Time) <= sizeof(Time *));
+float getElapsedTimeInSeconds(Time _start, Time _end) {
+  float result = (float)(std::chrono::duration_cast<std::chrono::milliseconds>(
+                             _end - _start)
+                             .count()) /
+                 1000.f;
+  return result;
+}
+
 constexpr float pi32 = 3.141592f;
+
+float degToRad(float _degrees) { return _degrees * pi32 / 180.f; }
+
+float radToDeg(float _radians) { return _radians * 180.f / pi32; }
 
 struct Int2 {
   int X = 0;
@@ -163,9 +186,73 @@ struct Mat4 {
     }};
   }
 
+  static Mat4 translate(const Float3 &_delta) {
+    // clang-format off
+    return {{
+      {1, 0, 0, 0},
+      {0, 1, 0, 0},
+      {0, 0, 1, 0},
+      {_delta.X, _delta.Y, _delta.Z, 1},
+    }};
+    // clang-format on
+  }
+
+  static Mat4 scale(const Float3 &_scale) {
+    // clang-format off
+    return {{
+      {_scale.X, 0, 0, 0},
+      {0, _scale.Y, 0, 0},
+      {0, 0, _scale.Z, 0},
+      {0, 0, 0, 1},
+    }};
+    // clang-format on
+  }
+
+  static Mat4 rotateX(float _degrees) {
+    float radians = degToRad(_degrees);
+    float cr = cosf(radians);
+    float sr = sinf(radians);
+    // clang-format off
+    return {{
+      {1, 0,   0,  0},
+      {0, cr,  sr, 0},
+      {0, -sr, cr, 0},
+      {0, 0,   0,  1},
+    }};
+    // clang-format on
+  };
+
+  static Mat4 rotateY(float _degrees) {
+    float radians = degToRad(_degrees);
+    float cr = cosf(radians);
+    float sr = sinf(radians);
+    // clang-format off
+    return {{
+      {cr,  0, sr, 0},
+      {0,   1, 0,  0},
+      {-sr, 0, cr, 0},
+      {0,   0, 0,  1},
+    }};
+    // clang-format on
+  }
+
+  static Mat4 rotateZ(float _degrees) {
+    float radians = degToRad(_degrees);
+    float cr = cosf(radians);
+    float sr = sinf(radians);
+    // clang-format off
+    return {{
+      {cr,  sr, 0, 0},
+      {-sr, cr, 0, 0},
+      {0,   0,  1, 0},
+      {0,   0,  0, 1},
+    }};
+    // clang-format on
+  }
+
   static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
                      const Float3 &_upAxis = {0, 1, 0}) {
-    Float3 forward = (_eye - _target).normalize();
+    Float3 forward = (_target - _eye).normalize();
     Float3 right = cross(_upAxis, forward).normalize();
     Float3 up = cross(forward, right).normalize();
 
@@ -179,33 +266,20 @@ struct Mat4 {
     // clang-format on
   }
 
-// TODO(ilgwon): Need to be adjusted
-#if 1
-  static Mat4 ortho(float _left, float _right, float _top, float _bottom,
-                    float _nearZ, float _farZ) {
-#define NDC_MIN_Z 0
-#define NDC_MAX_Z 1
+  static Mat4 perspective(float _fovDegrees, float aspectRatio, float nearZ,
+                          float farZ) {
+    float d = tan(degToRad(_fovDegrees) * 0.5f);
+    float fSubN = farZ - nearZ;
     // clang-format off
     Mat4 result = {{
-        {2.f / (_right - _left), 0, 0, 0},
-        {0, 2.f / (_top - _bottom), 0, 0},
-        {0, 0, (NDC_MAX_Z - NDC_MIN_Z) / (_farZ - _nearZ), 0},
-        {(_left + _right) / (_left - _right), (_bottom + _top) / (_bottom - _top),
-         _farZ * (NDC_MAX_Z - NDC_MIN_Z) / (_farZ - _nearZ), 1},
+      {d / aspectRatio, 0, 0,                    0},
+      {0,               d, 0,                    0},
+      {0,               0, -nearZ / fSubN,       1},
+      {0,               0, nearZ * farZ / fSubN, 0},
     }};
     // clang-format on
     return result;
   }
-
-  static Mat4 orthoCenter(float _width, float _height, float _nearZ,
-                          float _farZ) {
-    float halfWidth = _width * 0.5f;
-    float halfHeight = _height * 0.5f;
-    Mat4 result =
-        ortho(-halfWidth, halfWidth, halfHeight, -halfHeight, _nearZ, _farZ);
-    return result;
-  }
-#endif
 };
 
 inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
@@ -219,6 +293,12 @@ inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   }
   return result;
 }
+
+struct UniformBlock {
+  Mat4 ModelMat;
+  Mat4 ViewMat;
+  Mat4 ProjMat;
+};
 
 struct Vertex {
   Float2 Pos;
@@ -275,9 +355,11 @@ struct QueueFamilyIndices {
   std::optional<uint32_t> Graphics;
   std::optional<uint32_t> Transfer0;
   std::optional<uint32_t> Present;
+  std::optional<uint32_t> Compute;
 
-  bool isCompleted() {
-    return Graphics.has_value() && Transfer0.has_value() && Present.has_value();
+  bool isCompleted() const {
+    return Graphics.has_value() && Transfer0.has_value() &&
+           Present.has_value() && Compute.has_value();
   }
 };
 
@@ -341,7 +423,10 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
     } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
                !result.Transfer0.has_value()) {
       result.Transfer0 = i;
-    } else {
+    } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+               !result.Compute.has_value()) {
+      result.Compute = i;
+    } else if (!result.Present.has_value()) {
       VkBool32 supportPresent = false;
       vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
                                            &supportPresent);
@@ -352,6 +437,33 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
 
     if (result.isCompleted())
       break;
+  }
+
+  // Failed to retrieve unique queue family index per queue type - get
+  // duplicated queue family index with others
+  if (!result.isCompleted()) {
+    for (uint32_t i = 0; i < numQueueFamilyProperties; i++) {
+      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+          !result.Graphics.has_value()) {
+        result.Graphics = i;
+      }
+      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+          !result.Transfer0.has_value()) {
+        result.Transfer0 = i;
+      }
+      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+          !result.Compute.has_value()) {
+        result.Compute = i;
+      }
+      if (!result.Present.has_value()) {
+        VkBool32 supportPresent = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
+                                             &supportPresent);
+        if (supportPresent) {
+          result.Present = i;
+        }
+      }
+    }
   }
 
   return result;
@@ -640,8 +752,92 @@ uint32_t findMemoryType(VkPhysicalDevice _physicalDevice, uint32_t _typeFilter,
   return 0;
 }
 
-template <typename T> uint32_t size_bytes32(const T &_container) {
-  return (uint32_t)(sizeof(typename T::value_type) * _container.size());
+struct Buffer {
+  VkBuffer Buffer;
+  VkDeviceMemory Memory;
+  uint32_t Size;
+};
+
+Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
+                    VkDeviceSize _size, VkBufferUsageFlags _usage,
+                    VkMemoryPropertyFlags _properties) {
+  Buffer result = {};
+
+  VkBufferCreateInfo bufferCreateInfo = {};
+  bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferCreateInfo.size = _size;
+  bufferCreateInfo.usage = _usage;
+  bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  BB_VK_ASSERT(
+      vkCreateBuffer(_device, &bufferCreateInfo, nullptr, &result.Buffer));
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(_device, result.Buffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      _physicalDevice, memRequirements.memoryTypeBits, _properties);
+
+  BB_VK_ASSERT(vkAllocateMemory(_device, &allocInfo, nullptr, &result.Memory));
+  BB_VK_ASSERT(vkBindBufferMemory(_device, result.Buffer, result.Memory, 0));
+
+  result.Size = _size;
+
+  return result;
+};
+
+Buffer createStagingBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
+                           const Buffer &_orgBuffer) {
+  Buffer result = createBuffer(_device, _physicalDevice, _orgBuffer.Size,
+                               VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  return result;
+}
+
+void destroyBuffer(VkDevice _device, Buffer &_buffer) {
+  vkDestroyBuffer(_device, _buffer.Buffer, nullptr);
+  _buffer.Buffer = VK_NULL_HANDLE;
+  vkFreeMemory(_device, _buffer.Memory, nullptr);
+  _buffer.Memory = VK_NULL_HANDLE;
+}
+
+void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
+                Buffer &_dstBuffer, Buffer &_srcBuffer, VkDeviceSize _size) {
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandPool = _cmdPool;
+  cmdBufferAllocInfo.commandBufferCount = 1;
+  VkCommandBuffer cmdBuffer;
+  BB_VK_ASSERT(
+      vkAllocateCommandBuffers(_device, &cmdBufferAllocInfo, &cmdBuffer));
+
+  VkCommandBufferBeginInfo cmdBeginInfo = {};
+  cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+
+  VkBufferCopy copyRegion = {};
+  copyRegion.srcOffset = 0;
+  copyRegion.dstOffset = 0;
+  copyRegion.size = _size;
+  vkCmdCopyBuffer(cmdBuffer, _srcBuffer.Buffer, _dstBuffer.Buffer, 1,
+                  &copyRegion);
+
+  BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &cmdBuffer;
+  vkQueueSubmit(_queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(_queue);
+
+  vkFreeCommandBuffers(_device, cmdBufferAllocInfo.commandPool, 1, &cmdBuffer);
 }
 
 } // namespace bb
@@ -779,21 +975,37 @@ int main(int _argc, char **_argv) {
   BB_ASSERT(physicalDevice != VK_NULL_HANDLE);
 
   std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+  std::unordered_map<uint32_t, uint32_t> queueMap;
+  uint32_t maxNumQueues = 0;
+  auto incrementNumQueues = [&](uint32_t queueFamilyIndex) {
+    auto it = queueMap.find(queueFamilyIndex);
+    if (it == queueMap.end()) {
+      it = queueMap.emplace(queueFamilyIndex, 1).first;
+    } else {
+      ++it->second;
+    }
+    maxNumQueues = std::max(maxNumQueues, it->second);
+  };
 
-  queueCreateInfos.resize(3);
-  float queuePriority = 1.f;
-  queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfos[0].queueFamilyIndex = queueFamilyIndices.Graphics.value();
-  queueCreateInfos[0].queueCount = 1;
-  queueCreateInfos[0].pQueuePriorities = &queuePriority;
-  queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfos[1].queueFamilyIndex = queueFamilyIndices.Transfer0.value();
-  queueCreateInfos[1].queueCount = 1;
-  queueCreateInfos[1].pQueuePriorities = &queuePriority;
-  queueCreateInfos[2].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfos[2].queueFamilyIndex = queueFamilyIndices.Present.value();
-  queueCreateInfos[2].queueCount = 1;
-  queueCreateInfos[2].pQueuePriorities = &queuePriority;
+  incrementNumQueues(queueFamilyIndices.Graphics.value());
+  incrementNumQueues(queueFamilyIndices.Transfer0.value());
+  incrementNumQueues(queueFamilyIndices.Present.value());
+  incrementNumQueues(queueFamilyIndices.Compute.value());
+
+  std::vector<float> queuePriorities(maxNumQueues, 1.f);
+  queueCreateInfos.reserve(queueMap.size());
+  std::unordered_map<uint32_t, uint32_t> obtainedQueueCounters;
+
+  for (auto [queueFamilyIndex, numQueues] : queueMap) {
+    VkDeviceQueueCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    createInfo.queueFamilyIndex = queueFamilyIndex;
+    createInfo.queueCount = numQueues;
+    createInfo.pQueuePriorities = queuePriorities.data();
+    queueCreateInfos.push_back(createInfo);
+
+    obtainedQueueCounters.emplace(queueFamilyIndex, 0);
+  }
 
   VkDeviceCreateInfo deviceCreateInfo = {};
   deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -805,17 +1017,27 @@ int main(int _argc, char **_argv) {
   VkDevice device;
   BB_VK_ASSERT(
       vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
+
   VkQueue graphicsQueue;
   VkQueue transferQueue;
   VkQueue presentQueue;
-  vkGetDeviceQueue(device, queueFamilyIndices.Graphics.value(), 0,
+  VkQueue computeQueue;
+  vkGetDeviceQueue(device, queueFamilyIndices.Graphics.value(),
+                   obtainedQueueCounters[queueFamilyIndices.Graphics.value()]++,
                    &graphicsQueue);
-  vkGetDeviceQueue(device, queueFamilyIndices.Transfer0.value(), 0,
-                   &transferQueue);
-  vkGetDeviceQueue(device, queueFamilyIndices.Present.value(), 0,
+  vkGetDeviceQueue(
+      device, queueFamilyIndices.Transfer0.value(),
+      obtainedQueueCounters[queueFamilyIndices.Transfer0.value()]++,
+      &transferQueue);
+  vkGetDeviceQueue(device, queueFamilyIndices.Present.value(),
+                   obtainedQueueCounters[queueFamilyIndices.Present.value()]++,
                    &presentQueue);
+  vkGetDeviceQueue(device, queueFamilyIndices.Compute.value(),
+                   obtainedQueueCounters[queueFamilyIndices.Compute.value()]++,
+                   &computeQueue);
   BB_ASSERT(graphicsQueue != VK_NULL_HANDLE &&
-            transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE);
+            transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE &&
+            computeQueue != VK_NULL_HANDLE);
 
   VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
   swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -993,11 +1215,28 @@ int main(int _argc, char **_argv) {
   colorBlendState.blendConstants[2] = 0.f;
   colorBlendState.blendConstants[3] = 0.f;
 
+  VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {};
+  descriptorSetLayoutBinding.binding = 0;
+  descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorSetLayoutBinding.descriptorCount = 1;
+  descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  descriptorSetLayoutBinding.pImmutableSamplers = nullptr;
+
+  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+  descriptorSetLayoutCreateInfo.sType =
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  descriptorSetLayoutCreateInfo.bindingCount = 1;
+  descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
+
+  VkDescriptorSetLayout descriptorSetLayout;
+  BB_VK_ASSERT(vkCreateDescriptorSetLayout(
+      device, &descriptorSetLayoutCreateInfo, nullptr, &descriptorSetLayout));
+
   VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
   pipelineLayoutCreateInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutCreateInfo.setLayoutCount = 0;
-  pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+  pipelineLayoutCreateInfo.setLayoutCount = 1;
+  pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
   pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
   pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
 
@@ -1085,42 +1324,6 @@ int main(int _argc, char **_argv) {
                                      &swapChainFramebuffers[i]));
   }
 
-  std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-                                  {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-                                  {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
-
-  VkBufferCreateInfo bufferCreateInfo = {};
-  bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bufferCreateInfo.size = size_bytes32(vertices);
-  bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  VkBuffer vertexBuffer;
-  BB_VK_ASSERT(
-      vkCreateBuffer(device, &bufferCreateInfo, nullptr, &vertexBuffer));
-
-  VkMemoryRequirements memRequirements;
-  vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
-
-  VkMemoryAllocateInfo allocInfo = {};
-  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex =
-      findMemoryType(physicalDevice, memRequirements.memoryTypeBits,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-  VkDeviceMemory vertexBufferMemory;
-  BB_VK_ASSERT(
-      vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory));
-  vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
-  {
-    void *data;
-    vkMapMemory(device, vertexBufferMemory, 0, bufferCreateInfo.size, 0, &data);
-    memcpy(data, vertices.data(), bufferCreateInfo.size);
-    vkUnmapMemory(device, vertexBufferMemory);
-  }
-
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Graphics.value();
@@ -1130,12 +1333,107 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
                                    &graphicsCmdPool));
 
+  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Transfer0.value();
+  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  VkCommandPool transferCmdPool;
+  BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
+                                   &transferCmdPool));
+
+  std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                  {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                                  {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+                                  {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+
+  std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
+
+  Buffer vertexBuffer = createBuffer(
+      device, physicalDevice, size_bytes32(vertices),
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer vertexStagingBuffer =
+      createStagingBuffer(device, physicalDevice, vertexBuffer);
+
+  Buffer indexBuffer = createBuffer(
+      device, physicalDevice, size_bytes32(indices),
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer indexStagingBuffer =
+      createStagingBuffer(device, physicalDevice, indexBuffer);
+
+  {
+    void *data;
+    vkMapMemory(device, vertexStagingBuffer.Memory, 0, vertexStagingBuffer.Size,
+                0, &data);
+    memcpy(data, vertices.data(), vertexStagingBuffer.Size);
+    vkUnmapMemory(device, vertexStagingBuffer.Memory);
+    vkMapMemory(device, indexStagingBuffer.Memory, 0, indexStagingBuffer.Size,
+                0, &data);
+    memcpy(data, indices.data(), indexStagingBuffer.Size);
+    vkUnmapMemory(device, indexStagingBuffer.Memory);
+
+    copyBuffer(device, transferCmdPool, transferQueue, vertexBuffer,
+               vertexStagingBuffer, vertexStagingBuffer.Size);
+    copyBuffer(device, transferCmdPool, transferQueue, indexBuffer,
+               indexStagingBuffer, indexStagingBuffer.Size);
+  }
+
+  std::vector<Buffer> uniformBuffers(numSwapChainImages);
+  for (Buffer &uniformBuffer : uniformBuffers) {
+    uniformBuffer = createBuffer(device, physicalDevice, sizeof(UniformBlock),
+                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  }
+
+  VkDescriptorPoolSize descriptorPoolSize = {};
+  descriptorPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorPoolSize.descriptorCount = numSwapChainImages;
+  VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+  descriptorPoolCreateInfo.sType =
+      VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  descriptorPoolCreateInfo.poolSizeCount = 1;
+  descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;
+  descriptorPoolCreateInfo.maxSets = numSwapChainImages;
+
+  VkDescriptorPool descriptorPool;
+  BB_VK_ASSERT(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo,
+                                      nullptr, &descriptorPool));
+
+  std::vector<VkDescriptorSet> descriptorSets(numSwapChainImages);
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts(numSwapChainImages,
+                                                          descriptorSetLayout);
+  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  descriptorSetAllocInfo.descriptorPool = descriptorPool;
+  descriptorSetAllocInfo.descriptorSetCount = numSwapChainImages;
+  descriptorSetAllocInfo.pSetLayouts = descriptorSetLayouts.data();
+  BB_VK_ASSERT(vkAllocateDescriptorSets(device, &descriptorSetAllocInfo,
+                                        descriptorSets.data()));
+  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
+    VkDescriptorBufferInfo descriptorBufferInfo = {};
+    descriptorBufferInfo.buffer = uniformBuffers[i].Buffer;
+    descriptorBufferInfo.offset = 0;
+    descriptorBufferInfo.range = sizeof(UniformBlock);
+
+    VkWriteDescriptorSet write = {};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descriptorSets[i];
+    write.dstBinding = 0;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write.descriptorCount = 1;
+    write.pBufferInfo = &descriptorBufferInfo;
+    write.pImageInfo = nullptr;
+    write.pTexelBufferView = nullptr;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+  }
+
   std::vector<VkCommandBuffer> graphicsCmdBuffers(numSwapChainImages);
 
   VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
   cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  cmdBufferAllocInfo.commandPool = graphicsCmdPool;
   cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandPool = graphicsCmdPool;
   cmdBufferAllocInfo.commandBufferCount = (uint32_t)graphicsCmdBuffers.size();
   BB_VK_ASSERT(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo,
                                         graphicsCmdBuffers.data()));
@@ -1166,8 +1464,13 @@ int main(int _argc, char **_argv) {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       graphicsPipeline);
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer, &offset);
-    vkCmdDraw(cmdBuffer, (uint32_t)vertices.size(), 1, 0, 0);
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer.Buffer, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, indexBuffer.Buffer, 0,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 1, &descriptorSets[i], 0,
+                            nullptr);
+    vkCmdDrawIndexed(cmdBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(cmdBuffer);
 
     BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
@@ -1200,6 +1503,9 @@ int main(int _argc, char **_argv) {
                         aiProcess_Triangulate | aiProcess_FlipUVs);
 
   bool running = true;
+
+  Time lastTime = getCurrentTime();
+
   SDL_Event e = {};
   while (running) {
     while (SDL_PollEvent(&e) != 0) {
@@ -1207,6 +1513,10 @@ int main(int _argc, char **_argv) {
         running = false;
       }
     }
+
+    Time currentTime = getCurrentTime();
+    float dt = getElapsedTimeInSeconds(lastTime, currentTime);
+    lastTime = currentTime;
 
     uint32_t imageIndex;
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
@@ -1230,6 +1540,24 @@ int main(int _argc, char **_argv) {
     vkWaitForFences(device, 1, &imageAvailableFences[currentFrame], VK_TRUE,
                     UINT64_MAX);
     vkResetFences(device, 1, &imageAvailableFences[currentFrame]);
+
+    static float angle = 0;
+    angle += 30.f * dt;
+    if (angle > 360.f) {
+      angle -= 360.f;
+    }
+    UniformBlock uniformBlock = {};
+    uniformBlock.ModelMat = Mat4::rotateZ(angle);
+    uniformBlock.ViewMat = Mat4::lookAt({3, 0, -3}, {0, 0, 0});
+    uniformBlock.ProjMat =
+        Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
+    {
+      void *data;
+      vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
+                  sizeof(UniformBlock), 0, &data);
+      memcpy(data, &uniformBlock, sizeof(UniformBlock));
+      vkUnmapMemory(device, uniformBuffers[currentFrame].Memory);
+    }
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1272,6 +1600,7 @@ int main(int _argc, char **_argv) {
     currentFrame = (currentFrame + 1) % numSwapChainImages;
   }
 
+  vkQueueWaitIdle(computeQueue);
   vkQueueWaitIdle(graphicsQueue);
   vkQueueWaitIdle(transferQueue);
   vkQueueWaitIdle(presentQueue);
@@ -1281,18 +1610,31 @@ int main(int _argc, char **_argv) {
     vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
     vkDestroyFence(device, imageAvailableFences[i], nullptr);
   }
+
   vkFreeCommandBuffers(device, graphicsCmdPool,
                        (uint32_t)graphicsCmdBuffers.size(),
                        graphicsCmdBuffers.data());
+
+  vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+  for (Buffer &uniformBuffer : uniformBuffers) {
+    destroyBuffer(device, uniformBuffer);
+  }
+  destroyBuffer(device, indexBuffer);
+  destroyBuffer(device, indexStagingBuffer);
+  destroyBuffer(device, vertexStagingBuffer);
+  destroyBuffer(device, vertexBuffer);
+
+  vkDestroyCommandPool(device, transferCmdPool, nullptr);
   vkDestroyCommandPool(device, graphicsCmdPool, nullptr);
-  vkFreeMemory(device, vertexBufferMemory, nullptr);
-  vkDestroyBuffer(device, vertexBuffer, nullptr);
+
   for (VkFramebuffer fb : swapChainFramebuffers) {
     vkDestroyFramebuffer(device, fb, nullptr);
   }
   vkDestroyPipeline(device, graphicsPipeline, nullptr);
   vkDestroyRenderPass(device, renderPass, nullptr);
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+  vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
   vkDestroyShaderModule(device, testVertShaderModule, nullptr);
   vkDestroyShaderModule(device, testFragShaderModule, nullptr);
   for (VkImageView imageView : swapChainImageViews) {
