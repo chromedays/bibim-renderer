@@ -560,6 +560,59 @@ struct Buffer {
   VkDeviceMemory Memory;
   uint32_t Size;
 };
+
+void recordCommand(const uint32_t &_numSwapChainImages, 
+                  std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
+                  const VkRenderPass &_renderPass,
+                  const std::vector<VkFramebuffer> &_swapChainFramebuffers,
+                  const VkExtent2D &_swapChainExtent,
+                  const VkPipeline &_graphicsPipeline,
+                  const Buffer& _vertexBuffer,
+                  const Buffer& _indexBuffer,
+                  const VkPipelineLayout& _pipelineLayout,
+                  const std::vector<VkDescriptorSet>& _descriptorSets,
+                  const std::vector<uint32_t>& _indices)
+{
+  for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
+    VkCommandBuffer& cmdBuffer = _graphicsCmdBuffers[i];
+
+
+    VkCommandBufferBeginInfo cmdBeginInfo = {};
+    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmdBeginInfo.flags = 0;
+    cmdBeginInfo.pInheritanceInfo = nullptr;
+
+    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+
+    VkRenderPassBeginInfo renderPassInfo = {};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = _renderPass;
+    renderPassInfo.framebuffer = _swapChainFramebuffers[i];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = _swapChainExtent;
+
+    VkClearValue clearColor = {0.f, 0.f, 0.f, 1.f};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo,
+                         VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      _graphicsPipeline);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Buffer, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Buffer, 0,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            _pipelineLayout, 0, 1, &_descriptorSets[i], 0,
+                            nullptr);
+    vkCmdDrawIndexed(cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
+    vkCmdEndRenderPass(cmdBuffer);
+
+    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+  }
+}
+
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void updateSwapChain(SDL_Window *_window, VkDevice _device,
@@ -584,7 +637,7 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
                      Buffer& _vertexBuffer,
                      const std::vector<uint32_t>& _indices,
                      Buffer& _indexBuffer,
-                     VkPipelineLayout _pipelineLayout,
+                     VkPipelineLayout& _pipelineLayout,
                      const std::vector<VkDescriptorSet>& _descriptorSets) {
   int width = 0, height = 0;
 
@@ -668,46 +721,12 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
   }
 
   BB_VK_ASSERT(vkResetCommandPool(_device, _graphicsCmdPool, 0));
-
-  // TODO: this is insane, I need to seperate some of these functions.
-  for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
-    VkCommandBuffer cmdBuffer = _graphicsCmdBuffers[i];
-
-
-    VkCommandBufferBeginInfo cmdBeginInfo = {};
-    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    cmdBeginInfo.flags = 0;
-    cmdBeginInfo.pInheritanceInfo = nullptr;
-
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
-
-    VkRenderPassBeginInfo renderPassInfo = {};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = _renderPass;
-    renderPassInfo.framebuffer = _swapChainFramebuffers[i];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = _swapChainExtent;
-
-    VkClearValue clearColor = {0.f, 0.f, 0.f, 1.f};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo,
-                         VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      _graphicsPipeline);
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Buffer, &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Buffer, 0,
-                         VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            _pipelineLayout, 0, 1, &_descriptorSets[i], 0,
-                            nullptr);
-    vkCmdDrawIndexed(cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
-    vkCmdEndRenderPass(cmdBuffer);
-
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-  }
+  recordCommand(_numSwapChainImages, _graphicsCmdBuffers,
+                _renderPass, _swapChainFramebuffers,
+                _swapChainExtent, _graphicsPipeline,
+                _vertexBuffer, _indexBuffer,
+                _pipelineLayout, _descriptorSets,
+                _indices);
 }
 
 VkShaderModule createShaderModuleFromFile(VkDevice _device,
@@ -1431,43 +1450,9 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo,
                                         graphicsCmdBuffers.data()));
 
-  for (uint32_t i = 0; i < numSwapChainImages; ++i) {
-    VkCommandBuffer cmdBuffer = graphicsCmdBuffers[i];
-
-    VkCommandBufferBeginInfo cmdBeginInfo = {};
-    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    cmdBeginInfo.flags = 0;
-    cmdBeginInfo.pInheritanceInfo = nullptr;
-
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
-
-    VkRenderPassBeginInfo renderPassInfo = {};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = swapChainFramebuffers[i];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = swapChainExtent;
-
-    VkClearValue clearColor = {0.f, 0.f, 0.f, 1.f};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo,
-                         VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      graphicsPipeline);
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vertexBuffer.Buffer, &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, indexBuffer.Buffer, 0,
-                         VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 1, &descriptorSets[i], 0,
-                            nullptr);
-    vkCmdDrawIndexed(cmdBuffer, (uint32_t)indices.size(), 1, 0, 0, 0);
-    vkCmdEndRenderPass(cmdBuffer);
-
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-  }
+  recordCommand(numSwapChainImages, graphicsCmdBuffers, renderPass, swapChainFramebuffers,
+                swapChainExtent, graphicsPipeline, vertexBuffer, indexBuffer, pipelineLayout,
+                descriptorSets, indices);
 
   std::vector<VkSemaphore> imageAvailableSemaphores(numSwapChainImages);
   std::vector<VkSemaphore> renderFinishedSemaphores(numSwapChainImages);
