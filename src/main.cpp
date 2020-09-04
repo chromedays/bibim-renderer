@@ -448,7 +448,7 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
 // through queue. Dont forget to add it here too when you add another cmd.
 void updateSwapChain(SDL_Window *_window, VkDevice _device,
                      std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
-                     VkCommandPool _graphicsCmdPool,
+                     VkCommandPool & _graphicsCmdPool,
                      std::vector<VkFramebuffer> &_swapChainFramebuffers,
                      VkPipeline &_graphicsPipeline, VkRenderPass &_renderPass,
                      VkSwapchainKHR &_swapChain,
@@ -457,12 +457,15 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
                      VkSwapchainCreateInfoKHR &_swapChainCreateInfo,
                      const SwapChainSupportDetails &_swapChainSupportDetails,
                      const VkRenderPassCreateInfo &_renderPassCreateInfo,
+                     VkViewport& _viewPort,
                      VkGraphicsPipelineCreateInfo &_graphicsPipelineCreateInfo,
                      uint32_t &_numSwapChainImages,
-                     const VkExtent2D &_swapChainExtent,
+                     VkExtent2D &_swapChainExtent,
                      std::vector<VkImageView> &_swapChainImageViews,
                      std::vector<VkFramebuffer> &_outSwapChainFramebuffers,
-                     const VkCommandPoolCreateInfo &_cmdPoolCreateInfo) {
+                     const VkCommandPoolCreateInfo &_cmdPoolCreateInfo,
+                     const std::vector<Vertex>& _vertices,
+                     VkBuffer _vertexBuffer) {
   int width = 0, height = 0;
 
   if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
@@ -489,10 +492,12 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
   }
   _swapChainImageViews.clear();
   vkDestroySwapchainKHR(_device, _swapChain, nullptr);
-  _swapChain = nullptr;
   // Destroy any other buffers used by queues here, including uniform buffers.
 
+
   // recreate
+  _swapChainExtent = _swapChainSupportDetails.chooseExtent(width, height);
+  _swapChainCreateInfo.imageExtent = _swapChainExtent;
   BB_VK_ASSERT(vkCreateSwapchainKHR(_device, &_swapChainCreateInfo, nullptr,
                                     &_swapChain));
 
@@ -524,6 +529,9 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
 
   BB_VK_ASSERT(vkCreateRenderPass(_device, &_renderPassCreateInfo, nullptr,
                                   &_renderPass));
+                                  
+  _viewPort.width = width;
+  _viewPort.height = height;
   _graphicsPipelineCreateInfo.renderPass = _renderPass;
   BB_VK_ASSERT(vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1,
                                          &_graphicsPipelineCreateInfo, nullptr,
@@ -559,6 +567,7 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
   for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
     VkCommandBuffer cmdBuffer = _graphicsCmdBuffers[i];
 
+
     VkCommandBufferBeginInfo cmdBeginInfo = {};
     cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     cmdBeginInfo.flags = 0;
@@ -569,7 +578,7 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
     VkRenderPassBeginInfo renderPassInfo = {};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassInfo.renderPass = _renderPass;
-    renderPassInfo.framebuffer = _outSwapChainFramebuffers[i];
+    renderPassInfo.framebuffer = _swapChainFramebuffers[i];
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = _swapChainExtent;
 
@@ -581,7 +590,9 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
                          VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _graphicsPipeline);
-    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer, &offset);
+    vkCmdDraw(cmdBuffer, (uint32_t)_vertices.size(), 1, 0, 0);
     vkCmdEndRenderPass(cmdBuffer);
 
     BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
@@ -645,7 +656,7 @@ int main(int _argc, char **_argv) {
   int height = 720;
   SDL_Window *window = SDL_CreateWindow(
       "Bibim Renderer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width,
-      height, SDL_WINDOW_VULKAN);
+      height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
   SDL_SysWMinfo sysinfo = {};
   SDL_VERSION(&sysinfo.version);
@@ -1165,6 +1176,7 @@ int main(int _argc, char **_argv) {
   std::vector<VkSemaphore> imageAvailableSemaphores(numSwapChainImages);
   std::vector<VkSemaphore> renderFinishedSemaphores(numSwapChainImages);
   std::vector<VkFence> imageAvailableFences(numSwapChainImages);
+  
 
   VkSemaphoreCreateInfo semaphoreCreateInfo = {};
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1202,13 +1214,16 @@ int main(int _argc, char **_argv) {
         VK_NULL_HANDLE, &imageIndex);
 
     if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
+      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
+                                                &swapChainSupportDetails.Capabilities);
+
       updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
                       swapChainFramebuffers, graphicsPipeline, renderPass,
                       swapChain, swapChainImageFormat, swapChainImages,
                       swapChainCreateInfo, swapChainSupportDetails,
-                      renderPassCreateInfo, pipelineCreateInfo,
+                      renderPassCreateInfo, viewport, pipelineCreateInfo,
                       numSwapChainImages, swapChainExtent, swapChainImageViews,
-                      swapChainFramebuffers, cmdPoolCreateInfo);
+                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer);
       continue;
     }
 
@@ -1242,14 +1257,16 @@ int main(int _argc, char **_argv) {
     VkResult queuePresentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
     if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         queuePresentResult == VK_SUBOPTIMAL_KHR) {
+      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
+                                                &swapChainSupportDetails.Capabilities);
+
       updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
                       swapChainFramebuffers, graphicsPipeline, renderPass,
                       swapChain, swapChainImageFormat, swapChainImages,
                       swapChainCreateInfo, swapChainSupportDetails,
-                      renderPassCreateInfo, pipelineCreateInfo,
+                      renderPassCreateInfo, viewport, pipelineCreateInfo,
                       numSwapChainImages, swapChainExtent, swapChainImageViews,
-                      swapChainFramebuffers, cmdPoolCreateInfo);
-      continue;
+                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer);
     }
 
     currentFrame = (currentFrame + 1) % numSwapChainImages;
