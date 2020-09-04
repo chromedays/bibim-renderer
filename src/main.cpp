@@ -372,7 +372,8 @@ struct SwapChainSupportDetails {
 
   VkSurfaceFormatKHR chooseSurfaceFormat() const {
     for (const VkSurfaceFormatKHR &format : Formats) {
-      if (format.format == VK_FORMAT_R8G8B8A8_SRGB &&
+      if ((format.format == VK_FORMAT_R8G8B8A8_SRGB ||
+           format.format == VK_FORMAT_B8G8R8A8_SRGB) &&
           format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
         return format;
       }
@@ -381,12 +382,13 @@ struct SwapChainSupportDetails {
     return Formats[0];
   }
 
+  // TODO(JJJ): Mailbox mod have some issue.
   VkPresentModeKHR choosePresentMode() const {
-    for (VkPresentModeKHR presentMode : PresentModes) {
-      if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-        return presentMode;
-      }
-    }
+    // for (VkPresentModeKHR presentMode : PresentModes) {
+    //   if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+    //     return presentMode;
+    //   }
+    // }
 
     return VK_PRESENT_MODE_FIFO_KHR;
   }
@@ -1537,7 +1539,6 @@ int main(int _argc, char **_argv) {
   }
 
   vkDeviceWaitIdle(device);
-
   for (VkFence fence : renderFinishedFences) {
     vkDestroyFence(device, fence, nullptr);
   }
