@@ -391,14 +391,14 @@ struct SwapChainSupportDetails {
     return VK_PRESENT_MODE_FIFO_KHR;
   }
 
-  VkExtent2D chooseExtent(uint32_t width, uint32_t height) const {
+  VkExtent2D chooseExtent(uint32_t _width, uint32_t _height) const {
     if (Capabilities.currentExtent.width != UINT32_MAX) {
       return Capabilities.currentExtent;
     } else {
       VkExtent2D extent;
-      extent.width = std::clamp(width, Capabilities.minImageExtent.width,
+      extent.width = std::clamp(_width, Capabilities.minImageExtent.width,
                                 Capabilities.maxImageExtent.width);
-      extent.height = std::clamp(height, Capabilities.minImageExtent.height,
+      extent.height = std::clamp(_height, Capabilities.minImageExtent.height,
                                  Capabilities.maxImageExtent.height);
       return extent;
     }
@@ -1446,6 +1446,8 @@ int main(int _argc, char **_argv) {
         running = false;
       }
     }
+
+    SDL_GetWindowSize(window, &width, &height);
 
     Time currentTime = getCurrentTime();
     float dt = getElapsedTimeInSeconds(lastTime, currentTime);
