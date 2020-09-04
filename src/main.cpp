@@ -667,6 +667,8 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
                                      &_outSwapChainFramebuffers[i]));
   }
 
+  BB_VK_ASSERT(vkResetCommandPool(_device, _graphicsCmdPool, 0));
+
   // TODO: this is insane, I need to seperate some of these functions.
   for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
     VkCommandBuffer cmdBuffer = _graphicsCmdBuffers[i];
