@@ -669,26 +669,25 @@ void recordCommand(const uint32_t &_numSwapChainImages,
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(SDL_Window *_window, VkDevice _device,
-                     std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
-                     VkCommandPool &_graphicsCmdPool,
-                     std::vector<VkFramebuffer> &_swapChainFramebuffers,
-                     VkPipeline &_graphicsPipeline, VkRenderPass &_renderPass,
-                     SwapChain &_swapChain, VkSurfaceKHR &_surface,
-                     const QueueFamilyIndices &_queueFamilyIndices,
-                     std::vector<VkImage> &_swapChainImages,
-                     const SwapChainSupportDetails &_swapChainSupportDetails,
-                     const VkRenderPassCreateInfo &_renderPassCreateInfo,
-                     VkViewport &_viewPort,
-                     VkGraphicsPipelineCreateInfo &_graphicsPipelineCreateInfo,
-                     uint32_t &_numSwapChainImages,
-                     std::vector<VkImageView> &_swapChainImageViews,
-                     std::vector<VkFramebuffer> &_SwapChainFramebuffers,
-                     const VkCommandPoolCreateInfo &_cmdPoolCreateInfo,
-                     const std::vector<Vertex> &_vertices,
-                     Buffer &_vertexBuffer,
-                     const std::vector<uint32_t> &_indices,
-                     Buffer &_indexBuffer, VkPipelineLayout &_pipelineLayout,
-                     const std::vector<VkDescriptorSet> &_descriptorSets) {
+                    std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
+                    VkCommandPool &_graphicsCmdPool,
+                    std::vector<VkFramebuffer> &_swapChainFramebuffers,
+                    VkPipeline &_graphicsPipeline, VkRenderPass &_renderPass,
+                    SwapChain &_swapChain, VkSurfaceKHR &_surface,
+                    const QueueFamilyIndices &_queueFamilyIndices,
+                    std::vector<VkImage> &_swapChainImages,
+                    const SwapChainSupportDetails &_swapChainSupportDetails,
+                    const VkRenderPassCreateInfo &_renderPassCreateInfo,
+                    VkViewport &_viewPort,
+                    VkGraphicsPipelineCreateInfo &_graphicsPipelineCreateInfo,
+                    uint32_t &_numSwapChainImages,
+                    std::vector<VkImageView> &_swapChainImageViews,
+                    std::vector<VkFramebuffer> &_SwapChainFramebuffers,
+                    const VkCommandPoolCreateInfo &_cmdPoolCreateInfo,
+                    const std::vector<Vertex> &_vertices, Buffer &_vertexBuffer,
+                    const std::vector<uint32_t> &_indices, Buffer &_indexBuffer,
+                    VkPipelineLayout &_pipelineLayout,
+                    const std::vector<VkDescriptorSet> &_descriptorSets) {
   int width = 0, height = 0;
 
   if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
@@ -1513,13 +1512,13 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, graphicsCmdBuffers, graphicsCmdPool,
-                      swapChainFramebuffers, graphicsPipeline, renderPass,
-                      swapChain, surface, queueFamilyIndices, swapChainImages,
-                      swapChainSupportDetails, renderPassCreateInfo, viewport,
-                      pipelineCreateInfo, numSwapChainImages,
-                      swapChainImageViews, swapChainFramebuffers,
-                      cmdPoolCreateInfo, vertices, vertexBuffer, indices,
-                      indexBuffer, pipelineLayout, descriptorSets);
+                     swapChainFramebuffers, graphicsPipeline, renderPass,
+                     swapChain, surface, queueFamilyIndices, swapChainImages,
+                     swapChainSupportDetails, renderPassCreateInfo, viewport,
+                     pipelineCreateInfo, numSwapChainImages,
+                     swapChainImageViews, swapChainFramebuffers,
+                     cmdPoolCreateInfo, vertices, vertexBuffer, indices,
+                     indexBuffer, pipelineLayout, descriptorSets);
       continue;
     }
 
@@ -1575,13 +1574,13 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, graphicsCmdBuffers, graphicsCmdPool,
-                      swapChainFramebuffers, graphicsPipeline, renderPass,
-                      swapChain, surface, queueFamilyIndices, swapChainImages,
-                      swapChainSupportDetails, renderPassCreateInfo, viewport,
-                      pipelineCreateInfo, numSwapChainImages,
-                      swapChainImageViews, swapChainFramebuffers,
-                      cmdPoolCreateInfo, vertices, vertexBuffer, indices,
-                      indexBuffer, pipelineLayout, descriptorSets);
+                     swapChainFramebuffers, graphicsPipeline, renderPass,
+                     swapChain, surface, queueFamilyIndices, swapChainImages,
+                     swapChainSupportDetails, renderPassCreateInfo, viewport,
+                     pipelineCreateInfo, numSwapChainImages,
+                     swapChainImageViews, swapChainFramebuffers,
+                     cmdPoolCreateInfo, vertices, vertexBuffer, indices,
+                     indexBuffer, pipelineLayout, descriptorSets);
     }
 
     currentFrame = (currentFrame + 1) % numSwapChainImages;
