@@ -565,11 +565,11 @@ struct SwapChain {
   VkFormat ImageFormat;
   VkExtent2D Extent;
 };
-SwapChain createSwapChain(VkDevice _device, VkSurfaceKHR _surface, 
-                              const SwapChainSupportDetails& _swapChainSupportDetails,
-                              const uint32_t& _width, const uint32_t & _height,
-                              const QueueFamilyIndices & _queueFamilyIndices)
-{
+SwapChain
+createSwapChain(VkDevice _device, VkSurfaceKHR _surface,
+                const SwapChainSupportDetails &_swapChainSupportDetails,
+                const uint32_t &_width, const uint32_t &_height,
+                const QueueFamilyIndices &_queueFamilyIndices) {
   VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
   swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
   swapChainCreateInfo.surface = _surface;
@@ -604,35 +604,31 @@ SwapChain createSwapChain(VkDevice _device, VkSurfaceKHR _surface,
   swapChainCreateInfo.preTransform =
       _swapChainSupportDetails.Capabilities.currentTransform;
   swapChainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-  swapChainCreateInfo.presentMode = _swapChainSupportDetails.choosePresentMode();
+  swapChainCreateInfo.presentMode =
+      _swapChainSupportDetails.choosePresentMode();
   swapChainCreateInfo.clipped = VK_TRUE;
   swapChainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
-
-  
 
   SwapChain swapChain;
   swapChain.ImageFormat = swapChainCreateInfo.imageFormat;
   swapChain.Extent = swapChainCreateInfo.imageExtent;
-  BB_VK_ASSERT(
-      vkCreateSwapchainKHR(_device, &swapChainCreateInfo, nullptr, &swapChain.Handle));
+  BB_VK_ASSERT(vkCreateSwapchainKHR(_device, &swapChainCreateInfo, nullptr,
+                                    &swapChain.Handle));
 
   return swapChain;
 }
-void recordCommand(const uint32_t &_numSwapChainImages, 
-                  std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
-                  const VkRenderPass &_renderPass,
-                  const std::vector<VkFramebuffer> &_swapChainFramebuffers,
-                  const VkExtent2D &_swapChainExtent,
-                  const VkPipeline &_graphicsPipeline,
-                  const Buffer& _vertexBuffer,
-                  const Buffer& _indexBuffer,
-                  const VkPipelineLayout& _pipelineLayout,
-                  const std::vector<VkDescriptorSet>& _descriptorSets,
-                  const std::vector<uint32_t>& _indices)
-{
+void recordCommand(const uint32_t &_numSwapChainImages,
+                   std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
+                   const VkRenderPass &_renderPass,
+                   const std::vector<VkFramebuffer> &_swapChainFramebuffers,
+                   const VkExtent2D &_swapChainExtent,
+                   const VkPipeline &_graphicsPipeline,
+                   const Buffer &_vertexBuffer, const Buffer &_indexBuffer,
+                   const VkPipelineLayout &_pipelineLayout,
+                   const std::vector<VkDescriptorSet> &_descriptorSets,
+                   const std::vector<uint32_t> &_indices) {
   for (uint32_t i = 0; i < _numSwapChainImages; ++i) {
-    VkCommandBuffer& cmdBuffer = _graphicsCmdBuffers[i];
-
+    VkCommandBuffer &cmdBuffer = _graphicsCmdBuffers[i];
 
     VkCommandBufferBeginInfo cmdBeginInfo = {};
     cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -674,26 +670,25 @@ void recordCommand(const uint32_t &_numSwapChainImages,
 // through queue. Dont forget to add it here too when you add another cmd.
 void updateSwapChain(SDL_Window *_window, VkDevice _device,
                      std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
-                     VkCommandPool & _graphicsCmdPool,
+                     VkCommandPool &_graphicsCmdPool,
                      std::vector<VkFramebuffer> &_swapChainFramebuffers,
                      VkPipeline &_graphicsPipeline, VkRenderPass &_renderPass,
-                     SwapChain &_swapChain, VkSurfaceKHR &_surface, 
-                     const QueueFamilyIndices& _queueFamilyIndices,
+                     SwapChain &_swapChain, VkSurfaceKHR &_surface,
+                     const QueueFamilyIndices &_queueFamilyIndices,
                      std::vector<VkImage> &_swapChainImages,
                      const SwapChainSupportDetails &_swapChainSupportDetails,
                      const VkRenderPassCreateInfo &_renderPassCreateInfo,
-                     VkViewport& _viewPort,
+                     VkViewport &_viewPort,
                      VkGraphicsPipelineCreateInfo &_graphicsPipelineCreateInfo,
                      uint32_t &_numSwapChainImages,
                      std::vector<VkImageView> &_swapChainImageViews,
                      std::vector<VkFramebuffer> &_SwapChainFramebuffers,
                      const VkCommandPoolCreateInfo &_cmdPoolCreateInfo,
-                     const std::vector<Vertex>& _vertices,
-                     Buffer& _vertexBuffer,
-                     const std::vector<uint32_t>& _indices,
-                     Buffer& _indexBuffer,
-                     VkPipelineLayout& _pipelineLayout,
-                     const std::vector<VkDescriptorSet>& _descriptorSets) {
+                     const std::vector<Vertex> &_vertices,
+                     Buffer &_vertexBuffer,
+                     const std::vector<uint32_t> &_indices,
+                     Buffer &_indexBuffer, VkPipelineLayout &_pipelineLayout,
+                     const std::vector<VkDescriptorSet> &_descriptorSets) {
   int width = 0, height = 0;
 
   if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
@@ -717,12 +712,12 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
   vkDestroySwapchainKHR(_device, _swapChain.Handle, nullptr);
   // Destroy any other buffers used by queues here, including uniform buffers.
 
-
   // recreate
   _swapChain = createSwapChain(_device, _surface, _swapChainSupportDetails,
-                              width, height, _queueFamilyIndices);
+                               width, height, _queueFamilyIndices);
 
-  vkGetSwapchainImagesKHR(_device, _swapChain.Handle, &_numSwapChainImages, nullptr);
+  vkGetSwapchainImagesKHR(_device, _swapChain.Handle, &_numSwapChainImages,
+                          nullptr);
   _swapChainImages.resize(_numSwapChainImages);
   vkGetSwapchainImagesKHR(_device, _swapChain.Handle, &_numSwapChainImages,
                           _swapChainImages.data());
@@ -750,7 +745,7 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
 
   BB_VK_ASSERT(vkCreateRenderPass(_device, &_renderPassCreateInfo, nullptr,
                                   &_renderPass));
-                                  
+
   _viewPort.width = width;
   _viewPort.height = height;
   _graphicsPipelineCreateInfo.renderPass = _renderPass;
@@ -774,11 +769,9 @@ void updateSwapChain(SDL_Window *_window, VkDevice _device,
   }
 
   BB_VK_ASSERT(vkResetCommandPool(_device, _graphicsCmdPool, 0));
-  recordCommand(_numSwapChainImages, _graphicsCmdBuffers,
-                _renderPass, _swapChainFramebuffers,
-                _swapChain.Extent, _graphicsPipeline,
-                _vertexBuffer, _indexBuffer,
-                _pipelineLayout, _descriptorSets,
+  recordCommand(_numSwapChainImages, _graphicsCmdBuffers, _renderPass,
+                _swapChainFramebuffers, _swapChain.Extent, _graphicsPipeline,
+                _vertexBuffer, _indexBuffer, _pipelineLayout, _descriptorSets,
                 _indices);
 }
 
@@ -1104,12 +1097,14 @@ int main(int _argc, char **_argv) {
             transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE &&
             computeQueue != VK_NULL_HANDLE);
 
-  SwapChain swapChain = createSwapChain(device, surface, swapChainSupportDetails,
-                                             width, height, queueFamilyIndices);
+  SwapChain swapChain =
+      createSwapChain(device, surface, swapChainSupportDetails, width, height,
+                      queueFamilyIndices);
 
   uint32_t numSwapChainImages;
   std::vector<VkImage> swapChainImages;
-  vkGetSwapchainImagesKHR(device, swapChain.Handle, &numSwapChainImages, nullptr);
+  vkGetSwapchainImagesKHR(device, swapChain.Handle, &numSwapChainImages,
+                          nullptr);
   swapChainImages.resize(numSwapChainImages);
   vkGetSwapchainImagesKHR(device, swapChain.Handle, &numSwapChainImages,
                           swapChainImages.data());
@@ -1462,14 +1457,14 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo,
                                         graphicsCmdBuffers.data()));
 
-  recordCommand(numSwapChainImages, graphicsCmdBuffers, renderPass, swapChainFramebuffers,
-                swapChain.Extent, graphicsPipeline, vertexBuffer, indexBuffer, pipelineLayout,
-                descriptorSets, indices);
+  recordCommand(numSwapChainImages, graphicsCmdBuffers, renderPass,
+                swapChainFramebuffers, swapChain.Extent, graphicsPipeline,
+                vertexBuffer, indexBuffer, pipelineLayout, descriptorSets,
+                indices);
 
   std::vector<VkSemaphore> imageAvailableSemaphores(numSwapChainImages);
   std::vector<VkSemaphore> renderFinishedSemaphores(numSwapChainImages);
   std::vector<VkFence> imageAvailableFences(numSwapChainImages);
-  
 
   VkSemaphoreCreateInfo semaphoreCreateInfo = {};
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1510,21 +1505,21 @@ int main(int _argc, char **_argv) {
 
     uint32_t imageIndex;
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
-        device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphores[currentFrame],
-        VK_NULL_HANDLE, &imageIndex);
+        device, swapChain.Handle, UINT64_MAX,
+        imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
     if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
-      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
-                                                &swapChainSupportDetails.Capabilities);
+      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+          physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
                       swapChainFramebuffers, graphicsPipeline, renderPass,
                       swapChain, surface, queueFamilyIndices, swapChainImages,
-                      swapChainSupportDetails,
-                      renderPassCreateInfo, viewport, pipelineCreateInfo,
-                      numSwapChainImages, swapChainImageViews,
-                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer,
-                      indices, indexBuffer, pipelineLayout, descriptorSets);
+                      swapChainSupportDetails, renderPassCreateInfo, viewport,
+                      pipelineCreateInfo, numSwapChainImages,
+                      swapChainImageViews, swapChainFramebuffers,
+                      cmdPoolCreateInfo, vertices, vertexBuffer, indices,
+                      indexBuffer, pipelineLayout, descriptorSets);
       continue;
     }
 
@@ -1576,17 +1571,17 @@ int main(int _argc, char **_argv) {
     VkResult queuePresentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
     if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         queuePresentResult == VK_SUBOPTIMAL_KHR) {
-      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
-                                                &swapChainSupportDetails.Capabilities);
+      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+          physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
                       swapChainFramebuffers, graphicsPipeline, renderPass,
                       swapChain, surface, queueFamilyIndices, swapChainImages,
-                      swapChainSupportDetails,
-                      renderPassCreateInfo, viewport, pipelineCreateInfo,
-                      numSwapChainImages, swapChainImageViews,
-                      swapChainFramebuffers, cmdPoolCreateInfo, vertices, vertexBuffer,
-                      indices, indexBuffer, pipelineLayout, descriptorSets);
+                      swapChainSupportDetails, renderPassCreateInfo, viewport,
+                      pipelineCreateInfo, numSwapChainImages,
+                      swapChainImageViews, swapChainFramebuffers,
+                      cmdPoolCreateInfo, vertices, vertexBuffer, indices,
+                      indexBuffer, pipelineLayout, descriptorSets);
     }
 
     currentFrame = (currentFrame + 1) % numSwapChainImages;
