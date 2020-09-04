@@ -668,7 +668,7 @@ void recordCommand(const uint32_t &_numSwapChainImages,
 
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
-void updateSwapChain(SDL_Window *_window, VkDevice _device,
+void onWindowResize(SDL_Window *_window, VkDevice _device,
                      std::vector<VkCommandBuffer> &_graphicsCmdBuffers,
                      VkCommandPool &_graphicsCmdPool,
                      std::vector<VkFramebuffer> &_swapChainFramebuffers,
@@ -1512,7 +1512,7 @@ int main(int _argc, char **_argv) {
       vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
-      updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
+      onWindowResize(window, device, graphicsCmdBuffers, graphicsCmdPool,
                       swapChainFramebuffers, graphicsPipeline, renderPass,
                       swapChain, surface, queueFamilyIndices, swapChainImages,
                       swapChainSupportDetails, renderPassCreateInfo, viewport,
@@ -1574,7 +1574,7 @@ int main(int _argc, char **_argv) {
       vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
-      updateSwapChain(window, device, graphicsCmdBuffers, graphicsCmdPool,
+      onWindowResize(window, device, graphicsCmdBuffers, graphicsCmdPool,
                       swapChainFramebuffers, graphicsPipeline, renderPass,
                       swapChain, surface, queueFamilyIndices, swapChainImages,
                       swapChainSupportDetails, renderPassCreateInfo, viewport,
