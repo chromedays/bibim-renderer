@@ -18,7 +18,17 @@
 #include <assert.h>
 
 #if BB_DEBUG
+#if BB_WINDOWS
+#define BB_ASSERT(exp)                                                         \
+  do {                                                                         \
+    if (!(exp)) {                                                              \
+      BB_LOG_ERROR("ASSERT TRIGGERED: {}", #exp);                              \
+      __debugbreak();                                                          \
+    }                                                                          \
+  } while (0)
+#else
 #define BB_ASSERT(exp) assert(exp)
+#endif
 #define BB_LOG_INFO(...) bb::log(bb::LogLevel::Info, __VA_ARGS__)
 #define BB_LOG_WARNING(...) bb::log(bb::LogLevel::Warning, __VA_ARGS__)
 #define BB_LOG_ERROR(...) bb::log(bb::LogLevel::Error, __VA_ARGS__)
