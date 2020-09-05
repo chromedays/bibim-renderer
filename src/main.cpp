@@ -324,7 +324,7 @@ struct UniformBlock {
 };
 
 struct Vertex {
-  Float2 Pos;
+  Float3 Pos;
   Float3 Color;
   Float2 UV;
 
@@ -340,7 +340,7 @@ struct Vertex {
     std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
-    attributeDescs[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescs[0].offset = offsetof(Vertex, Pos);
     attributeDescs[1].binding = 0;
     attributeDescs[1].location = 1;
@@ -1377,13 +1377,23 @@ int main(int _argc, char **_argv) {
                                           &graphicsCmdBuffers[i]));
   }
 
+  // clang-format off
   std::vector<Vertex> quadVertices = {
-      {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0, 0}},
-      {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1, 0}},
-      {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1, 1}},
-      {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0, 1}}};
+      {{-0.5f, -0.5f, 0}, {1.0f, 0.0f, 0.0f}, {0, 0}},
+      {{0.5f, -0.5f, 0}, {0.0f, 1.0f, 0.0f}, {1, 0}},
+      {{0.5f, 0.5f, 0}, {0.0f, 0.0f, 1.0f}, {1, 1}},
+      {{-0.5f, 0.5f, 0}, {1.0f, 1.0f, 1.0f}, {0, 1}},
 
-  std::vector<uint32_t> quadIndices = {0, 1, 2, 2, 3, 0};
+      {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0, 0}},
+      {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1, 0}},
+      {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1, 1}},
+      {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0, 1}}};
+
+  std::vector<uint32_t> quadIndices = {
+    4, 5, 6, 6, 7, 4,
+    0, 1, 2, 2, 3, 0,
+  };
+  // clang-format on
 
   Buffer quadVertexBuffer = createBuffer(
       device, physicalDevice, size_bytes32(quadVertices),
