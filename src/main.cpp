@@ -332,6 +332,7 @@ struct Vertex {
   Float3 Pos;
   Float3 Color;
   Float2 UV;
+  Float3 Normal = {0, 0, -1};
 
   static VkVertexInputBindingDescription getBindingDesc() {
     VkVertexInputBindingDescription bindingDesc = {};
@@ -341,8 +342,8 @@ struct Vertex {
     return bindingDesc;
   }
 
-  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs() {
-    std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
+  static std::array<VkVertexInputAttributeDescription, 4> getAttributeDescs() {
+    std::array<VkVertexInputAttributeDescription, 4> attributeDescs = {};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -355,6 +356,10 @@ struct Vertex {
     attributeDescs[2].location = 2;
     attributeDescs[2].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescs[2].offset = offsetof(Vertex, UV);
+    attributeDescs[3].binding = 0;
+    attributeDescs[3].location = 3;
+    attributeDescs[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[3].offset = offsetof(Vertex, Normal);
 
     return attributeDescs;
   }
@@ -846,7 +851,7 @@ void initReloadableResources(
   shaderStages[1].pName = "main";
 
   VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDesc();
-  std::array<VkVertexInputAttributeDescription, 3> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 4> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -1247,6 +1252,10 @@ int main(int _argc, char **_argv) {
       v.Pos.Z *= -1.f;
       v.UV.X = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].x;
       v.UV.Y = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].y;
+      v.Normal =
+          Float3::fromAssimpVector3(shaderBallMesh->mNormals[face.mIndices[j]]);
+      std::swap(v.Normal.Y, v.Normal.Z);
+      v.Normal.Z *= -1.f;
       shaderBallVertices.push_back(v);
     }
   }
