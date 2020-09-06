@@ -11,3 +11,4 @@ compile_commands.json
 .clangd/
 .vscode/c_cpp_properties.json
 .vscode/settings.json
+imgui.ini

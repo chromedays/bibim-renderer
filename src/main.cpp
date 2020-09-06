@@ -1948,6 +1948,7 @@ int main(int _argc, char **_argv) {
   SDL_Event e = {};
   while (running) {
     while (SDL_PollEvent(&e) != 0) {
+      ImGui_ImplSDL2_ProcessEvent(&e);
       if (e.type == SDL_QUIT) {
         running = false;
       }
