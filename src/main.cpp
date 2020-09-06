@@ -8,7 +8,6 @@
 #include "external/assimp/scene.h"
 #include "external/assimp/postprocess.h"
 #include "external/stb_image.h"
-#include "vulkan/vulkan_core.h"
 #include <chrono>
 #include <algorithm>
 #include <iterator>
@@ -16,6 +15,7 @@
 #include <vector>
 #include <array>
 #include <optional>
+#include <numeric>
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
@@ -136,17 +136,22 @@ struct Float3 {
   float Y = 0.f;
   float Z = 0.f;
 
-  float lengthSq() {
+  static Float3 fromAssimpVector3(const aiVector3D &_aiVec3) {
+    Float3 result = {_aiVec3.x, _aiVec3.y, _aiVec3.z};
+    return result;
+  }
+
+  float lengthSq() const {
     float result = X * X + Y * Y + Z * Z;
     return result;
   }
 
-  float length() {
+  float length() const {
     float result = sqrtf(lengthSq());
     return result;
   }
 
-  Float3 normalize() {
+  Float3 normalize() const {
     float len = length();
     Float3 result = *this / len;
     return result;
@@ -296,7 +301,7 @@ struct Mat4 {
     // clang-format off
     Mat4 result = {{
       {d / aspectRatio, 0, 0,                    0},
-      {0,               d, 0,                    0},
+      {0,               -d, 0,                    0},
       {0,               0, -nearZ / fSubN,       1},
       {0,               0, nearZ * farZ / fSubN, 0},
     }};
@@ -1227,6 +1232,28 @@ int main(int _argc, char **_argv) {
   const aiScene *shaderBallScene =
       importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
                         aiProcess_Triangulate | aiProcess_FlipUVs);
+  const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
+  std::vector<Vertex> shaderBallVertices;
+  shaderBallVertices.reserve(shaderBallMesh->mNumFaces * 3);
+  for (unsigned int i = 0; i < shaderBallMesh->mNumFaces; ++i) {
+    const aiFace &face = shaderBallMesh->mFaces[i];
+    BB_ASSERT(face.mNumIndices == 3);
+
+    for (int j = 0; j < 3; ++j) {
+      Vertex v = {};
+      v.Pos = Float3::fromAssimpVector3(
+          shaderBallMesh->mVertices[face.mIndices[j]]);
+      std::swap(v.Pos.Y, v.Pos.Z);
+      v.Pos.Z *= -1.f;
+      v.UV.X = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].x;
+      v.UV.Y = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].y;
+      shaderBallVertices.push_back(v);
+    }
+  }
+
+  std::vector<uint32_t> shaderBallIndices;
+  shaderBallIndices.resize(shaderBallVertices.size());
+  std::iota(shaderBallIndices.begin(), shaderBallIndices.end(), 0);
 
   VkInstance instance;
   VkApplicationInfo appinfo = {};
@@ -1521,6 +1548,31 @@ int main(int _argc, char **_argv) {
     destroyBuffer(device, indexStagingBuffer);
   }
 
+  Buffer shaderBallVertexBuffer =
+      createBuffer(device, physicalDevice, size_bytes32(shaderBallVertices),
+                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    void *data;
+    vkMapMemory(device, shaderBallVertexBuffer.Memory, 0,
+                shaderBallVertexBuffer.Size, 0, &data);
+    memcpy(data, shaderBallVertices.data(), shaderBallVertexBuffer.Size);
+    vkUnmapMemory(device, shaderBallVertexBuffer.Memory);
+  }
+  Buffer shaderBallIndexBuffer =
+      createBuffer(device, physicalDevice, size_bytes32(shaderBallIndices),
+                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    void *data;
+    vkMapMemory(device, shaderBallIndexBuffer.Memory, 0,
+                shaderBallIndexBuffer.Size, 0, &data);
+    memcpy(data, shaderBallIndices.data(), shaderBallIndexBuffer.Size);
+    vkUnmapMemory(device, shaderBallIndexBuffer.Memory);
+  }
+
   VkImage textureImage;
   VkDeviceMemory textureImageMemory;
   {
@@ -1690,12 +1742,9 @@ int main(int _argc, char **_argv) {
   textureSamplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
   textureSamplerCreateInfo.magFilter = VK_FILTER_LINEAR;
   textureSamplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-  textureSamplerCreateInfo.addressModeU =
-      VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-  textureSamplerCreateInfo.addressModeV =
-      VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-  textureSamplerCreateInfo.addressModeW =
-      VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+  textureSamplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  textureSamplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  textureSamplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   textureSamplerCreateInfo.anisotropyEnable = VK_TRUE;
   textureSamplerCreateInfo.maxAnisotropy = 16.f;
   textureSamplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
@@ -1839,8 +1888,9 @@ int main(int _argc, char **_argv) {
       angle -= 360.f;
     }
     UniformBlock uniformBlock = {};
-    uniformBlock.ModelMat = Mat4::rotateZ(angle);
-    uniformBlock.ViewMat = Mat4::lookAt({1, 0, -1}, {0, 0, 0});
+    uniformBlock.ModelMat =
+        Mat4::rotateY(angle) * Mat4::scale({0.01f, 0.01f, 0.01f});
+    uniformBlock.ViewMat = Mat4::lookAt({1, 1.5f, -1}, {0, 0, 0});
     uniformBlock.ProjMat =
         Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
     {
@@ -1856,9 +1906,10 @@ int main(int _argc, char **_argv) {
 
     recordCommand(graphicsCmdBuffers[currentFrame], renderPass,
                   swapChainFramebuffers[currentFrame], swapChain.Extent,
-                  graphicsPipeline, quadVertexBuffer, quadIndexBuffer,
-                  textureImage, queueFamilyIndices, pipelineLayout,
-                  descriptorSets[currentFrame], quadIndices);
+                  graphicsPipeline, shaderBallVertexBuffer,
+                  shaderBallIndexBuffer, textureImage, queueFamilyIndices,
+                  pipelineLayout, descriptorSets[currentFrame],
+                  shaderBallIndices);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1915,6 +1966,8 @@ int main(int _argc, char **_argv) {
   vkDestroyImageView(device, textureImageView, nullptr);
   vkDestroyImage(device, textureImage, nullptr);
   vkFreeMemory(device, textureImageMemory, nullptr);
+  destroyBuffer(device, shaderBallIndexBuffer);
+  destroyBuffer(device, shaderBallVertexBuffer);
   destroyBuffer(device, quadIndexBuffer);
   destroyBuffer(device, quadVertexBuffer);
 
