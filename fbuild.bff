@@ -46,6 +46,7 @@ Settings
         'WIN64'
         '_CRT_SECURE_NO_WARNINGS'
         'VK_USE_PLATFORM_WIN32_KHR'
+        'BB_WINDOWS'
     }
 
     .IncludePaths = {
