@@ -7,6 +7,9 @@
 #include "external/assimp/Importer.hpp"
 #include "external/assimp/scene.h"
 #include "external/assimp/postprocess.h"
+#include "external/imgui/imgui.h"
+#include "external/imgui/imgui_impl_sdl.h"
+#include "external/imgui/imgui_impl_vulkan.h"
 #include <chrono>
 #include <algorithm>
 #include <unordered_map>
@@ -568,7 +571,7 @@ struct SwapChain {
   VkSwapchainKHR Handle;
   VkFormat ImageFormat;
   VkExtent2D Extent;
-
+  uint32_t MinNumImages;
   uint32_t NumImages;
   std::vector<VkImage> Images;
   std::vector<VkImageView> ImageViews;
@@ -655,7 +658,7 @@ createSwapChain(VkDevice _device, VkSurfaceKHR _surface,
     BB_VK_ASSERT(vkCreateImageView(_device, &swapChainImageViewCreateInfo,
                                    nullptr, &swapChain.ImageViews[i]));
   }
-
+  swapChain.MinNumImages = swapChainCreateInfo.minImageCount;
   return swapChain;
 }
 
@@ -703,6 +706,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
+
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
+
   vkCmdEndRenderPass(_cmdBuffer);
 
   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
@@ -1376,7 +1382,7 @@ int main(int _argc, char **_argv) {
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   descriptorPoolCreateInfo.poolSizeCount = 1;
   descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;
-  descriptorPoolCreateInfo.maxSets = swapChain.NumImages;
+  descriptorPoolCreateInfo.maxSets = swapChain.NumImages +1; // +1 for imgui.
 
   VkDescriptorPool descriptorPool;
   BB_VK_ASSERT(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo,
@@ -1437,6 +1443,56 @@ int main(int _argc, char **_argv) {
       importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
                         aiProcess_Triangulate | aiProcess_FlipUVs);
 
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+
+  ImGui::StyleColorsDark();
+  //ImGui::StyleColorsClassic();
+
+  ImGui_ImplSDL2_InitForVulkan(window);
+  ImGui_ImplVulkan_InitInfo init_info = {};
+  init_info.Instance = instance;
+  init_info.PhysicalDevice = physicalDevice;
+  init_info.Device = device;
+  init_info.QueueFamily = queueFamilyIndices.Graphics.value();
+  init_info.Queue = graphicsQueue;
+  init_info.PipelineCache = nullptr;
+  init_info.DescriptorPool = descriptorPool;
+  init_info.Allocator = nullptr;
+  init_info.MinImageCount = swapChain.MinNumImages;
+  init_info.ImageCount = swapChain.NumImages;
+  init_info.CheckVkResultFn = nullptr;
+  ImGui_ImplVulkan_Init(&init_info, renderPass);
+
+  // 
+  {
+    VkCommandPool command_pool = graphicsCmdPools[0];
+    VkCommandBuffer command_buffer = graphicsCmdBuffers[0];
+
+    BB_VK_ASSERT(vkResetCommandPool(device, command_pool, 0));
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    BB_VK_ASSERT(vkBeginCommandBuffer(command_buffer, &begin_info));
+
+    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
+
+    VkSubmitInfo end_info = {};
+    end_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    end_info.commandBufferCount = 1;
+    end_info.pCommandBuffers = &command_buffer;
+    BB_VK_ASSERT(vkEndCommandBuffer(command_buffer));
+    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &end_info, VK_NULL_HANDLE));
+
+
+    BB_VK_ASSERT(vkDeviceWaitIdle(device));
+
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
+  }
+
+
   bool running = true;
 
   Time lastTime = getCurrentTime();
@@ -1448,7 +1504,13 @@ int main(int _argc, char **_argv) {
         running = false;
       }
     }
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL2_NewFrame(window);
+    ImGui::NewFrame();
 
+    ImGui::ShowDemoWindow();
+
+    ImGui::Render();
     SDL_GetWindowSize(window, &width, &height);
 
     Time currentTime = getCurrentTime();
@@ -1539,6 +1601,13 @@ int main(int _argc, char **_argv) {
   }
 
   vkDeviceWaitIdle(device);
+
+  ImGui_ImplVulkan_Shutdown();
+  ImGui_ImplSDL2_Shutdown();
+  ImGui::DestroyContext();
+
+
+
   for (VkFence fence : renderFinishedFences) {
     vkDestroyFence(device, fence, nullptr);
   }
@@ -1554,6 +1623,7 @@ int main(int _argc, char **_argv) {
   destroyBuffer(device, indexStagingBuffer);
   destroyBuffer(device, vertexStagingBuffer);
   destroyBuffer(device, vertexBuffer);
+  
 
   vkDestroyCommandPool(device, transferCmdPool, nullptr);
   for (VkCommandPool cmdPool : graphicsCmdPools) {
