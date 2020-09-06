@@ -134,6 +134,8 @@ struct Float2 {
   float Y = 0.f;
 };
 
+inline float dot(Float2 _a, Float2 _b) { return _a.X * _b.X + _a.Y * _b.Y; }
+
 struct Float3 {
   float X = 0.f;
   float Y = 0.f;
@@ -1799,24 +1801,21 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo,
                                       nullptr, &descriptorPool));
 
-
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
   {
-    VkDescriptorPoolSize poolSizes[] =
-    {
-        { VK_DESCRIPTOR_TYPE_SAMPLER, 10 },
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 },
-        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10 },
-        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 10 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 10 },
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 },
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 10 },
-        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 10 }
-    };
+    VkDescriptorPoolSize poolSizes[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 10},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 10},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 10},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 10},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 10}};
     VkDescriptorPoolCreateInfo poolInfo = {};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -1824,11 +1823,9 @@ int main(int _argc, char **_argv) {
     poolInfo.poolSizeCount = (uint32_t)IM_ARRAYSIZE(poolSizes);
     poolInfo.pPoolSizes = poolSizes;
 
-    BB_VK_ASSERT(vkCreateDescriptorPool(device, &poolInfo, nullptr, &imguiDescriptorPool));
+    BB_VK_ASSERT(vkCreateDescriptorPool(device, &poolInfo, nullptr,
+                                        &imguiDescriptorPool));
   }
-
-  
-  
 
   std::vector<VkDescriptorSet> descriptorSets(swapChain.NumColorImages);
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts(
@@ -1894,10 +1891,10 @@ int main(int _argc, char **_argv) {
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
-  ImGuiIO& io = ImGui::GetIO();
+  ImGuiIO &io = ImGui::GetIO();
 
   ImGui::StyleColorsDark();
-  //ImGui::StyleColorsClassic();
+  // ImGui::StyleColorsClassic();
 
   ImGui_ImplSDL2_InitForVulkan(window);
   ImGui_ImplVulkan_InitInfo init_info = {};
@@ -1934,12 +1931,10 @@ int main(int _argc, char **_argv) {
     BB_VK_ASSERT(vkEndCommandBuffer(command_buffer));
     BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &end_info, VK_NULL_HANDLE));
 
-
     BB_VK_ASSERT(vkDeviceWaitIdle(device));
 
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
-
 
   bool running = true;
 
@@ -2057,8 +2052,6 @@ int main(int _argc, char **_argv) {
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
-
-
 
   for (VkFence fence : renderFinishedFences) {
     vkDestroyFence(device, fence, nullptr);
