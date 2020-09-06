@@ -1592,7 +1592,7 @@ int main(int _argc, char **_argv) {
   VkImage textureImage;
   VkDeviceMemory textureImageMemory;
   {
-    std::string textureFilePath = resourceRootPath + "\\texture.jpg";
+    std::string textureFilePath = resourceRootPath + "\\uv_debug.png";
     Int2 textureDims = {};
     int numChannels;
     stbi_uc *pixels = stbi_load(textureFilePath.c_str(), &textureDims.X,
