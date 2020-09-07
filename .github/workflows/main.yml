@@ -24,8 +24,4 @@ jobs:
 
       # Runs a set of commands using the runners shell
       - name: Build Test
-        run: |
-          echo Generating path.gen.bff...
-          python .\gen_config.py
-          echo Running FASTBuild...
-          .\FBuild.exe
+        run: python .\github_action.py
