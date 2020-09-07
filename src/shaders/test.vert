@@ -17,9 +17,10 @@ layout (location = 2) out vec3 vPosWorld;
 layout (location = 3) out vec3 vNormalWorld;
 
 void main() {
-    vPosWorld = (ub.modelMat * vec4(aPosition, 1.0)).xyz;
-    gl_Position = ub.projMat * ub.viewMat * vec4(vPosWorld, 1.0);
+    vec4 posWorld = ub.modelMat * vec4(aPosition, 1.0);
+    vPosWorld = posWorld.xyz;
+    gl_Position = ub.projMat * ub.viewMat * posWorld;
     vColor = aColor;
     vUV = aUV;
-    vNormalWorld = normalize((ub.modelMat * vec4(aNormal, 0.0)).xyz); // Assuming an uniform transformation
+    vNormalWorld = normalize((mat3(ub.modelMat) * aNormal)); // Assuming an uniform transformation
 }

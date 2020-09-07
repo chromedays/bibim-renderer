@@ -162,6 +162,11 @@ struct Float3 {
     return result;
   }
 
+  Float3 operator+(const Float3 &_other) const {
+    Float3 result = {X + _other.X, Y + _other.Y, Z + _other.Z};
+    return result;
+  }
+
   Float3 operator-(const Float3 &_other) const {
     Float3 result = {X - _other.X, Y - _other.Y, Z - _other.Z};
     return result;
@@ -241,10 +246,21 @@ struct Mat4 {
     // clang-format on
   }
 
+  static Mat4 scale(float _scale) {
+    // clang-format off
+    return {{
+      {_scale, 0, 0, 0},
+      {0, _scale, 0, 0},
+      {0, 0, _scale, 0},
+      {0, 0, 0, 1},
+    }};
+    // clang-format on
+  }
+
   static Mat4 rotateX(float _degrees) {
     float radians = degToRad(_degrees);
     float cr = cosf(radians);
-    float sr = sinf(radians);
+    float sr = sinf(radians );
     // clang-format off
     return {{
       {1, 0,   0,  0},
@@ -321,11 +337,23 @@ inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   Mat4 result;
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 4; ++j) {
-      result.M[i][j] = dot(rows[i], columns[j]);
+      result.M[j][i] = dot(rows[i], columns[j]);
     }
   }
   return result;
 }
+
+struct FreeLookCamera {
+  Float3 Pos;
+  float Yaw;
+  float Pitch;
+
+  Mat4 getViewMatrix() const {
+    float cosPitch = cosf(Pitch);
+    Float3 look = {-sinf(Yaw) * cosPitch, sinf(Pitch), cosf(Yaw) * cosPitch};
+    return Mat4::lookAt(Pos, Pos + look);
+  }
+};
 
 struct UniformBlock {
   Mat4 ModelMat;
@@ -1936,6 +1964,8 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
+  FreeLookCamera cam ={};
+
   bool running = true;
 
   Time lastTime = getCurrentTime();
@@ -1982,13 +2012,13 @@ int main(int _argc, char **_argv) {
 
     static float angle = 0;
     angle += 30.f * dt;
-    if (angle > 360.f) {
-      angle -= 360.f;
+    if (angle > 360) {
+      angle -= 360;
     }
     UniformBlock uniformBlock = {};
     uniformBlock.ModelMat =
-        Mat4::rotateY(angle) * Mat4::scale({0.01f, 0.01f, 0.01f});
-    uniformBlock.ViewMat = Mat4::lookAt({1, 1.5f, -1}, {0, 0, 0});
+        Mat4::translate({0,-1, 2}) * Mat4::rotateY(angle) * Mat4::scale({0.01f, 0.01f, 0.01f});
+    uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
     {
