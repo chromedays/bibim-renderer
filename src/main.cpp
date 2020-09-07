@@ -1500,13 +1500,6 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(device, shaderBallIndexBuffer.Memory);
   }
 
-  VkSemaphore tempSemaphore;
-  {
-    VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-    semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &tempSemaphore);
-  }
-
   VkImage textureImage;
   VkDeviceMemory textureImageMemory;
   {
