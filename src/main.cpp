@@ -48,7 +48,7 @@
   do {                                                                         \
     auto result##__LINE__ = exp;                                               \
     BB_ASSERT(result##__LINE__ == VK_SUCCESS);                                 \
-  }  while (0)
+  } while (0)
 
 namespace bb {
 
