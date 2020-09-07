@@ -23,4 +23,10 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Build Test
-        run: python .\github_action.py
+        run: python .\.github\actions\build.py
+  format:
+    runs-on: [self-hosted, windows, x64]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Code Formatting Test
+        run: python .\.github\actions\format.py
