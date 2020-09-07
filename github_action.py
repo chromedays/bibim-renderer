@@ -26,7 +26,7 @@ def run_command(cmd: list):
 def main():
     run_command(["python", "gen_config.py"])
     run_command(["FBuild.exe"])
-    print('\n') # For some reason github action console clips last line of the output.
+    print('') # For some reason github action console clips last line of the output.
 
 if __name__ == "__main__":
     main()
