@@ -1,5 +1,16 @@
 import subprocess
 
+
+def capture_output_from_command(cmd: list):
+    cmd_str = f"'{' '.join(cmd)}'"
+    process = subprocess.run(
+        cmd, shell=True, capture_output=True, universal_newlines=True
+    )
+    if process.returncode != 0:
+        raise Exception(f"{cmd_str} failed.")
+    return process.stdout
+
+
 def run_command(cmd: list):
     cmd_str = f"'{' '.join(cmd)}'"
     print(f"Running {cmd_str}...")
