@@ -62,6 +62,7 @@ template <typename... Args> void print(Args... args) {
   std::string formatted = fmt::format(args...);
   formatted += "\n";
   OutputDebugStringA(formatted.c_str());
+  printf("%s", formatted.c_str());
 }
 
 template <typename... Args> void log(LogLevel level, Args... args) {
