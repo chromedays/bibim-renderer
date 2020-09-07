@@ -12,3 +12,4 @@ compile_commands.json
 .vscode/c_cpp_properties.json
 .vscode/settings.json
 imgui.ini
+**/__pycache__
