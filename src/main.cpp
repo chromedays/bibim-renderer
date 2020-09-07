@@ -260,7 +260,7 @@ struct Mat4 {
   static Mat4 rotateX(float _degrees) {
     float radians = degToRad(_degrees);
     float cr = cosf(radians);
-    float sr = sinf(radians );
+    float sr = sinf(radians);
     // clang-format off
     return {{
       {1, 0,   0,  0},
@@ -1964,7 +1964,7 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
-  FreeLookCamera cam ={};
+  FreeLookCamera cam = {};
 
   bool running = true;
 
@@ -2016,8 +2016,8 @@ int main(int _argc, char **_argv) {
       angle -= 360;
     }
     UniformBlock uniformBlock = {};
-    uniformBlock.ModelMat =
-        Mat4::translate({0,-1, 2}) * Mat4::rotateY(angle) * Mat4::scale({0.01f, 0.01f, 0.01f});
+    uniformBlock.ModelMat = Mat4::translate({0, -1, 2}) * Mat4::rotateY(angle) *
+                            Mat4::scale({0.01f, 0.01f, 0.01f});
     uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
