@@ -398,13 +398,33 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
 
 struct QueueFamilyIndices {
   std::optional<uint32_t> Graphics;
-  std::optional<uint32_t> Transfer0;
+  std::optional<uint32_t> Transfer;
   std::optional<uint32_t> Present;
   std::optional<uint32_t> Compute;
 
   bool isCompleted() const {
-    return Graphics.has_value() && Transfer0.has_value() &&
+    return Graphics.has_value() && Transfer.has_value() &&
            Present.has_value() && Compute.has_value();
+  }
+
+  uint32_t getGraphics() const {
+    BB_ASSERT(Graphics.has_value());
+    return Graphics.value();
+  }
+
+  uint32_t getTransfer() const {
+    BB_ASSERT(Transfer.has_value());
+    return Transfer.value();
+  }
+
+  uint32_t getPresent() const {
+    BB_ASSERT(Present.has_value());
+    return Present.value();
+  }
+
+  uint32_t getCompute() const {
+    BB_ASSERT(Compute.has_value());
+    return Compute.value();
   }
 };
 
@@ -467,13 +487,16 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
     if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
         !result.Graphics.has_value()) {
       result.Graphics = i;
-    } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-               !result.Transfer0.has_value()) {
-      result.Transfer0 = i;
-    } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
-               !result.Compute.has_value()) {
+    }
+    if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+        !result.Transfer.has_value()) {
+      result.Transfer = i;
+    }
+    if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+        !result.Compute.has_value()) {
       result.Compute = i;
-    } else if (!result.Present.has_value()) {
+    }
+    if (!result.Present.has_value()) {
       VkBool32 supportPresent = false;
       vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
                                            &supportPresent);
@@ -495,8 +518,8 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
         result.Graphics = i;
       }
       if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-          !result.Transfer0.has_value()) {
-        result.Transfer0 = i;
+          !result.Transfer.has_value()) {
+        result.Transfer = i;
       }
       if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
           !result.Compute.has_value()) {
@@ -666,9 +689,9 @@ SwapChain createSwapChain(
   swapChainCreateInfo.imageArrayLayers = 1;
   swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-  uint32_t sharedQueueFamilyIndices[2] = {_queueFamilyIndices.Graphics.value(),
-                                          _queueFamilyIndices.Present.value()};
-  if (_queueFamilyIndices.Graphics != _queueFamilyIndices.Present) {
+  uint32_t sharedQueueFamilyIndices[2] = {_queueFamilyIndices.getGraphics(),
+                                          _queueFamilyIndices.getPresent()};
+  if (_queueFamilyIndices.getGraphics() != _queueFamilyIndices.getPresent()) {
     // TODO(ilgwon): Can be an interesting optimization to use EXCLUSIVE mode
     // with multiple queues
     swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -1390,10 +1413,10 @@ int main(int _argc, char **_argv) {
   BB_ASSERT(physicalDevice != VK_NULL_HANDLE);
 
   std::unordered_map<uint32_t, VkQueue> queueMap;
-  queueMap[queueFamilyIndices.Graphics.value()] = VK_NULL_HANDLE;
-  queueMap[queueFamilyIndices.Transfer0.value()] = VK_NULL_HANDLE;
-  queueMap[queueFamilyIndices.Present.value()] = VK_NULL_HANDLE;
-  queueMap[queueFamilyIndices.Compute.value()] = VK_NULL_HANDLE;
+  queueMap[queueFamilyIndices.getGraphics()] = VK_NULL_HANDLE;
+  queueMap[queueFamilyIndices.getTransfer()] = VK_NULL_HANDLE;
+  queueMap[queueFamilyIndices.getPresent()] = VK_NULL_HANDLE;
+  queueMap[queueFamilyIndices.getCompute()] = VK_NULL_HANDLE;
 
   float queuePriority = 1.f;
   std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -1423,10 +1446,10 @@ int main(int _argc, char **_argv) {
     vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
   }
 
-  VkQueue graphicsQueue = queueMap[queueFamilyIndices.Graphics.value()];
-  VkQueue transferQueue = queueMap[queueFamilyIndices.Transfer0.value()];
-  VkQueue presentQueue = queueMap[queueFamilyIndices.Present.value()];
-  VkQueue computeQueue = queueMap[queueFamilyIndices.Compute.value()];
+  VkQueue graphicsQueue = queueMap[queueFamilyIndices.getGraphics()];
+  VkQueue transferQueue = queueMap[queueFamilyIndices.getTransfer()];
+  VkQueue presentQueue = queueMap[queueFamilyIndices.getPresent()];
+  VkQueue computeQueue = queueMap[queueFamilyIndices.getCompute()];
   BB_ASSERT(graphicsQueue != VK_NULL_HANDLE &&
             transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE &&
             computeQueue != VK_NULL_HANDLE);
@@ -1485,7 +1508,7 @@ int main(int _argc, char **_argv) {
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Graphics.value();
+  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.getGraphics();
   cmdPoolCreateInfo.flags = 0;
 
   std::vector<VkCommandPool> graphicsCmdPools(swapChain.NumColorImages);
@@ -1494,7 +1517,7 @@ int main(int _argc, char **_argv) {
         vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr, &cmdPool));
   }
 
-  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Transfer0.value();
+  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.getTransfer();
   cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
   VkCommandPool transferCmdPool;
   BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
@@ -1698,12 +1721,12 @@ int main(int _argc, char **_argv) {
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    if (queueFamilyIndices.Transfer0 == queueFamilyIndices.Graphics) {
+    if (queueFamilyIndices.getTransfer() == queueFamilyIndices.getGraphics()) {
       barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     } else {
-      barrier.srcQueueFamilyIndex = queueFamilyIndices.Transfer0.value();
-      barrier.dstQueueFamilyIndex = queueFamilyIndices.Graphics.value();
+      barrier.srcQueueFamilyIndex = queueFamilyIndices.getTransfer();
+      barrier.dstQueueFamilyIndex = queueFamilyIndices.getGraphics();
     }
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -1901,7 +1924,7 @@ int main(int _argc, char **_argv) {
   init_info.Instance = instance;
   init_info.PhysicalDevice = physicalDevice;
   init_info.Device = device;
-  init_info.QueueFamily = queueFamilyIndices.Graphics.value();
+  init_info.QueueFamily = queueFamilyIndices.getGraphics();
   init_info.Queue = graphicsQueue;
   init_info.PipelineCache = nullptr;
   init_info.DescriptorPool = imguiDescriptorPool;
