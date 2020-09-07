@@ -2068,7 +2068,7 @@ int main(int _argc, char **_argv) {
     input.CursorScreenDelta = currentCursorScreenPos - input.CursorScreenPos;
     input.CursorScreenPos = currentCursorScreenPos;
 
-    if (input.MouseDown) {
+    if (input.MouseDown && !ImGui::GetIO().WantCaptureMouse) {
       cam.Yaw -= (float)input.CursorScreenDelta.X * 0.6f;
       cam.Pitch -= (float)input.CursorScreenDelta.Y * 0.6f;
       cam.Pitch = std::clamp(cam.Pitch, -88.f, 88.f);
