@@ -1,8 +1,12 @@
+
 #include "external/volk.h"
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
 #include "external/SDL2/SDL_syswm.h"
 #include "external/SDL2/SDL_vulkan.h"
+#include "external/SDL2/SDL_events.h"
+#include "external/SDL2/SDL_keycode.h"
+#include "external/SDL2/SDL_mouse.h"
 #include "external/fmt/format.h"
 #include "external/assimp/Importer.hpp"
 #include "external/assimp/scene.h"
@@ -49,6 +53,13 @@
     auto result##__LINE__ = exp;                                               \
     BB_ASSERT(result##__LINE__ == VK_SUCCESS);                                 \
   } while (0)
+
+namespace ImGui {
+template <typename... Args> void TextFmt(Args... args) {
+  std::string formatted = fmt::format(args...);
+  ImGui::Text(formatted.c_str());
+}
+} // namespace ImGui
 
 namespace bb {
 
@@ -127,6 +138,8 @@ struct Int2 {
     BB_ASSERT(X > 0 && Y > 0);
     return {(uint32_t)X, (uint32_t)Y, 1};
   }
+
+  Int2 operator-(Int2 _other) const { return {X - _other.X, Y - _other.Y}; }
 };
 
 struct Float2 {
@@ -162,14 +175,29 @@ struct Float3 {
     return result;
   }
 
+  Float3 operator+(const Float3 &_other) const {
+    Float3 result = {X + _other.X, Y + _other.Y, Z + _other.Z};
+    return result;
+  }
+
   Float3 operator-(const Float3 &_other) const {
     Float3 result = {X - _other.X, Y - _other.Y, Z - _other.Z};
+    return result;
+  }
+
+  Float3 operator*(float _multiplier) const {
+    Float3 result = {X * _multiplier, Y * _multiplier, Z * _multiplier};
     return result;
   }
 
   Float3 operator/(float _divider) const {
     Float3 result = {X / _divider, Y / _divider, Z / _divider};
     return result;
+  }
+
+  const Float3 &operator+=(const Float3 &_other) {
+    *this = *this + _other;
+    return *this;
   }
 };
 
@@ -241,6 +269,17 @@ struct Mat4 {
     // clang-format on
   }
 
+  static Mat4 scale(float _scale) {
+    // clang-format off
+    return {{
+      {_scale, 0, 0, 0},
+      {0, _scale, 0, 0},
+      {0, 0, _scale, 0},
+      {0, 0, 0, 1},
+    }};
+    // clang-format on
+  }
+
   static Mat4 rotateX(float _degrees) {
     float radians = degToRad(_degrees);
     float cr = cosf(radians);
@@ -301,7 +340,7 @@ struct Mat4 {
 
   static Mat4 perspective(float _fovDegrees, float aspectRatio, float nearZ,
                           float farZ) {
-    float d = tan(degToRad(_fovDegrees) * 0.5f);
+    float d = 1.f / tan(degToRad(_fovDegrees) * 0.5f);
     float fSubN = farZ - nearZ;
     // clang-format off
     Mat4 result = {{
@@ -321,11 +360,59 @@ inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   Mat4 result;
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 4; ++j) {
-      result.M[i][j] = dot(rows[i], columns[j]);
+      result.M[j][i] = dot(rows[i], columns[j]);
     }
   }
   return result;
 }
+
+struct FreeLookCamera {
+  Float3 Pos;
+  float Yaw;
+  float Pitch;
+
+  Mat4 getViewMatrix() const { return Mat4::lookAt(Pos, Pos + getLook()); }
+
+  Float3 getRight() const {
+    Float3 up = {0, 1, 0};
+    return cross(up, getLook()).normalize();
+  };
+
+  Float3 getLook() const {
+    float yawRadian = degToRad(Yaw);
+    float pitchRadian = degToRad(Pitch);
+    float cosPitch = cosf(pitchRadian);
+    return {-sinf(yawRadian) * cosPitch, sinf(pitchRadian),
+            cosf(yawRadian) * cosPitch};
+  }
+};
+
+struct Input {
+  std::unordered_map<SDL_Keycode, bool> Keys;
+
+  bool MouseDown;
+  Int2 CursorScreenPos;
+  Int2 CursorScreenDelta;
+
+  Input() : MouseDown(false), CursorScreenDelta{} {
+    SDL_GetMouseState(&CursorScreenPos.X, &CursorScreenPos.Y);
+  }
+
+  void processKeyboardEvents(const SDL_Event &_e) {
+    if (_e.type == SDL_KEYDOWN || _e.type == SDL_KEYUP) {
+      Keys[_e.key.keysym.sym] = (_e.key.state == SDL_PRESSED);
+    }
+  }
+
+  bool isKeyDown(SDL_Keycode _keyCode) const {
+    auto found = Keys.find(_keyCode);
+    if (found != Keys.end()) {
+      return found->second;
+    } else {
+      return false;
+    }
+  }
+};
 
 struct UniformBlock {
   Mat4 ModelMat;
@@ -1936,6 +2023,9 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
+  FreeLookCamera cam = {};
+  Input input = {};
+
   bool running = true;
 
   Time lastTime = getCurrentTime();
@@ -1944,22 +2034,68 @@ int main(int _argc, char **_argv) {
   while (running) {
     while (SDL_PollEvent(&e) != 0) {
       ImGui_ImplSDL2_ProcessEvent(&e);
-      if (e.type == SDL_QUIT) {
+      switch (e.type) {
+      case SDL_MOUSEBUTTONDOWN:
+      case SDL_MOUSEBUTTONUP:
+        input.MouseDown = (e.button.state == SDL_PRESSED);
+        break;
+      case SDL_KEYDOWN:
+      case SDL_KEYUP:
+        input.processKeyboardEvents(e);
+        break;
+      case SDL_QUIT:
         running = false;
+        break;
       }
     }
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL2_NewFrame(window);
-    ImGui::NewFrame();
-
-    ImGui::ShowDemoWindow();
-
-    ImGui::Render();
-    SDL_GetWindowSize(window, &width, &height);
 
     Time currentTime = getCurrentTime();
     float dt = getElapsedTimeInSeconds(lastTime, currentTime);
     lastTime = currentTime;
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL2_NewFrame(window);
+    ImGui::NewFrame();
+
+#if 1
+    ImGui::ShowDemoWindow();
+#endif
+
+    SDL_GetWindowSize(window, &width, &height);
+
+    Int2 currentCursorScreenPos;
+    SDL_GetMouseState(&currentCursorScreenPos.X, &currentCursorScreenPos.Y);
+    input.CursorScreenDelta = currentCursorScreenPos - input.CursorScreenPos;
+    input.CursorScreenPos = currentCursorScreenPos;
+
+    if (input.MouseDown && !ImGui::GetIO().WantCaptureMouse) {
+      cam.Yaw -= (float)input.CursorScreenDelta.X * 0.6f;
+      cam.Pitch -= (float)input.CursorScreenDelta.Y * 0.6f;
+      cam.Pitch = std::clamp(cam.Pitch, -88.f, 88.f);
+    }
+
+    Int2 direction = {};
+    if (input.isKeyDown(SDLK_a)) {
+      direction.X -= 1;
+    }
+    if (input.isKeyDown(SDLK_d)) {
+      direction.X += 1;
+    }
+    if (input.isKeyDown(SDLK_w)) {
+      direction.Y += 1;
+    }
+    if (input.isKeyDown(SDLK_s)) {
+      direction.Y -= 1;
+    }
+
+    float camMovementSpeed = 10.f;
+    Float3 camMovement =
+        (cam.getRight() * (float)direction.X * camMovementSpeed +
+         cam.getLook() * direction.Y * camMovementSpeed) *
+        dt;
+    cam.Pos += camMovement;
+
+    ImGui::Render();
 
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
         device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphore,
@@ -1982,15 +2118,15 @@ int main(int _argc, char **_argv) {
 
     static float angle = 0;
     angle += 30.f * dt;
-    if (angle > 360.f) {
-      angle -= 360.f;
+    if (angle > 360) {
+      angle -= 360;
     }
     UniformBlock uniformBlock = {};
-    uniformBlock.ModelMat =
-        Mat4::rotateY(angle) * Mat4::scale({0.01f, 0.01f, 0.01f});
-    uniformBlock.ViewMat = Mat4::lookAt({1, 1.5f, -1}, {0, 0, 0});
+    uniformBlock.ModelMat = Mat4::translate({0, -1, 2}) * Mat4::rotateY(angle) *
+                            Mat4::scale({0.01f, 0.01f, 0.01f});
+    uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
-        Mat4::perspective(90.f, (float)width / (float)height, 0.1f, 1000.f);
+        Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     {
       void *data;
       vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
