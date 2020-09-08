@@ -73,6 +73,7 @@ template <typename... Args> void print(Args... args) {
   std::string formatted = fmt::format(args...);
   formatted += "\n";
   OutputDebugStringA(formatted.c_str());
+  printf("%s", formatted.c_str());
 }
 
 template <typename... Args> void log(LogLevel level, Args... args) {
@@ -483,18 +484,6 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
   return VK_FALSE;
 }
 
-struct QueueFamilyIndices {
-  std::optional<uint32_t> Graphics;
-  std::optional<uint32_t> Transfer0;
-  std::optional<uint32_t> Present;
-  std::optional<uint32_t> Compute;
-
-  bool isCompleted() const {
-    return Graphics.has_value() && Transfer0.has_value() &&
-           Present.has_value() && Compute.has_value();
-  }
-};
-
 struct SwapChainSupportDetails {
   VkSurfaceCapabilitiesKHR Capabilities;
   std::vector<VkSurfaceFormatKHR> Formats;
@@ -537,9 +526,8 @@ struct SwapChainSupportDetails {
   }
 };
 
-QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
-                                  VkSurfaceKHR _surface) {
-  QueueFamilyIndices result = {};
+bool getQueueFamily(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
+                    uint32_t *_outQueueFamilyIndex) {
 
   uint32_t numQueueFamilyProperties = 0;
   std::vector<VkQueueFamilyProperties> queueFamilyProperties;
@@ -550,64 +538,27 @@ QueueFamilyIndices getQueueFamily(VkPhysicalDevice _physicalDevice,
       _physicalDevice, &numQueueFamilyProperties, queueFamilyProperties.data());
 
   for (uint32_t i = 0; i < numQueueFamilyProperties; i++) {
-    // Make queues exclusive per task.
-    if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
-        !result.Graphics.has_value()) {
-      result.Graphics = i;
-    } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-               !result.Transfer0.has_value()) {
-      result.Transfer0 = i;
-    } else if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
-               !result.Compute.has_value()) {
-      result.Compute = i;
-    } else if (!result.Present.has_value()) {
-      VkBool32 supportPresent = false;
+    VkQueueFlags flags = queueFamilyProperties[i].queueFlags;
+    if (flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT |
+                 VK_QUEUE_COMPUTE_BIT)) {
+      VkBool32 supportPresent = VK_FALSE;
       vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
                                            &supportPresent);
       if (supportPresent) {
-        result.Present = i;
-      }
-    }
-
-    if (result.isCompleted())
-      break;
-  }
-
-  // Failed to retrieve unique queue family index per queue type - get
-  // duplicated queue family index with others
-  if (!result.isCompleted()) {
-    for (uint32_t i = 0; i < numQueueFamilyProperties; i++) {
-      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
-          !result.Graphics.has_value()) {
-        result.Graphics = i;
-      }
-      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-          !result.Transfer0.has_value()) {
-        result.Transfer0 = i;
-      }
-      if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
-          !result.Compute.has_value()) {
-        result.Compute = i;
-      }
-      if (!result.Present.has_value()) {
-        VkBool32 supportPresent = false;
-        vkGetPhysicalDeviceSurfaceSupportKHR(_physicalDevice, i, _surface,
-                                             &supportPresent);
-        if (supportPresent) {
-          result.Present = i;
-        }
+        *_outQueueFamilyIndex = i;
+        return true;
       }
     }
   }
 
-  return result;
+  return false;
 }
 
 bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
                          VkSurfaceKHR _surface,
                          const std::vector<const char *> &_deviceExtensions,
                          VkPhysicalDeviceFeatures *_outDeviceFeatures,
-                         QueueFamilyIndices *_outQueueFamilyIndices,
+                         uint32_t *_outQueueFamilyIndex,
                          SwapChainSupportDetails *_outSwapChainSupportDetails) {
   VkPhysicalDeviceProperties deviceProperties = {};
   VkPhysicalDeviceFeatures deviceFeatures = {};
@@ -615,8 +566,8 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
   vkGetPhysicalDeviceProperties(_physicalDevice, &deviceProperties);
   vkGetPhysicalDeviceFeatures(_physicalDevice, &deviceFeatures);
 
-  QueueFamilyIndices queueFamilyIndices =
-      getQueueFamily(_physicalDevice, _surface);
+  bool supportFullFeaturedQueueFamilyIndex =
+      getQueueFamily(_physicalDevice, _surface, _outQueueFamilyIndex);
 
   // Check if all required extensions are supported
   uint32_t numExtensions;
@@ -678,13 +629,10 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
       deviceFeatures.geometryShader && deviceFeatures.tessellationShader &&
       deviceFeatures.fillModeNonSolid && deviceFeatures.depthClamp &&
       deviceFeatures.samplerAnisotropy;
-  bool isQueueComplete = queueFamilyIndices.isCompleted();
+  bool isQueueComplete = supportFullFeaturedQueueFamilyIndex;
 
   if (_outDeviceFeatures) {
     *_outDeviceFeatures = deviceFeatures;
-  }
-  if (_outQueueFamilyIndices) {
-    *_outQueueFamilyIndices = queueFamilyIndices;
   }
 
   return areAllExtensionsSupported && isSwapChainAdequate && isProperType &&
@@ -731,8 +679,7 @@ struct SwapChain {
 SwapChain createSwapChain(
     VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
     const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const QueueFamilyIndices &_queueFamilyIndices,
-    const SwapChain *_oldSwapChain = nullptr) {
+    uint32_t _height, const SwapChain *_oldSwapChain = nullptr) {
   VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
   swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
   swapChainCreateInfo.surface = _surface;
@@ -752,18 +699,7 @@ SwapChain createSwapChain(
       _swapChainSupportDetails.chooseExtent(_width, _height);
   swapChainCreateInfo.imageArrayLayers = 1;
   swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-  uint32_t sharedQueueFamilyIndices[2] = {_queueFamilyIndices.Graphics.value(),
-                                          _queueFamilyIndices.Present.value()};
-  if (_queueFamilyIndices.Graphics != _queueFamilyIndices.Present) {
-    // TODO(ilgwon): Can be an interesting optimization to use EXCLUSIVE mode
-    // with multiple queues
-    swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-    swapChainCreateInfo.queueFamilyIndexCount = 2;
-    swapChainCreateInfo.pQueueFamilyIndices = sharedQueueFamilyIndices;
-  } else {
-    swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  }
+  swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
   swapChainCreateInfo.preTransform =
       _swapChainSupportDetails.Capabilities.currentTransform;
   swapChainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -878,9 +814,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
                    const Buffer &_vertexBuffer, const Buffer &_indexBuffer,
-                   VkImage textureImage,
-                   const QueueFamilyIndices &queueFamilyIndices,
-                   VkPipelineLayout _pipelineLayout,
+                   VkImage textureImage, VkPipelineLayout _pipelineLayout,
                    VkDescriptorSet _descriptorSet,
                    const std::vector<uint32_t> &_indices) {
 
@@ -925,16 +859,15 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 void initReloadableResources(
     VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
     const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const QueueFamilyIndices &_queueFamilyIndices,
-    const SwapChain *_oldSwapChain, VkShaderModule _vertShader,
-    VkShaderModule _fragShader, VkPipelineLayout _pipelineLayout,
-    SwapChain *_outSwapChain, VkRenderPass *_outRenderPass,
-    VkPipeline *_outGraphicsPipeline,
+    uint32_t _height, const SwapChain *_oldSwapChain,
+    VkShaderModule _vertShader, VkShaderModule _fragShader,
+    VkPipelineLayout _pipelineLayout, SwapChain *_outSwapChain,
+    VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
 
-  SwapChain swapChain = createSwapChain(
-      _device, _physicalDevice, _surface, _swapChainSupportDetails, _width,
-      _height, _queueFamilyIndices, _oldSwapChain);
+  SwapChain swapChain =
+      createSwapChain(_device, _physicalDevice, _surface,
+                      _swapChainSupportDetails, _width, _height, _oldSwapChain);
 
   VkPipelineShaderStageCreateInfo shaderStages[2] = {};
   shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1169,7 +1102,6 @@ void cleanupReloadableResources(
 void onWindowResize(SDL_Window *_window, VkDevice _device,
                     VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
                     const SwapChainSupportDetails &_swapChainSupportDetails,
-                    const QueueFamilyIndices &_queueFamilyIndices,
                     VkShaderModule _vertShader, VkShaderModule _fragShader,
                     VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
                     VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
@@ -1188,9 +1120,8 @@ void onWindowResize(SDL_Window *_window, VkDevice _device,
 
   initReloadableResources(
       _device, _physicalDevice, _surface, _swapChainSupportDetails, width,
-      height, _queueFamilyIndices, nullptr, _vertShader, _fragShader,
-      _pipelineLayout, &_swapChain, &_renderPass, &_graphicsPipeline,
-      &_swapChainFramebuffers);
+      height, nullptr, _vertShader, _fragShader, _pipelineLayout, &_swapChain,
+      &_renderPass, &_graphicsPipeline, &_swapChainFramebuffers);
 }
 
 VkShaderModule createShaderModuleFromFile(VkDevice _device,
@@ -1460,7 +1391,7 @@ int main(int _argc, char **_argv) {
 
   VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
   VkPhysicalDeviceFeatures deviceFeatures = {};
-  QueueFamilyIndices queueFamilyIndices = {};
+  uint32_t queueFamilyIndex = 0;
   SwapChainSupportDetails swapChainSupportDetails = {};
 
   std::vector<const char *> deviceExtensions = {
@@ -1468,7 +1399,7 @@ int main(int _argc, char **_argv) {
 
   for (VkPhysicalDevice currentPhysicalDevice : physicalDevices) {
     if (checkPhysicalDevice(currentPhysicalDevice, surface, deviceExtensions,
-                            &deviceFeatures, &queueFamilyIndices,
+                            &deviceFeatures, &queueFamilyIndex,
                             &swapChainSupportDetails)) {
       physicalDevice = currentPhysicalDevice;
       break;
@@ -1477,28 +1408,17 @@ int main(int _argc, char **_argv) {
   BB_ASSERT(physicalDevice != VK_NULL_HANDLE);
 
   std::unordered_map<uint32_t, VkQueue> queueMap;
-  queueMap[queueFamilyIndices.Graphics.value()] = VK_NULL_HANDLE;
-  queueMap[queueFamilyIndices.Transfer0.value()] = VK_NULL_HANDLE;
-  queueMap[queueFamilyIndices.Present.value()] = VK_NULL_HANDLE;
-  queueMap[queueFamilyIndices.Compute.value()] = VK_NULL_HANDLE;
-
   float queuePriority = 1.f;
-  std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-  queueCreateInfos.reserve(queueMap.size());
-
-  for (auto [queueFamilyIndex, _] : queueMap) {
-    VkDeviceQueueCreateInfo createInfo = {};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    createInfo.queueFamilyIndex = queueFamilyIndex;
-    createInfo.queueCount = 1;
-    createInfo.pQueuePriorities = &queuePriority;
-    queueCreateInfos.push_back(createInfo);
-  }
+  VkDeviceQueueCreateInfo queueCreateInfo = {};
+  queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
+  queueCreateInfo.queueCount = 1;
+  queueCreateInfo.pQueuePriorities = &queuePriority;
 
   VkDeviceCreateInfo deviceCreateInfo = {};
   deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-  deviceCreateInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
-  deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
+  deviceCreateInfo.queueCreateInfoCount = 1;
+  deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
   deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
   deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
   deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
@@ -1506,17 +1426,8 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(
       vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
 
-  for (auto &[queueFamilyIndex, queue] : queueMap) {
-    vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
-  }
-
-  VkQueue graphicsQueue = queueMap[queueFamilyIndices.Graphics.value()];
-  VkQueue transferQueue = queueMap[queueFamilyIndices.Transfer0.value()];
-  VkQueue presentQueue = queueMap[queueFamilyIndices.Present.value()];
-  VkQueue computeQueue = queueMap[queueFamilyIndices.Compute.value()];
-  BB_ASSERT(graphicsQueue != VK_NULL_HANDLE &&
-            transferQueue != VK_NULL_HANDLE && presentQueue != VK_NULL_HANDLE &&
-            computeQueue != VK_NULL_HANDLE);
+  VkQueue queue = VK_NULL_HANDLE;
+  vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
 
   VkShaderModule testVertShader = createShaderModuleFromFile(
       device, resourceRootPath + "..\\src\\shaders\\test.vert.spv");
@@ -1566,13 +1477,12 @@ int main(int _argc, char **_argv) {
   std::vector<VkFramebuffer> swapChainFramebuffers;
   initReloadableResources(
       device, physicalDevice, surface, swapChainSupportDetails, width, height,
-      queueFamilyIndices, nullptr, testVertShader, testFragShader,
-      pipelineLayout, &swapChain, &renderPass, &graphicsPipeline,
-      &swapChainFramebuffers);
+      nullptr, testVertShader, testFragShader, pipelineLayout, &swapChain,
+      &renderPass, &graphicsPipeline, &swapChainFramebuffers);
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Graphics.value();
+  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
   cmdPoolCreateInfo.flags = 0;
 
   std::vector<VkCommandPool> graphicsCmdPools(swapChain.NumColorImages);
@@ -1581,11 +1491,11 @@ int main(int _argc, char **_argv) {
         vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr, &cmdPool));
   }
 
-  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndices.Transfer0.value();
+  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
   cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-  VkCommandPool transferCmdPool;
+  VkCommandPool transientCmdPool;
   BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
-                                   &transferCmdPool));
+                                   &transientCmdPool));
 
   std::vector<VkCommandBuffer> graphicsCmdBuffers(swapChain.NumColorImages);
 
@@ -1644,9 +1554,9 @@ int main(int _argc, char **_argv) {
     memcpy(data, quadIndices.data(), indexStagingBuffer.Size);
     vkUnmapMemory(device, indexStagingBuffer.Memory);
 
-    copyBuffer(device, transferCmdPool, transferQueue, quadVertexBuffer,
+    copyBuffer(device, transientCmdPool, queue, quadVertexBuffer,
                vertexStagingBuffer, vertexStagingBuffer.Size);
-    copyBuffer(device, transferCmdPool, transferQueue, quadIndexBuffer,
+    copyBuffer(device, transientCmdPool, queue, quadIndexBuffer,
                indexStagingBuffer, indexStagingBuffer.Size);
 
     destroyBuffer(device, vertexStagingBuffer);
@@ -1741,7 +1651,7 @@ int main(int _argc, char **_argv) {
     VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
     cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdBufferAllocInfo.commandPool = transferCmdPool;
+    cmdBufferAllocInfo.commandPool = transientCmdPool;
     cmdBufferAllocInfo.commandBufferCount = 1;
 
     VkCommandBuffer cmdBuffer;
@@ -1785,13 +1695,8 @@ int main(int _argc, char **_argv) {
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    if (queueFamilyIndices.Transfer0 == queueFamilyIndices.Graphics) {
-      barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    } else {
-      barrier.srcQueueFamilyIndex = queueFamilyIndices.Transfer0.value();
-      barrier.dstQueueFamilyIndex = queueFamilyIndices.Graphics.value();
-    }
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
@@ -1804,25 +1709,9 @@ int main(int _argc, char **_argv) {
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
-    BB_VK_ASSERT(vkQueueSubmit(transferQueue, 1, &submitInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(transferQueue));
-    vkFreeCommandBuffers(device, transferCmdPool, 1, &cmdBuffer);
-
-    cmdBufferAllocInfo.commandPool = graphicsCmdPools[0];
-    BB_VK_ASSERT(
-        vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &cmdBuffer));
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
-
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-                         0, nullptr, 1, &barrier);
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-    submitInfo.pCommandBuffers = &cmdBuffer;
-    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(graphicsQueue));
-    vkFreeCommandBuffers(device, graphicsCmdPools[0], 1, &cmdBuffer);
+    BB_VK_ASSERT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+    BB_VK_ASSERT(vkQueueWaitIdle(queue));
+    vkFreeCommandBuffers(device, transientCmdPool, 1, &cmdBuffer);
 
     destroyBuffer(device, textureStagingBuffer);
   }
@@ -1981,44 +1870,45 @@ int main(int _argc, char **_argv) {
   ImGuiIO &io = ImGui::GetIO();
 
   ImGui::StyleColorsDark();
-  // ImGui::StyleColorsClassic();
 
   ImGui_ImplSDL2_InitForVulkan(window);
-  ImGui_ImplVulkan_InitInfo init_info = {};
-  init_info.Instance = instance;
-  init_info.PhysicalDevice = physicalDevice;
-  init_info.Device = device;
-  init_info.QueueFamily = queueFamilyIndices.Graphics.value();
-  init_info.Queue = graphicsQueue;
-  init_info.PipelineCache = nullptr;
-  init_info.DescriptorPool = imguiDescriptorPool;
-  init_info.Allocator = nullptr;
-  init_info.MinImageCount = swapChain.MinNumImages;
-  init_info.ImageCount = swapChain.NumColorImages;
-  init_info.CheckVkResultFn = nullptr;
-  ImGui_ImplVulkan_Init(&init_info, renderPass);
+  ImGui_ImplVulkan_InitInfo initInfo = {};
+  initInfo.Instance = instance;
+  initInfo.PhysicalDevice = physicalDevice;
+  initInfo.Device = device;
+  initInfo.QueueFamily = queueFamilyIndex;
+  initInfo.Queue = queue;
+  initInfo.PipelineCache = nullptr;
+  initInfo.DescriptorPool = imguiDescriptorPool;
+  initInfo.Allocator = nullptr;
+  initInfo.MinImageCount = swapChain.MinNumImages;
+  initInfo.ImageCount = swapChain.NumColorImages;
+  initInfo.CheckVkResultFn = nullptr;
+  ImGui_ImplVulkan_Init(&initInfo, renderPass);
 
   {
-    VkCommandPool command_pool = graphicsCmdPools[0];
-    VkCommandBuffer command_buffer = graphicsCmdBuffers[0];
+    cmdBufferAllocInfo = {};
+    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmdBufferAllocInfo.commandPool = transientCmdPool;
+    cmdBufferAllocInfo.commandBufferCount = 1;
+    VkCommandBuffer cmdBuffer;
+    vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &cmdBuffer);
 
-    BB_VK_ASSERT(vkResetCommandPool(device, command_pool, 0));
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &beginInfo));
 
-    VkCommandBufferBeginInfo begin_info = {};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    BB_VK_ASSERT(vkBeginCommandBuffer(command_buffer, &begin_info));
+    ImGui_ImplVulkan_CreateFontsTexture(cmdBuffer);
 
-    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-
-    VkSubmitInfo end_info = {};
-    end_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    end_info.commandBufferCount = 1;
-    end_info.pCommandBuffers = &command_buffer;
-    BB_VK_ASSERT(vkEndCommandBuffer(command_buffer));
-    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &end_info, VK_NULL_HANDLE));
-
-    BB_VK_ASSERT(vkDeviceWaitIdle(device));
+    VkSubmitInfo endInfo = {};
+    endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    endInfo.commandBufferCount = 1;
+    endInfo.pCommandBuffers = &cmdBuffer;
+    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+    BB_VK_ASSERT(vkQueueSubmit(queue, 1, &endInfo, VK_NULL_HANDLE));
+    BB_VK_ASSERT(vkQueueWaitIdle(queue));
 
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
@@ -2106,9 +1996,9 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, queueFamilyIndices,
-                     testVertShader, testFragShader, pipelineLayout, swapChain,
-                     renderPass, graphicsPipeline, swapChainFramebuffers);
+                     swapChainSupportDetails, testVertShader, testFragShader,
+                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainFramebuffers);
       continue;
     }
 
@@ -2141,9 +2031,8 @@ int main(int _argc, char **_argv) {
     recordCommand(graphicsCmdBuffers[currentFrame], renderPass,
                   swapChainFramebuffers[currentFrame], swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer,
-                  shaderBallIndexBuffer, textureImage, queueFamilyIndices,
-                  pipelineLayout, descriptorSets[currentFrame],
-                  shaderBallIndices);
+                  shaderBallIndexBuffer, textureImage, pipelineLayout,
+                  descriptorSets[currentFrame], shaderBallIndices);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2157,7 +2046,7 @@ int main(int _argc, char **_argv) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &graphicsCmdBuffers[currentFrame];
 
-    BB_VK_ASSERT(vkQueueSubmit(graphicsQueue, 1, &submitInfo,
+    BB_VK_ASSERT(vkQueueSubmit(queue, 1, &submitInfo,
                                renderFinishedFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo = {};
@@ -2168,16 +2057,16 @@ int main(int _argc, char **_argv) {
     presentInfo.pSwapchains = &swapChain.Handle;
     presentInfo.pImageIndices = &currentFrame;
 
-    VkResult queuePresentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+    VkResult queuePresentResult = vkQueuePresentKHR(queue, &presentInfo);
     if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         queuePresentResult == VK_SUBOPTIMAL_KHR) {
       vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, queueFamilyIndices,
-                     testVertShader, testFragShader, pipelineLayout, swapChain,
-                     renderPass, graphicsPipeline, swapChainFramebuffers);
+                     swapChainSupportDetails, testVertShader, testFragShader,
+                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainFramebuffers);
     }
 
     currentFrame = (currentFrame + 1) % swapChain.NumColorImages;
@@ -2211,7 +2100,7 @@ int main(int _argc, char **_argv) {
   destroyBuffer(device, quadIndexBuffer);
   destroyBuffer(device, quadVertexBuffer);
 
-  vkDestroyCommandPool(device, transferCmdPool, nullptr);
+  vkDestroyCommandPool(device, transientCmdPool, nullptr);
   for (VkCommandPool cmdPool : graphicsCmdPools) {
     vkDestroyCommandPool(device, cmdPool, nullptr);
   }
