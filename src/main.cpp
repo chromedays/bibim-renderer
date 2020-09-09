@@ -15,6 +15,8 @@
 #include "external/imgui/imgui_impl_sdl.h"
 #include "external/imgui/imgui_impl_vulkan.h"
 #include "external/stb_image.h"
+#include <winuser.h>
+#include <shellscalingapi.h>
 #include <chrono>
 #include <algorithm>
 #include <iterator>
@@ -1243,6 +1245,9 @@ Image createImage() {}
 
 int main(int _argc, char **_argv) {
   using namespace bb;
+
+  SetProcessDPIAware();
+  SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 
   BB_VK_ASSERT(volkInitialize());
 

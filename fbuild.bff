@@ -37,6 +37,7 @@ Settings
                    + ' uuid.lib'
                    + ' odbc32.lib'
                    + ' odbccp32.lib'
+                   + ' shcore.lib'
                    + ' SDL2.lib SDL2main.lib'
     .Defines = {
         'WIN32_LEAN_AND_MEAN'
