@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ----------------------------------------------------------------------
 */
 
-#include <assimp/types.h>
-#include <assimp/IOStream.hpp>
+#include "types.h"
+#include "IOStream.hpp"
 
 #include "ParsingUtils.h"
 

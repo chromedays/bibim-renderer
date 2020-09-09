@@ -54,8 +54,7 @@ Settings
         .WindowsSDKIncludePath,
         .WindowsSDKSharedIncludePath,
         .WindowsSDKUcrtIncludePath,
-        '$VULKAN_SDK$\Include',
-        '$CompilerInputPath$\external'
+        '$VULKAN_SDK$\Include'
     }
 
     .LibPaths = {

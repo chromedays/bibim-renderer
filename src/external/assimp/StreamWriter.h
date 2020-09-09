@@ -48,7 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define AI_STREAMWRITER_H_INCLUDED
 
 #include "ByteSwapper.h"
-#include <assimp/IOStream.hpp>
+#include "IOStream.hpp"
 
 #include <memory>
 #include <vector>

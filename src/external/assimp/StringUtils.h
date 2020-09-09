@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef INCLUDED_AI_STRINGUTILS_H
 #define INCLUDED_AI_STRINGUTILS_H
 
-#include <assimp/defs.h>
+#include "defs.h"
 
 #include <sstream>
 #include <stdarg.h>
