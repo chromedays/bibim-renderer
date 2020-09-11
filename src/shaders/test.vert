@@ -5,6 +5,9 @@ layout (binding = 0) uniform UniformBlock {
     mat4 invModelMat;
     mat4 viewMat;
     mat4 projMat;
+    vec3 viewPos;
+    float roughness;
+    int visualizeOption;
 } ub;
 
 layout (location = 0) in vec3 aPosition;

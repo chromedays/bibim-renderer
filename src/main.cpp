@@ -516,6 +516,9 @@ struct UniformBlock {
   Mat4 InvModelMat;
   Mat4 ViewMat;
   Mat4 ProjMat;
+  Float3 ViewPos;
+  float Roughness;
+  int VisualizeOption;
 };
 
 struct Vertex {
@@ -1539,7 +1542,8 @@ int main(int _argc, char **_argv) {
   descriptorSetLayoutBindings[0].descriptorType =
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorSetLayoutBindings[0].descriptorCount = 1;
-  descriptorSetLayoutBindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  descriptorSetLayoutBindings[0].stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   descriptorSetLayoutBindings[0].pImmutableSamplers = nullptr;
   descriptorSetLayoutBindings[1].binding = 1;
   descriptorSetLayoutBindings[1].descriptorType =
@@ -2078,14 +2082,12 @@ int main(int _argc, char **_argv) {
       direction.Y -= 1;
     }
 
-    float camMovementSpeed = 10.f;
+    float camMovementSpeed = 4.f;
     Float3 camMovement =
         (cam.getRight() * (float)direction.X * camMovementSpeed +
          cam.getLook() * direction.Y * camMovementSpeed) *
         dt;
     cam.Pos += camMovement;
-
-    ImGui::Render();
 
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
         device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphore,
@@ -2118,6 +2120,21 @@ int main(int _argc, char **_argv) {
     uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
+    uniformBlock.ViewPos = cam.Pos;
+    static float roughness = 0.5f;
+    ImGui::SliderFloat("Roughness", &roughness, 0, 1);
+    uniformBlock.Roughness = roughness;
+
+    static int visualizeOption = 0;
+    int i = 0;
+    for (auto option : {"N", "H", "D", "F", "G"}) {
+      if (ImGui::Selectable(option, visualizeOption == i)) {
+        visualizeOption = i;
+      }
+      ++i;
+    }
+    uniformBlock.VisualizeOption = visualizeOption;
+
     {
       void *data;
       vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
@@ -2129,6 +2146,7 @@ int main(int _argc, char **_argv) {
     vkResetCommandPool(device, graphicsCmdPools[currentFrame],
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
+    ImGui::Render();
     recordCommand(graphicsCmdBuffers[currentFrame], renderPass,
                   swapChainFramebuffers[currentFrame], swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer,
