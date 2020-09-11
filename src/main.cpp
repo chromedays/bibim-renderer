@@ -513,6 +513,7 @@ struct Input {
 
 struct UniformBlock {
   Mat4 ModelMat;
+  Mat4 InvModelMat;
   Mat4 ViewMat;
   Mat4 ProjMat;
 };
@@ -2113,6 +2114,7 @@ int main(int _argc, char **_argv) {
     UniformBlock uniformBlock = {};
     uniformBlock.ModelMat = Mat4::translate({0, -1, 2}) * Mat4::rotateY(angle) *
                             Mat4::scale({0.01f, 0.01f, 0.01f});
+    uniformBlock.InvModelMat = uniformBlock.ModelMat.inverse();
     uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);

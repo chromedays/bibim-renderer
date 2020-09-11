@@ -2,6 +2,7 @@
 
 layout (binding = 0) uniform UniformBlock {
     mat4 modelMat;
+    mat4 invModelMat;
     mat4 viewMat;
     mat4 projMat;
 } ub;
@@ -22,5 +23,6 @@ void main() {
     gl_Position = ub.projMat * ub.viewMat * posWorld;
     vColor = aColor;
     vUV = aUV;
-    vNormalWorld = normalize((mat3(ub.modelMat) * aNormal)); // Assuming an uniform transformation
+    mat3 normalMat = transpose(mat3(ub.invModelMat));
+    vNormalWorld = normalize(normalMat * aNormal); // Assuming an uniform transformation
 }
