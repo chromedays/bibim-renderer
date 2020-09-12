@@ -1,5 +1,8 @@
 #version 450
 
+#include "brdf.glsl"
+#include "debug.glsl"
+
 layout (binding = 0) uniform UniformBlock {
     mat4 modelMat;
     mat4 invModelMat;
@@ -18,44 +21,6 @@ layout (location = 3) in vec3 vNormalWorld;
 layout (location = 0) out vec4 outColor;
 
 layout (binding = 1) uniform sampler2D uSampler;
-
-const float PI = 3.1415926535897932384626433832795;
-
-// Trowbridge-Reitz GGX
-float distributionGGX(vec3 N, vec3 H, float a) {
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0);
-    float NdotH2 = NdotH * NdotH;
-
-    float num = a2;
-    float denom = NdotH2 * (a2 - 1) + 1;
-    denom = PI * denom * denom;
-
-    return num / denom;
-}
-
-float geometrySchlickGGX(float NdotV, float k) {
-    float num = NdotV;
-    float denom = NdotV * (1 - k) + k;
-    return num / denom;
-}
-
-float geometrySmith(vec3 N, vec3 V, vec3 L, float k) {
-    float NdotV = max(dot(N, V), 0);
-    float NdotL = max(dot(N, L), 0);
-    float ggx1 = geometrySchlickGGX(NdotV, k);
-    float ggx2 = geometrySchlickGGX(NdotL, k);
-    return ggx1 * ggx2;
-}
-
-float fresnelSchlick(vec3 H, vec3 V, float F0) {
-    return F0 + (1 - F0) * pow(1 - max(dot(H, V), 0), 5);
-}
-
-vec3 colorizeNormal(vec3 n)
-{
-    return (n + vec3(1)) * 0.5;
-}
 
 void main() {
     vec3 lightDir = vec3(-1, -1, 0);
