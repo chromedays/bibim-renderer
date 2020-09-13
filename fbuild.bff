@@ -105,8 +105,10 @@ Settings
 .VSConfigs = {}
 
 .Shaders = {
+    'test.vert',
     'test.frag',
-    'test.vert'
+    'brdf.vert',
+    'brdf.frag',
 }
 
 ForEach (.Shader in .Shaders)

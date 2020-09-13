@@ -15,8 +15,9 @@
 #include "external/imgui/imgui_impl_sdl.h"
 #include "external/imgui/imgui_impl_vulkan.h"
 #include "external/stb_image.h"
-#include <winuser.h>
-#include <shellscalingapi.h>
+#include "vulkan/vulkan_core.h"
+#include <WinUser.h>
+#include <ShellScalingApi.h>
 #include <limits>
 #include <chrono>
 #include <algorithm>
@@ -1537,6 +1538,11 @@ int main(int _argc, char **_argv) {
   VkShaderModule testFragShader = createShaderModuleFromFile(
       device, resourceRootPath + "..\\src\\shaders\\test.frag.spv");
 
+  VkShaderModule brdfVertShader = createShaderModuleFromFile(
+      device, resourceRootPath + "..\\src\\shaders\\brdf.vert.spv");
+  VkShaderModule brdfFragShader = createShaderModuleFromFile(
+      device, resourceRootPath + "..\\src\\shaders\\brdf.frag.spv");
+
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2] = {};
   descriptorSetLayoutBindings[0].binding = 0;
   descriptorSetLayoutBindings[0].descriptorType =
@@ -2229,6 +2235,8 @@ int main(int _argc, char **_argv) {
 
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+  vkDestroyShaderModule(device, brdfVertShader, nullptr);
+  vkDestroyShaderModule(device, brdfFragShader, nullptr);
   vkDestroyShaderModule(device, testVertShader, nullptr);
   vkDestroyShaderModule(device, testFragShader, nullptr);
   vkDestroyDevice(device, nullptr);
