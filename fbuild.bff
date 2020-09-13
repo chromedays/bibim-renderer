@@ -118,6 +118,7 @@ ForEach (.Shader in .Shaders)
         .ExecOutput = '$ExecInput$.spv'
         .ExecArguments = '"%1" -o "%2"'
         .ExecUseStdOutAsOutput = false
+        .ExecAlways = true
     }
 }
 
