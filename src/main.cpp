@@ -1,4 +1,7 @@
-
+#include "util.h"
+#include "gui.h"
+#include "container.h"
+#include "vector_math.h"
 #include "external/volk.h"
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
@@ -21,446 +24,26 @@
 #include <limits>
 #include <chrono>
 #include <algorithm>
-#include <iterator>
-#include <unordered_map>
-#include <vector>
-#include <array>
 #include <optional>
 #include <numeric>
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
 
-#if BB_DEBUG
-#if BB_WINDOWS
-#define BB_ASSERT(exp)                                                         \
-  do {                                                                         \
-    if (!(exp)) {                                                              \
-      BB_LOG_ERROR("ASSERT TRIGGERED: {}", #exp);                              \
-      __debugbreak();                                                          \
-    }                                                                          \
-  } while (0)
-#else
-#define BB_ASSERT(exp) assert(exp)
-#endif
-#define BB_LOG_INFO(...) bb::log(bb::LogLevel::Info, __VA_ARGS__)
-#define BB_LOG_WARNING(...) bb::log(bb::LogLevel::Warning, __VA_ARGS__)
-#define BB_LOG_ERROR(...) bb::log(bb::LogLevel::Error, __VA_ARGS__)
-#else
-#define BB_ASSERT(exp)
-#define BB_LOG_INFO(...)
-#define BB_LOG_WARNING(...)
-#define BB_LOG_ERROR(...)
-#endif
-#define BB_VK_ASSERT(exp)                                                      \
-  do {                                                                         \
-    auto result##__LINE__ = exp;                                               \
-    BB_ASSERT(result##__LINE__ == VK_SUCCESS);                                 \
-  } while (0)
-
-namespace ImGui {
-template <typename... Args> void TextFmt(Args... args) {
-  std::string formatted = fmt::format(args...);
-  ImGui::Text(formatted.c_str());
-}
-} // namespace ImGui
-
 namespace bb {
 
-template <typename T> uint32_t size_bytes32(const T &_container) {
-  return (uint32_t)(sizeof(typename T::value_type) * _container.size());
+VkExtent2D int2ToExtent2D(Int2 _v) {
+  BB_ASSERT(_v.X > 0 && _v.Y > 0);
+  return {(uint32_t)_v.X, (uint32_t)_v.Y};
 }
 
-enum class LogLevel { Info, Warning, Error };
-
-template <typename... Args> void print(Args... args) {
-  std::string formatted = fmt::format(args...);
-  formatted += "\n";
-  OutputDebugStringA(formatted.c_str());
-  printf("%s", formatted.c_str());
+VkExtent3D int2ToExtent3D(Int2 _v) {
+  BB_ASSERT(_v.X > 0 && _v.Y > 0);
+  return {(uint32_t)_v.X, (uint32_t)_v.Y, 1};
 }
 
-template <typename... Args> void log(LogLevel level, Args... args) {
-  switch (level) {
-  case LogLevel::Info:
-    OutputDebugStringA("[Info]:    ");
-    break;
-  case LogLevel::Warning:
-    OutputDebugStringA("[Warning]: ");
-    break;
-  case LogLevel::Error:
-    OutputDebugStringA("[Error]:   ");
-    break;
-  }
-
-  print(args...);
-}
-
-template <typename E, typename T> struct EnumArray {
-  T Elems[(int)(E::COUNT)] = {};
-
-  const T &operator[](E _e) const { return Elems[(int)_e]; }
-
-  T &operator[](E _e) { return Elems[(int)_e]; }
-
-  T *begin() { return Elems; }
-
-  T *end() { return Elems + (size_t)(E::COUNT); }
-
-  static_assert(std::is_enum_v<E>);
-  static_assert((int64_t)(E::COUNT) > 0);
-};
-
-using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
-
-Time getCurrentTime() { return std::chrono::high_resolution_clock::now(); }
-
-static_assert(sizeof(Time) <= sizeof(Time *));
-float getElapsedTimeInSeconds(Time _start, Time _end) {
-  float result = (float)(std::chrono::duration_cast<std::chrono::milliseconds>(
-                             _end - _start)
-                             .count()) /
-                 1000.f;
-  return result;
-}
-
-constexpr float pi32 = 3.141592f;
-
-constexpr float epsilon32 = std::numeric_limits<float>::epsilon();
-
-int compareFloats(float a, float b) {
-  float diff = a - b;
-  if (diff < 0) {
-    diff = -diff;
-  }
-
-  if (diff <= epsilon32) {
-    return 0;
-  } else if (a > b) {
-    return -1;
-  } else {
-    return 1;
-  }
-}
-
-float degToRad(float _degrees) { return _degrees * pi32 / 180.f; }
-
-float radToDeg(float _radians) { return _radians * 180.f / pi32; }
-
-struct Int2 {
-  int X = 0;
-  int Y = 0;
-
-  VkExtent2D toExtent2D() {
-    BB_ASSERT(X > 0 && Y > 0);
-    return {(uint32_t)X, (uint32_t)Y};
-  }
-
-  VkExtent3D toExtent3D() {
-    BB_ASSERT(X > 0 && Y > 0);
-    return {(uint32_t)X, (uint32_t)Y, 1};
-  }
-
-  Int2 operator-(Int2 _other) const { return {X - _other.X, Y - _other.Y}; }
-};
-
-struct Float2 {
-  float X = 0.f;
-  float Y = 0.f;
-};
-
-inline float dot(Float2 _a, Float2 _b) { return _a.X * _b.X + _a.Y * _b.Y; }
-
-struct Float3 {
-  float X = 0.f;
-  float Y = 0.f;
-  float Z = 0.f;
-
-  static Float3 fromAssimpVector3(const aiVector3D &_aiVec3) {
-    Float3 result = {_aiVec3.x, _aiVec3.y, _aiVec3.z};
-    return result;
-  }
-
-  float lengthSq() const {
-    float result = X * X + Y * Y + Z * Z;
-    return result;
-  }
-
-  float length() const {
-    float result = sqrtf(lengthSq());
-    return result;
-  }
-
-  Float3 normalize() const {
-    float len = length();
-    Float3 result = *this / len;
-    return result;
-  }
-
-  Float3 operator+(const Float3 &_other) const {
-    Float3 result = {X + _other.X, Y + _other.Y, Z + _other.Z};
-    return result;
-  }
-
-  Float3 operator-(const Float3 &_other) const {
-    Float3 result = {X - _other.X, Y - _other.Y, Z - _other.Z};
-    return result;
-  }
-
-  Float3 operator*(float _multiplier) const {
-    Float3 result = {X * _multiplier, Y * _multiplier, Z * _multiplier};
-    return result;
-  }
-
-  Float3 operator/(float _divider) const {
-    Float3 result = {X / _divider, Y / _divider, Z / _divider};
-    return result;
-  }
-
-  const Float3 &operator+=(const Float3 &_other) {
-    *this = *this + _other;
-    return *this;
-  }
-};
-
-inline float dot(const Float3 &_a, const Float3 &_b) {
-  return _a.X * _b.X + _a.Y * _b.Y + _a.Z * _b.Z;
-}
-
-inline Float3 cross(const Float3 &_a, const Float3 &_b) {
-  Float3 result = {
-      _a.Y * _b.Z - _a.Z * _b.Y,
-      _a.Z * _b.X - _a.X * _b.Z,
-      _a.X * _b.Y - _a.Y * _b.X,
-  };
-  return result;
-}
-
-struct Float4 {
-  float X = 0.f;
-  float Y = 0.f;
-  float Z = 0.f;
-  float W = 0.f;
-};
-
-inline float dot(const Float4 &_a, const Float4 &_b) {
-  return _a.X * _b.X + _a.Y * _b.Y + _a.Z * _b.Z + _a.W * _b.W;
-}
-
-struct Mat3 {
-  float M[3][3] = {};
-
-  float determinant() const {
-    float result = M[0][0] * (M[1][1] * M[2][2] - M[2][1] * M[1][2]) -
-                   M[1][0] * (M[0][1] * M[2][2] - M[2][1] * M[0][2]) +
-                   M[2][0] * (M[0][1] * M[1][2] - M[1][1] * M[0][2]);
-    return result;
-  }
-};
-
-struct Mat4 {
-  float M[4][4] = {};
-
-  Float4 row(int _n) const {
-    BB_ASSERT(_n >= 0 && _n < 4);
-    return {M[0][_n], M[1][_n], M[2][_n], M[3][_n]};
-  }
-
-  Float4 column(int _n) const {
-    BB_ASSERT(_n >= 0 && _n < 4);
-    return {M[_n][0], M[_n][1], M[_n][2], M[_n][3]};
-  }
-
-  float cofactor(int _row, int _col) const {
-    Mat3 minor;
-    int minorRow = 0;
-    int minorCol = 0;
-    for (int c = 0; c < 4; ++c) {
-      for (int r = 0; r < 4; ++r) {
-        if (r != _row && c != _col) {
-          minor.M[minorCol][minorRow++] = M[c][r];
-          if (minorRow == 3) {
-            minorRow = 0;
-            ++minorCol;
-          }
-        }
-      }
-    }
-
-    float sign = ((_row + _col) % 2) ? -1.f : 1.f;
-    float result = minor.determinant() * sign;
-    return result;
-  }
-
-  Mat4 inverse() const;
-
-  Mat4 transpose() const {
-    Mat4 transposed;
-    for (int r = 0; r < 4; ++r) {
-      for (int c = 0; c < 4; ++c) {
-        transposed.M[c][r] = M[r][c];
-      }
-    }
-
-    return transposed;
-  }
-
-  static Mat4 identity() {
-    return {{
-        {1, 0, 0, 0},
-        {0, 1, 0, 0},
-        {0, 0, 1, 0},
-        {0, 0, 0, 1},
-    }};
-  }
-
-  static Mat4 translate(const Float3 &_delta) {
-    // clang-format off
-    return {{
-      {1, 0, 0, 0},
-      {0, 1, 0, 0},
-      {0, 0, 1, 0},
-      {_delta.X, _delta.Y, _delta.Z, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 scale(const Float3 &_scale) {
-    // clang-format off
-    return {{
-      {_scale.X, 0, 0, 0},
-      {0, _scale.Y, 0, 0},
-      {0, 0, _scale.Z, 0},
-      {0, 0, 0, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 scale(float _scale) {
-    // clang-format off
-    return {{
-      {_scale, 0, 0, 0},
-      {0, _scale, 0, 0},
-      {0, 0, _scale, 0},
-      {0, 0, 0, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 rotateX(float _degrees) {
-    float radians = degToRad(_degrees);
-    float cr = cosf(radians);
-    float sr = sinf(radians);
-    // clang-format off
-    return {{
-      {1, 0,   0,  0},
-      {0, cr,  sr, 0},
-      {0, -sr, cr, 0},
-      {0, 0,   0,  1},
-    }};
-    // clang-format on
-  };
-
-  static Mat4 rotateY(float _degrees) {
-    float radians = degToRad(_degrees);
-    float cr = cosf(radians);
-    float sr = sinf(radians);
-    // clang-format off
-    return {{
-      {cr,  0, sr, 0},
-      {0,   1, 0,  0},
-      {-sr, 0, cr, 0},
-      {0,   0, 0,  1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 rotateZ(float _degrees) {
-    float radians = degToRad(_degrees);
-    float cr = cosf(radians);
-    float sr = sinf(radians);
-    // clang-format off
-    return {{
-      {cr,  sr, 0, 0},
-      {-sr, cr, 0, 0},
-      {0,   0,  1, 0},
-      {0,   0,  0, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
-                     const Float3 &_upAxis = {0, 1, 0}) {
-    Float3 forward = (_target - _eye).normalize();
-    Float3 right = cross(_upAxis, forward).normalize();
-    Float3 up = cross(forward, right).normalize();
-
-    // clang-format off
-    return {{
-      {right.X, up.X, forward.X, 0},
-      {right.Y, up.Y, forward.Y, 0},
-      {right.Z, up.Z, forward.Z, 0},
-      {-dot(_eye, right), -dot(_eye, up), -dot(_eye, forward), 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 perspective(float _fovDegrees, float aspectRatio, float nearZ,
-                          float farZ) {
-    float d = 1.f / tan(degToRad(_fovDegrees) * 0.5f);
-    float fSubN = farZ - nearZ;
-    // clang-format off
-    Mat4 result = {{
-      {d / aspectRatio, 0, 0,                    0},
-      {0,               -d, 0,                    0},
-      {0,               0, -nearZ / fSubN,       1},
-      {0,               0, nearZ * farZ / fSubN, 0},
-    }};
-    // clang-format on
-    return result;
-  }
-};
-
-inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
-  Float4 rows[4] = {_a.row(0), _a.row(1), _a.row(2), _a.row(3)};
-  Float4 columns[4] = {_b.column(0), _b.column(1), _b.column(2), _b.column(3)};
-  Mat4 result;
-  for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < 4; ++j) {
-      result.M[j][i] = dot(rows[i], columns[j]);
-    }
-  }
-  return result;
-}
-
-inline Mat4 operator/(const Mat4 &_a, float b) {
-  Mat4 result = _a;
-  for (int c = 0; c < 4; ++c) {
-    for (int r = 0; r < 4; ++r) {
-      result.M[c][r] /= b;
-    }
-  }
-  return result;
-}
-
-Mat4 Mat4::inverse() const {
-  Mat4 adjoint;
-  for (int c = 0; c < 4; ++c) {
-    for (int r = 0; r < 4; ++r) {
-      adjoint.M[c][r] = cofactor(r, c);
-    }
-  }
-
-  float det = 0.f;
-  for (int i = 0; i < 4; ++i) {
-    det += M[i][0] * adjoint.M[i][0];
-  }
-
-  BB_ASSERT(compareFloats(det, 0.f) != 0);
-
-  adjoint = adjoint.transpose();
-
-  Mat4 result = adjoint / det;
+Float3 aiVector3DToFloat3(const aiVector3D &_aiVec3) {
+  Float3 result = {_aiVec3.x, _aiVec3.y, _aiVec3.z};
   return result;
 }
 
@@ -1408,14 +991,12 @@ int main(int _argc, char **_argv) {
 
     for (int j = 0; j < 3; ++j) {
       Vertex v = {};
-      v.Pos = Float3::fromAssimpVector3(
-          shaderBallMesh->mVertices[face.mIndices[j]]);
+      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[face.mIndices[j]]);
       std::swap(v.Pos.Y, v.Pos.Z);
       v.Pos.Z *= -1.f;
       v.UV.X = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].x;
       v.UV.Y = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].y;
-      v.Normal =
-          Float3::fromAssimpVector3(shaderBallMesh->mNormals[face.mIndices[j]]);
+      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[face.mIndices[j]]);
       std::swap(v.Normal.Y, v.Normal.Z);
       v.Normal.Z *= -1.f;
       shaderBallVertices.push_back(v);
@@ -1830,7 +1411,7 @@ int main(int _argc, char **_argv) {
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
     region.imageOffset = {0, 0, 0};
-    region.imageExtent = textureDims.toExtent3D();
+    region.imageExtent = int2ToExtent3D(textureDims);
     vkCmdCopyBufferToImage(cmdBuffer, textureStagingBuffer.Handle, textureImage,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
