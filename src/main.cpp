@@ -517,8 +517,11 @@ struct UniformBlock {
   Mat4 InvModelMat;
   Mat4 ViewMat;
   Mat4 ProjMat;
-  Float3 ViewPos;
+  alignas(16) Float3 ViewPos;
+  alignas(16) Float3 Albedo;
+  float Metallic;
   float Roughness;
+  float AO;
   int VisualizeOption;
 };
 
@@ -2154,9 +2157,18 @@ int main(int _argc, char **_argv) {
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     uniformBlock.ViewPos = cam.Pos;
+    static float albedo[3] = {1, 1, 1};
+    ImGui::ColorPicker3("Albedo", albedo);
+    uniformBlock.Albedo = {albedo[0], albedo[1], albedo[2]};
+    static float metallic = 0;
+    ImGui::SliderFloat("Metallic", &metallic, 0, 1);
+    uniformBlock.Metallic = metallic;
     static float roughness = 0.5f;
     ImGui::SliderFloat("Roughness", &roughness, 0.1f, 1);
     uniformBlock.Roughness = roughness;
+    static float ao = 1;
+    ImGui::SliderFloat("AO", &ao, 0, 1);
+    uniformBlock.AO = ao;
 
     static int visualizeOption = 0;
     int i = 0;
