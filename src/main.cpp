@@ -524,7 +524,6 @@ struct UniformBlock {
 
 struct Vertex {
   Float3 Pos;
-  Float3 Color;
   Float2 UV;
   Float3 Normal = {0, 0, -1};
 
@@ -536,24 +535,20 @@ struct Vertex {
     return bindingDesc;
   }
 
-  static std::array<VkVertexInputAttributeDescription, 4> getAttributeDescs() {
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescs = {};
+  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs() {
+    std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescs[0].offset = offsetof(Vertex, Pos);
     attributeDescs[1].binding = 0;
     attributeDescs[1].location = 1;
-    attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescs[1].offset = offsetof(Vertex, Color);
+    attributeDescs[1].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescs[1].offset = offsetof(Vertex, UV);
     attributeDescs[2].binding = 0;
     attributeDescs[2].location = 2;
-    attributeDescs[2].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescs[2].offset = offsetof(Vertex, UV);
-    attributeDescs[3].binding = 0;
-    attributeDescs[3].location = 3;
-    attributeDescs[3].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescs[3].offset = offsetof(Vertex, Normal);
+    attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[2].offset = offsetof(Vertex, Normal);
 
     return attributeDescs;
   }
@@ -957,11 +952,49 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
 }
 
+struct Shader {
+  VkShaderModule Vert;
+  VkShaderModule Frag;
+};
+
+VkShaderModule createShaderModuleFromFile(VkDevice _device,
+                                          const std::string &_filePath) {
+  FILE *f = fopen(_filePath.c_str(), "rb");
+  BB_ASSERT(f);
+  fseek(f, 0, SEEK_END);
+  long fileSize = ftell(f);
+  rewind(f);
+  uint8_t *contents = new uint8_t[fileSize];
+  fread(contents, sizeof(*contents), fileSize, f);
+
+  VkShaderModuleCreateInfo createInfo = {};
+  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  createInfo.codeSize = fileSize;
+  createInfo.pCode = (uint32_t *)contents;
+  VkShaderModule shaderModule;
+  BB_VK_ASSERT(
+      vkCreateShaderModule(_device, &createInfo, nullptr, &shaderModule));
+
+  delete[] contents;
+  fclose(f);
+
+  return shaderModule;
+}
+
+Shader createShaderFromFile(VkDevice _device,
+                            const std::string &_vertShaderFilePath,
+                            const std::string &_fragShaderFilePath) {
+  Shader result = {};
+  result.Vert = createShaderModuleFromFile(_device, _vertShaderFilePath);
+  result.Frag = createShaderModuleFromFile(_device, _fragShaderFilePath);
+
+  return result;
+}
+
 void initReloadableResources(
     VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
     const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const SwapChain *_oldSwapChain,
-    VkShaderModule _vertShader, VkShaderModule _fragShader,
+    uint32_t _height, const SwapChain *_oldSwapChain, const Shader &_shader,
     VkPipelineLayout _pipelineLayout, SwapChain *_outSwapChain,
     VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
@@ -973,15 +1006,15 @@ void initReloadableResources(
   VkPipelineShaderStageCreateInfo shaderStages[2] = {};
   shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  shaderStages[0].module = _vertShader;
+  shaderStages[0].module = _shader.Vert;
   shaderStages[0].pName = "main";
   shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  shaderStages[1].module = _fragShader;
+  shaderStages[1].module = _shader.Frag;
   shaderStages[1].pName = "main";
 
   VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDesc();
-  std::array<VkVertexInputAttributeDescription, 4> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 3> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -1203,9 +1236,9 @@ void cleanupReloadableResources(
 void onWindowResize(SDL_Window *_window, VkDevice _device,
                     VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
                     const SwapChainSupportDetails &_swapChainSupportDetails,
-                    VkShaderModule _vertShader, VkShaderModule _fragShader,
-                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
-                    VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
+                    const Shader &_shader, VkPipelineLayout _pipelineLayout,
+                    SwapChain &_swapChain, VkRenderPass &_renderPass,
+                    VkPipeline &_graphicsPipeline,
                     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   int width = 0, height = 0;
 
@@ -1219,34 +1252,10 @@ void onWindowResize(SDL_Window *_window, VkDevice _device,
   cleanupReloadableResources(_device, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
-  initReloadableResources(
-      _device, _physicalDevice, _surface, _swapChainSupportDetails, width,
-      height, nullptr, _vertShader, _fragShader, _pipelineLayout, &_swapChain,
-      &_renderPass, &_graphicsPipeline, &_swapChainFramebuffers);
-}
-
-VkShaderModule createShaderModuleFromFile(VkDevice _device,
-                                          const std::string &_filePath) {
-  FILE *f = fopen(_filePath.c_str(), "rb");
-  BB_ASSERT(f);
-  fseek(f, 0, SEEK_END);
-  long fileSize = ftell(f);
-  rewind(f);
-  uint8_t *contents = new uint8_t[fileSize];
-  fread(contents, sizeof(*contents), fileSize, f);
-
-  VkShaderModuleCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = fileSize;
-  createInfo.pCode = (uint32_t *)contents;
-  VkShaderModule shaderModule;
-  BB_VK_ASSERT(
-      vkCreateShaderModule(_device, &createInfo, nullptr, &shaderModule));
-
-  delete[] contents;
-  fclose(f);
-
-  return shaderModule;
+  initReloadableResources(_device, _physicalDevice, _surface,
+                          _swapChainSupportDetails, width, height, nullptr,
+                          _shader, _pipelineLayout, &_swapChain, &_renderPass,
+                          &_graphicsPipeline, &_swapChainFramebuffers);
 }
 
 Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
@@ -1338,6 +1347,25 @@ struct Image {
 };
 
 Image createImage() {}
+#endif
+
+void destroyShader(VkDevice _device, Shader &_shader) {
+  vkDestroyShaderModule(_device, _shader.Vert, nullptr);
+  vkDestroyShaderModule(_device, _shader.Frag, nullptr);
+  _shader = {};
+}
+
+#if 0
+
+struct RenderingResources
+{
+  VkInstance Instance;
+  VkSurfaceKHR Surface;
+  VkPhysicalDevice PhysicalDevice;
+  VkDevice Device;
+  VkQueue Queue;
+};
+
 #endif
 
 } // namespace bb
@@ -1533,15 +1561,14 @@ int main(int _argc, char **_argv) {
   VkQueue queue = VK_NULL_HANDLE;
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
 
-  VkShaderModule testVertShader = createShaderModuleFromFile(
-      device, resourceRootPath + "..\\src\\shaders\\test.vert.spv");
-  VkShaderModule testFragShader = createShaderModuleFromFile(
-      device, resourceRootPath + "..\\src\\shaders\\test.frag.spv");
+  std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
 
-  VkShaderModule brdfVertShader = createShaderModuleFromFile(
-      device, resourceRootPath + "..\\src\\shaders\\brdf.vert.spv");
-  VkShaderModule brdfFragShader = createShaderModuleFromFile(
-      device, resourceRootPath + "..\\src\\shaders\\brdf.frag.spv");
+  Shader testShader =
+      createShaderFromFile(device, shaderRootPath + "test.vert.spv",
+                           shaderRootPath + "test.frag.spv");
+  Shader brdfShader =
+      createShaderFromFile(device, shaderRootPath + "brdf.vert.spv",
+                           shaderRootPath + "brdf.frag.spv");
 
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2] = {};
   descriptorSetLayoutBindings[0].binding = 0;
@@ -1585,10 +1612,10 @@ int main(int _argc, char **_argv) {
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(
-      device, physicalDevice, surface, swapChainSupportDetails, width, height,
-      nullptr, testVertShader, testFragShader, pipelineLayout, &swapChain,
-      &renderPass, &graphicsPipeline, &swapChainFramebuffers);
+  initReloadableResources(device, physicalDevice, surface,
+                          swapChainSupportDetails, width, height, nullptr,
+                          brdfShader, pipelineLayout, &swapChain, &renderPass,
+                          &graphicsPipeline, &swapChainFramebuffers);
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1622,15 +1649,15 @@ int main(int _argc, char **_argv) {
 
   // clang-format off
   std::vector<Vertex> quadVertices = {
-      {{-0.5f, -0.5f, 0}, {1.0f, 0.0f, 0.0f}, {0, 0}},
-      {{0.5f, -0.5f, 0}, {0.0f, 1.0f, 0.0f}, {1, 0}},
-      {{0.5f, 0.5f, 0}, {0.0f, 0.0f, 1.0f}, {1, 1}},
-      {{-0.5f, 0.5f, 0}, {1.0f, 1.0f, 1.0f}, {0, 1}},
+      {{-0.5f, -0.5f, 0}, {0, 0}},
+      {{0.5f, -0.5f, 0},  {1, 0}},
+      {{0.5f, 0.5f, 0},  {1, 1}},
+      {{-0.5f, 0.5f, 0}, {0, 1}},
 
-      {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0, 0}},
-      {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1, 0}},
-      {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1, 1}},
-      {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0, 1}}};
+      {{-0.5f, -0.5f, -0.5f}, {0, 0}},
+      {{0.5f, -0.5f, -0.5f},  {1, 0}},
+      {{0.5f, 0.5f, -0.5f}, {1, 1}},
+      {{-0.5f, 0.5f, -0.5f},  {0, 1}}};
 
   std::vector<uint32_t> quadIndices = {
     4, 5, 6, 6, 7, 4,
@@ -2104,8 +2131,8 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, testVertShader, testFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainSupportDetails, brdfShader, pipelineLayout,
+                     swapChain, renderPass, graphicsPipeline,
                      swapChainFramebuffers);
       continue;
     }
@@ -2128,7 +2155,7 @@ int main(int _argc, char **_argv) {
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     uniformBlock.ViewPos = cam.Pos;
     static float roughness = 0.5f;
-    ImGui::SliderFloat("Roughness", &roughness, 0, 1);
+    ImGui::SliderFloat("Roughness", &roughness, 0.1f, 1);
     uniformBlock.Roughness = roughness;
 
     static int visualizeOption = 0;
@@ -2189,8 +2216,8 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, testVertShader, testFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainSupportDetails, brdfShader, pipelineLayout,
+                     swapChain, renderPass, graphicsPipeline,
                      swapChainFramebuffers);
     }
 
@@ -2235,10 +2262,8 @@ int main(int _argc, char **_argv) {
 
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-  vkDestroyShaderModule(device, brdfVertShader, nullptr);
-  vkDestroyShaderModule(device, brdfFragShader, nullptr);
-  vkDestroyShaderModule(device, testVertShader, nullptr);
-  vkDestroyShaderModule(device, testFragShader, nullptr);
+  destroyShader(device, brdfShader);
+  destroyShader(device, testShader);
   vkDestroyDevice(device, nullptr);
   vkDestroySurfaceKHR(instance, surface, nullptr);
   if (messenger != VK_NULL_HANDLE) {
