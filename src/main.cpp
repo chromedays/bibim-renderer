@@ -441,8 +441,8 @@ struct Vertex {
     return bindingDescs;
   }
 
-  static std::array<VkVertexInputAttributeDescription, 4> getAttributeDescs() {
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescs = {};
+  static std::array<VkVertexInputAttributeDescription, 16> getAttributeDescs() {
+    std::array<VkVertexInputAttributeDescription, 16> attributeDescs = {};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -460,8 +460,7 @@ struct Vertex {
     attributeDescs[3].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescs[3].offset = offsetof(Vertex, Normal);
 
-
-     uint32_t vec4Offset = (uint32_t)(sizeof(float) * 4);
+    uint32_t vec4Offset = (uint32_t)(sizeof(float) * 4);
 
     attributeDescs[4].binding = 1;
     attributeDescs[4].location = 4;
@@ -476,14 +475,59 @@ struct Vertex {
     attributeDescs[6].binding = 1;
     attributeDescs[6].location = 6;
     attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescs[6].offset = offsetof(UniformBlock, ModelMat) + (2 * vec4Offset);
+    attributeDescs[6].offset =
+        offsetof(UniformBlock, ModelMat) + (2 * vec4Offset);
 
     attributeDescs[7].binding = 1;
     attributeDescs[7].location = 7;
     attributeDescs[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescs[7].offset = offsetof(UniformBlock, ModelMat) + (3 * vec4Offset);
-    
-4567
+    attributeDescs[7].offset =
+        offsetof(UniformBlock, ModelMat) + (3 * vec4Offset);
+
+    attributeDescs[8].binding = 1;
+    attributeDescs[8].location = 8;
+    attributeDescs[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[8].offset = offsetof(UniformBlock, ViewMat);
+
+    attributeDescs[9].binding = 1;
+    attributeDescs[9].location = 9;
+    attributeDescs[9].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[9].offset = offsetof(UniformBlock, ViewMat) + vec4Offset;
+
+    attributeDescs[10].binding = 1;
+    attributeDescs[10].location = 10;
+    attributeDescs[10].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[10].offset =
+        offsetof(UniformBlock, ViewMat) + (2 * vec4Offset);
+
+    attributeDescs[11].binding = 1;
+    attributeDescs[11].location = 11;
+    attributeDescs[11].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[11].offset =
+        offsetof(UniformBlock, ViewMat) + (3 * vec4Offset);
+
+    attributeDescs[12].binding = 1;
+    attributeDescs[12].location = 12;
+    attributeDescs[12].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[12].offset = offsetof(UniformBlock, ProjMat);
+
+    attributeDescs[13].binding = 1;
+    attributeDescs[13].location = 13;
+    attributeDescs[13].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[13].offset = offsetof(UniformBlock, ProjMat) + vec4Offset;
+
+    attributeDescs[14].binding = 1;
+    attributeDescs[14].location = 14;
+    attributeDescs[14].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[14].offset =
+        offsetof(UniformBlock, ProjMat) + (2 * vec4Offset);
+
+    attributeDescs[15].binding = 1;
+    attributeDescs[15].location = 15;
+    attributeDescs[15].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[15].offset =
+        offsetof(UniformBlock, ProjMat) + (3 * vec4Offset);
+
     return attributeDescs;
   }
 };
@@ -843,10 +887,12 @@ void destroySwapChain(VkDevice _device, SwapChain &_swapChain) {
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
-                   const Buffer &_vertexBuffer, const Buffer &_instanceBuffer, const Buffer &_indexBuffer,
-                   VkImage textureImage, VkPipelineLayout _pipelineLayout,
+                   const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
+                   const Buffer &_indexBuffer, VkImage textureImage,
+                   VkPipelineLayout _pipelineLayout,
                    VkDescriptorSet _descriptorSet,
-                   const std::vector<uint32_t> &_indices) {
+                   const std::vector<uint32_t> &_indices,
+                   uint32_t _numInstance) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -878,8 +924,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                        VK_INDEX_TYPE_UINT32);
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
-  
-  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
+
+  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstance, 0, 0,
+                   0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
 
@@ -911,13 +958,15 @@ void initReloadableResources(
   shaderStages[1].module = _fragShader;
   shaderStages[1].pName = "main";
 
-  std::array<VkVertexInputBindingDescription, 2> bindingDescs = Vertex::getBindingDesc();
-  std::array<VkVertexInputAttributeDescription, 4> attributeDescs =
+  std::array<VkVertexInputBindingDescription, 2> bindingDescs =
+      Vertex::getBindingDesc();
+  std::array<VkVertexInputAttributeDescription, 16> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertexInputState.vertexBindingDescriptionCount = (uint32_t)bindingDescs.size();
+  vertexInputState.vertexBindingDescriptionCount =
+      (uint32_t)bindingDescs.size();
   vertexInputState.pVertexBindingDescriptions = bindingDescs.data();
   vertexInputState.vertexAttributeDescriptionCount =
       (uint32_t)attributeDescs.size();
@@ -1945,6 +1994,16 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
+  uint32_t numInstance = 300;
+
+  std::vector<UniformBlock> instanceData(numInstance);
+
+  Buffer instanceBuffer = createBuffer(
+      device, physicalDevice, size_bytes32(instanceData),
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
   FreeLookCamera cam = {};
   Input input = {};
 
@@ -2044,24 +2103,19 @@ int main(int _argc, char **_argv) {
       angle -= 360;
     }
 
-    std::vector<UniformBlock> instanceData(3);
-    for(int i =0; i < instanceData.size(); i++)
-    {
-      instanceData[i].ModelMat = Mat4::translate({(float)i, -1, 2}) * Mat4::rotateY(angle) *
-                            Mat4::scale({0.01f, 0.01f, 0.01f});
+    for (int i = 0; i < instanceData.size(); i++) {
+      instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
+                                 Mat4::rotateY(angle) *
+                                 Mat4::scale({0.01f, 0.01f, 0.01f});
       instanceData[i].ViewMat = cam.getViewMatrix();
       instanceData[i].ProjMat =
           Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     }
-    Buffer instanceBuffer = createBuffer(
-    device, physicalDevice, size_bytes32(instanceData),
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT );
 
     {
       void *data;
-      vkMapMemory(device, instanceBuffer.Memory, 0,
-                  instanceBuffer.Size, 0, &data);
+      vkMapMemory(device, instanceBuffer.Memory, 0, instanceBuffer.Size, 0,
+                  &data);
       memcpy(data, instanceData.data(), instanceBuffer.Size);
       vkUnmapMemory(device, instanceBuffer.Memory);
     }
@@ -2073,7 +2127,7 @@ int main(int _argc, char **_argv) {
                   swapChainFramebuffers[currentFrame], swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
                   shaderBallIndexBuffer, textureImage, pipelineLayout,
-                  descriptorSets[currentFrame], shaderBallIndices);
+                  descriptorSets[currentFrame], shaderBallIndices, numInstance);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2138,6 +2192,7 @@ int main(int _argc, char **_argv) {
   vkFreeMemory(device, textureImageMemory, nullptr);
   destroyBuffer(device, shaderBallIndexBuffer);
   destroyBuffer(device, shaderBallVertexBuffer);
+  destroyBuffer(device, instanceBuffer);
   destroyBuffer(device, quadIndexBuffer);
   destroyBuffer(device, quadVertexBuffer);
 
