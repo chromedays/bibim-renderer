@@ -1,8 +1,6 @@
 #pragma once
-#include <vector>
-#include <unordered_map>
-#include <array>
-#include <iterator>
+#include <type_traits>
+#include <stdint.h>
 
 namespace bb {
 
