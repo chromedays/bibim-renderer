@@ -1,4 +1,7 @@
-
+#include "util.h"
+#include "gui.h"
+#include "container.h"
+#include "vector_math.h"
 #include "external/volk.h"
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
@@ -15,355 +18,32 @@
 #include "external/imgui/imgui_impl_sdl.h"
 #include "external/imgui/imgui_impl_vulkan.h"
 #include "external/stb_image.h"
+#include "vulkan/vulkan_core.h"
+#include <WinUser.h>
+#include <ShellScalingApi.h>
+#include <limits>
 #include <chrono>
 #include <algorithm>
-#include <iterator>
-#include <unordered_map>
-#include <vector>
-#include <array>
 #include <optional>
 #include <numeric>
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
 
-#if BB_DEBUG
-#if BB_WINDOWS
-#define BB_ASSERT(exp)                                                         \
-  do {                                                                         \
-    if (!(exp)) {                                                              \
-      BB_LOG_ERROR("ASSERT TRIGGERED: {}", #exp);                              \
-      __debugbreak();                                                          \
-    }                                                                          \
-  } while (0)
-#else
-#define BB_ASSERT(exp) assert(exp)
-#endif
-#define BB_LOG_INFO(...) bb::log(bb::LogLevel::Info, __VA_ARGS__)
-#define BB_LOG_WARNING(...) bb::log(bb::LogLevel::Warning, __VA_ARGS__)
-#define BB_LOG_ERROR(...) bb::log(bb::LogLevel::Error, __VA_ARGS__)
-#else
-#define BB_ASSERT(exp)
-#define BB_LOG_INFO(...)
-#define BB_LOG_WARNING(...)
-#define BB_LOG_ERROR(...)
-#endif
-#define BB_VK_ASSERT(exp)                                                      \
-  do {                                                                         \
-    auto result##__LINE__ = exp;                                               \
-    BB_ASSERT(result##__LINE__ == VK_SUCCESS);                                 \
-  } while (0)
-
-namespace ImGui {
-template <typename... Args> void TextFmt(Args... args) {
-  std::string formatted = fmt::format(args...);
-  ImGui::Text(formatted.c_str());
-}
-} // namespace ImGui
-
 namespace bb {
 
-template <typename T> uint32_t size_bytes32(const T &_container) {
-  return (uint32_t)(sizeof(typename T::value_type) * _container.size());
+VkExtent2D int2ToExtent2D(Int2 _v) {
+  BB_ASSERT(_v.X > 0 && _v.Y > 0);
+  return {(uint32_t)_v.X, (uint32_t)_v.Y};
 }
 
-enum class LogLevel { Info, Warning, Error };
-
-template <typename... Args> void print(Args... args) {
-  std::string formatted = fmt::format(args...);
-  formatted += "\n";
-  OutputDebugStringA(formatted.c_str());
-  printf("%s", formatted.c_str());
+VkExtent3D int2ToExtent3D(Int2 _v) {
+  BB_ASSERT(_v.X > 0 && _v.Y > 0);
+  return {(uint32_t)_v.X, (uint32_t)_v.Y, 1};
 }
 
-template <typename... Args> void log(LogLevel level, Args... args) {
-  switch (level) {
-  case LogLevel::Info:
-    OutputDebugStringA("[Info]:    ");
-    break;
-  case LogLevel::Warning:
-    OutputDebugStringA("[Warning]: ");
-    break;
-  case LogLevel::Error:
-    OutputDebugStringA("[Error]:   ");
-    break;
-  }
-
-  print(args...);
-}
-
-template <typename E, typename T> struct EnumArray {
-  T Elems[(int)(E::COUNT)] = {};
-
-  const T &operator[](E _e) const { return Elems[(int)_e]; }
-
-  T &operator[](E _e) { return Elems[(int)_e]; }
-
-  T *begin() { return Elems; }
-
-  T *end() { return Elems + (size_t)(E::COUNT); }
-
-  static_assert(std::is_enum_v<E>);
-  static_assert((int64_t)(E::COUNT) > 0);
-};
-
-using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
-
-Time getCurrentTime() { return std::chrono::high_resolution_clock::now(); }
-
-static_assert(sizeof(Time) <= sizeof(Time *));
-float getElapsedTimeInSeconds(Time _start, Time _end) {
-  float result = (float)(std::chrono::duration_cast<std::chrono::milliseconds>(
-                             _end - _start)
-                             .count()) /
-                 1000.f;
-  return result;
-}
-
-constexpr float pi32 = 3.141592f;
-
-float degToRad(float _degrees) { return _degrees * pi32 / 180.f; }
-
-float radToDeg(float _radians) { return _radians * 180.f / pi32; }
-
-struct Int2 {
-  int X = 0;
-  int Y = 0;
-
-  VkExtent2D toExtent2D() {
-    BB_ASSERT(X > 0 && Y > 0);
-    return {(uint32_t)X, (uint32_t)Y};
-  }
-
-  VkExtent3D toExtent3D() {
-    BB_ASSERT(X > 0 && Y > 0);
-    return {(uint32_t)X, (uint32_t)Y, 1};
-  }
-
-  Int2 operator-(Int2 _other) const { return {X - _other.X, Y - _other.Y}; }
-};
-
-struct Float2 {
-  float X = 0.f;
-  float Y = 0.f;
-};
-
-inline float dot(Float2 _a, Float2 _b) { return _a.X * _b.X + _a.Y * _b.Y; }
-
-struct Float3 {
-  float X = 0.f;
-  float Y = 0.f;
-  float Z = 0.f;
-
-  static Float3 fromAssimpVector3(const aiVector3D &_aiVec3) {
-    Float3 result = {_aiVec3.x, _aiVec3.y, _aiVec3.z};
-    return result;
-  }
-
-  float lengthSq() const {
-    float result = X * X + Y * Y + Z * Z;
-    return result;
-  }
-
-  float length() const {
-    float result = sqrtf(lengthSq());
-    return result;
-  }
-
-  Float3 normalize() const {
-    float len = length();
-    Float3 result = *this / len;
-    return result;
-  }
-
-  Float3 operator+(const Float3 &_other) const {
-    Float3 result = {X + _other.X, Y + _other.Y, Z + _other.Z};
-    return result;
-  }
-
-  Float3 operator-(const Float3 &_other) const {
-    Float3 result = {X - _other.X, Y - _other.Y, Z - _other.Z};
-    return result;
-  }
-
-  Float3 operator*(float _multiplier) const {
-    Float3 result = {X * _multiplier, Y * _multiplier, Z * _multiplier};
-    return result;
-  }
-
-  Float3 operator/(float _divider) const {
-    Float3 result = {X / _divider, Y / _divider, Z / _divider};
-    return result;
-  }
-
-  const Float3 &operator+=(const Float3 &_other) {
-    *this = *this + _other;
-    return *this;
-  }
-};
-
-inline float dot(const Float3 &_a, const Float3 &_b) {
-  return _a.X * _b.X + _a.Y * _b.Y + _a.Z * _b.Z;
-}
-
-inline Float3 cross(const Float3 &_a, const Float3 &_b) {
-  Float3 result = {
-      _a.Y * _b.Z - _a.Z * _b.Y,
-      _a.Z * _b.X - _a.X * _b.Z,
-      _a.X * _b.Y - _a.Y * _b.X,
-  };
-  return result;
-}
-
-struct Float4 {
-  float X = 0.f;
-  float Y = 0.f;
-  float Z = 0.f;
-  float W = 0.f;
-};
-
-inline float dot(const Float4 &_a, const Float4 &_b) {
-  return _a.X * _b.X + _a.Y * _b.Y + _a.Z * _b.Z + _a.W * _b.W;
-}
-
-struct Mat4 {
-  float M[4][4] = {};
-
-  Float4 row(int _n) const {
-    BB_ASSERT(_n >= 0 && _n < 4);
-    return {M[0][_n], M[1][_n], M[2][_n], M[3][_n]};
-  }
-
-  Float4 column(int _n) const {
-    BB_ASSERT(_n >= 0 && _n < 4);
-    return {M[_n][0], M[_n][1], M[_n][2], M[_n][3]};
-  }
-
-  static Mat4 identity() {
-    return {{
-        {1, 0, 0, 0},
-        {0, 1, 0, 0},
-        {0, 0, 1, 0},
-        {0, 0, 0, 1},
-    }};
-  }
-
-  static Mat4 translate(const Float3 &_delta) {
-    // clang-format off
-    return {{
-      {1, 0, 0, 0},
-      {0, 1, 0, 0},
-      {0, 0, 1, 0},
-      {_delta.X, _delta.Y, _delta.Z, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 scale(const Float3 &_scale) {
-    // clang-format off
-    return {{
-      {_scale.X, 0, 0, 0},
-      {0, _scale.Y, 0, 0},
-      {0, 0, _scale.Z, 0},
-      {0, 0, 0, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 scale(float _scale) {
-    // clang-format off
-    return {{
-      {_scale, 0, 0, 0},
-      {0, _scale, 0, 0},
-      {0, 0, _scale, 0},
-      {0, 0, 0, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 rotateX(float _degrees) {
-    float radians = degToRad(_degrees);
-    float cr = cosf(radians);
-    float sr = sinf(radians);
-    // clang-format off
-    return {{
-      {1, 0,   0,  0},
-      {0, cr,  sr, 0},
-      {0, -sr, cr, 0},
-      {0, 0,   0,  1},
-    }};
-    // clang-format on
-  };
-
-  static Mat4 rotateY(float _degrees) {
-    float radians = degToRad(_degrees);
-    float cr = cosf(radians);
-    float sr = sinf(radians);
-    // clang-format off
-    return {{
-      {cr,  0, sr, 0},
-      {0,   1, 0,  0},
-      {-sr, 0, cr, 0},
-      {0,   0, 0,  1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 rotateZ(float _degrees) {
-    float radians = degToRad(_degrees);
-    float cr = cosf(radians);
-    float sr = sinf(radians);
-    // clang-format off
-    return {{
-      {cr,  sr, 0, 0},
-      {-sr, cr, 0, 0},
-      {0,   0,  1, 0},
-      {0,   0,  0, 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
-                     const Float3 &_upAxis = {0, 1, 0}) {
-    Float3 forward = (_target - _eye).normalize();
-    Float3 right = cross(_upAxis, forward).normalize();
-    Float3 up = cross(forward, right).normalize();
-
-    // clang-format off
-    return {{
-      {right.X, up.X, forward.X, 0},
-      {right.Y, up.Y, forward.Y, 0},
-      {right.Z, up.Z, forward.Z, 0},
-      {-dot(_eye, right), -dot(_eye, up), -dot(_eye, forward), 1},
-    }};
-    // clang-format on
-  }
-
-  static Mat4 perspective(float _fovDegrees, float aspectRatio, float nearZ,
-                          float farZ) {
-    float d = 1.f / tan(degToRad(_fovDegrees) * 0.5f);
-    float fSubN = farZ - nearZ;
-    // clang-format off
-    Mat4 result = {{
-      {d / aspectRatio, 0, 0,                    0},
-      {0,               -d, 0,                    0},
-      {0,               0, -nearZ / fSubN,       1},
-      {0,               0, nearZ * farZ / fSubN, 0},
-    }};
-    // clang-format on
-    return result;
-  }
-};
-
-inline Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
-  Float4 rows[4] = {_a.row(0), _a.row(1), _a.row(2), _a.row(3)};
-  Float4 columns[4] = {_b.column(0), _b.column(1), _b.column(2), _b.column(3)};
-  Mat4 result;
-  for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < 4; ++j) {
-      result.M[j][i] = dot(rows[i], columns[j]);
-    }
-  }
+Float3 aiVector3DToFloat3(const aiVector3D &_aiVec3) {
+  Float3 result = {_aiVec3.x, _aiVec3.y, _aiVec3.z};
   return result;
 }
 
@@ -417,13 +97,19 @@ struct Input {
 
 struct UniformBlock {
   Mat4 ModelMat;
+  Mat4 InvModelMat;
   Mat4 ViewMat;
   Mat4 ProjMat;
+  alignas(16) Float3 ViewPos;
+  alignas(16) Float3 Albedo;
+  float Metallic;
+  float Roughness;
+  float AO;
+  int VisualizeOption;
 };
 
 struct Vertex {
   Float3 Pos;
-  Float3 Color;
   Float2 UV;
   Float3 Normal = {0, 0, -1};
 
@@ -435,24 +121,20 @@ struct Vertex {
     return bindingDesc;
   }
 
-  static std::array<VkVertexInputAttributeDescription, 4> getAttributeDescs() {
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescs = {};
+  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs() {
+    std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescs[0].offset = offsetof(Vertex, Pos);
     attributeDescs[1].binding = 0;
     attributeDescs[1].location = 1;
-    attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescs[1].offset = offsetof(Vertex, Color);
+    attributeDescs[1].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescs[1].offset = offsetof(Vertex, UV);
     attributeDescs[2].binding = 0;
     attributeDescs[2].location = 2;
-    attributeDescs[2].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescs[2].offset = offsetof(Vertex, UV);
-    attributeDescs[3].binding = 0;
-    attributeDescs[3].location = 3;
-    attributeDescs[3].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescs[3].offset = offsetof(Vertex, Normal);
+    attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescs[2].offset = offsetof(Vertex, Normal);
 
     return attributeDescs;
   }
@@ -856,11 +538,49 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
 }
 
+struct Shader {
+  VkShaderModule Vert;
+  VkShaderModule Frag;
+};
+
+VkShaderModule createShaderModuleFromFile(VkDevice _device,
+                                          const std::string &_filePath) {
+  FILE *f = fopen(_filePath.c_str(), "rb");
+  BB_ASSERT(f);
+  fseek(f, 0, SEEK_END);
+  long fileSize = ftell(f);
+  rewind(f);
+  uint8_t *contents = new uint8_t[fileSize];
+  fread(contents, sizeof(*contents), fileSize, f);
+
+  VkShaderModuleCreateInfo createInfo = {};
+  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  createInfo.codeSize = fileSize;
+  createInfo.pCode = (uint32_t *)contents;
+  VkShaderModule shaderModule;
+  BB_VK_ASSERT(
+      vkCreateShaderModule(_device, &createInfo, nullptr, &shaderModule));
+
+  delete[] contents;
+  fclose(f);
+
+  return shaderModule;
+}
+
+Shader createShaderFromFile(VkDevice _device,
+                            const std::string &_vertShaderFilePath,
+                            const std::string &_fragShaderFilePath) {
+  Shader result = {};
+  result.Vert = createShaderModuleFromFile(_device, _vertShaderFilePath);
+  result.Frag = createShaderModuleFromFile(_device, _fragShaderFilePath);
+
+  return result;
+}
+
 void initReloadableResources(
     VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
     const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const SwapChain *_oldSwapChain,
-    VkShaderModule _vertShader, VkShaderModule _fragShader,
+    uint32_t _height, const SwapChain *_oldSwapChain, const Shader &_shader,
     VkPipelineLayout _pipelineLayout, SwapChain *_outSwapChain,
     VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
@@ -872,15 +592,15 @@ void initReloadableResources(
   VkPipelineShaderStageCreateInfo shaderStages[2] = {};
   shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  shaderStages[0].module = _vertShader;
+  shaderStages[0].module = _shader.Vert;
   shaderStages[0].pName = "main";
   shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  shaderStages[1].module = _fragShader;
+  shaderStages[1].module = _shader.Frag;
   shaderStages[1].pName = "main";
 
   VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDesc();
-  std::array<VkVertexInputAttributeDescription, 4> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 3> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -1102,9 +822,9 @@ void cleanupReloadableResources(
 void onWindowResize(SDL_Window *_window, VkDevice _device,
                     VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
                     const SwapChainSupportDetails &_swapChainSupportDetails,
-                    VkShaderModule _vertShader, VkShaderModule _fragShader,
-                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
-                    VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
+                    const Shader &_shader, VkPipelineLayout _pipelineLayout,
+                    SwapChain &_swapChain, VkRenderPass &_renderPass,
+                    VkPipeline &_graphicsPipeline,
                     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   int width = 0, height = 0;
 
@@ -1118,34 +838,10 @@ void onWindowResize(SDL_Window *_window, VkDevice _device,
   cleanupReloadableResources(_device, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
-  initReloadableResources(
-      _device, _physicalDevice, _surface, _swapChainSupportDetails, width,
-      height, nullptr, _vertShader, _fragShader, _pipelineLayout, &_swapChain,
-      &_renderPass, &_graphicsPipeline, &_swapChainFramebuffers);
-}
-
-VkShaderModule createShaderModuleFromFile(VkDevice _device,
-                                          const std::string &_filePath) {
-  FILE *f = fopen(_filePath.c_str(), "rb");
-  BB_ASSERT(f);
-  fseek(f, 0, SEEK_END);
-  long fileSize = ftell(f);
-  rewind(f);
-  uint8_t *contents = new uint8_t[fileSize];
-  fread(contents, sizeof(*contents), fileSize, f);
-
-  VkShaderModuleCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = fileSize;
-  createInfo.pCode = (uint32_t *)contents;
-  VkShaderModule shaderModule;
-  BB_VK_ASSERT(
-      vkCreateShaderModule(_device, &createInfo, nullptr, &shaderModule));
-
-  delete[] contents;
-  fclose(f);
-
-  return shaderModule;
+  initReloadableResources(_device, _physicalDevice, _surface,
+                          _swapChainSupportDetails, width, height, nullptr,
+                          _shader, _pipelineLayout, &_swapChain, &_renderPass,
+                          &_graphicsPipeline, &_swapChainFramebuffers);
 }
 
 Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
@@ -1239,10 +935,32 @@ struct Image {
 Image createImage() {}
 #endif
 
+void destroyShader(VkDevice _device, Shader &_shader) {
+  vkDestroyShaderModule(_device, _shader.Vert, nullptr);
+  vkDestroyShaderModule(_device, _shader.Frag, nullptr);
+  _shader = {};
+}
+
+#if 0
+
+struct RenderingResources
+{
+  VkInstance Instance;
+  VkSurfaceKHR Surface;
+  VkPhysicalDevice PhysicalDevice;
+  VkDevice Device;
+  VkQueue Queue;
+};
+
+#endif
+
 } // namespace bb
 
 int main(int _argc, char **_argv) {
   using namespace bb;
+
+  SetProcessDPIAware();
+  SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 
   BB_VK_ASSERT(volkInitialize());
 
@@ -1273,14 +991,12 @@ int main(int _argc, char **_argv) {
 
     for (int j = 0; j < 3; ++j) {
       Vertex v = {};
-      v.Pos = Float3::fromAssimpVector3(
-          shaderBallMesh->mVertices[face.mIndices[j]]);
+      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[face.mIndices[j]]);
       std::swap(v.Pos.Y, v.Pos.Z);
       v.Pos.Z *= -1.f;
       v.UV.X = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].x;
       v.UV.Y = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].y;
-      v.Normal =
-          Float3::fromAssimpVector3(shaderBallMesh->mNormals[face.mIndices[j]]);
+      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[face.mIndices[j]]);
       std::swap(v.Normal.Y, v.Normal.Z);
       v.Normal.Z *= -1.f;
       shaderBallVertices.push_back(v);
@@ -1429,17 +1145,22 @@ int main(int _argc, char **_argv) {
   VkQueue queue = VK_NULL_HANDLE;
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
 
-  VkShaderModule testVertShader = createShaderModuleFromFile(
-      device, resourceRootPath + "..\\src\\shaders\\test.vert.spv");
-  VkShaderModule testFragShader = createShaderModuleFromFile(
-      device, resourceRootPath + "..\\src\\shaders\\test.frag.spv");
+  std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
+
+  Shader testShader =
+      createShaderFromFile(device, shaderRootPath + "test.vert.spv",
+                           shaderRootPath + "test.frag.spv");
+  Shader brdfShader =
+      createShaderFromFile(device, shaderRootPath + "brdf.vert.spv",
+                           shaderRootPath + "brdf.frag.spv");
 
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2] = {};
   descriptorSetLayoutBindings[0].binding = 0;
   descriptorSetLayoutBindings[0].descriptorType =
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorSetLayoutBindings[0].descriptorCount = 1;
-  descriptorSetLayoutBindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  descriptorSetLayoutBindings[0].stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   descriptorSetLayoutBindings[0].pImmutableSamplers = nullptr;
   descriptorSetLayoutBindings[1].binding = 1;
   descriptorSetLayoutBindings[1].descriptorType =
@@ -1475,10 +1196,10 @@ int main(int _argc, char **_argv) {
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(
-      device, physicalDevice, surface, swapChainSupportDetails, width, height,
-      nullptr, testVertShader, testFragShader, pipelineLayout, &swapChain,
-      &renderPass, &graphicsPipeline, &swapChainFramebuffers);
+  initReloadableResources(device, physicalDevice, surface,
+                          swapChainSupportDetails, width, height, nullptr,
+                          brdfShader, pipelineLayout, &swapChain, &renderPass,
+                          &graphicsPipeline, &swapChainFramebuffers);
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1512,15 +1233,15 @@ int main(int _argc, char **_argv) {
 
   // clang-format off
   std::vector<Vertex> quadVertices = {
-      {{-0.5f, -0.5f, 0}, {1.0f, 0.0f, 0.0f}, {0, 0}},
-      {{0.5f, -0.5f, 0}, {0.0f, 1.0f, 0.0f}, {1, 0}},
-      {{0.5f, 0.5f, 0}, {0.0f, 0.0f, 1.0f}, {1, 1}},
-      {{-0.5f, 0.5f, 0}, {1.0f, 1.0f, 1.0f}, {0, 1}},
+      {{-0.5f, -0.5f, 0}, {0, 0}},
+      {{0.5f, -0.5f, 0},  {1, 0}},
+      {{0.5f, 0.5f, 0},  {1, 1}},
+      {{-0.5f, 0.5f, 0}, {0, 1}},
 
-      {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0, 0}},
-      {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1, 0}},
-      {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1, 1}},
-      {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0, 1}}};
+      {{-0.5f, -0.5f, -0.5f}, {0, 0}},
+      {{0.5f, -0.5f, -0.5f},  {1, 0}},
+      {{0.5f, 0.5f, -0.5f}, {1, 1}},
+      {{-0.5f, 0.5f, -0.5f},  {0, 1}}};
 
   std::vector<uint32_t> quadIndices = {
     4, 5, 6, 6, 7, 4,
@@ -1690,7 +1411,7 @@ int main(int _argc, char **_argv) {
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
     region.imageOffset = {0, 0, 0};
-    region.imageExtent = textureDims.toExtent3D();
+    region.imageExtent = int2ToExtent3D(textureDims);
     vkCmdCopyBufferToImage(cmdBuffer, textureStagingBuffer.Handle, textureImage,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -1978,14 +1699,12 @@ int main(int _argc, char **_argv) {
       direction.Y -= 1;
     }
 
-    float camMovementSpeed = 10.f;
+    float camMovementSpeed = 4.f;
     Float3 camMovement =
         (cam.getRight() * (float)direction.X * camMovementSpeed +
          cam.getLook() * direction.Y * camMovementSpeed) *
         dt;
     cam.Pos += camMovement;
-
-    ImGui::Render();
 
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
         device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphore,
@@ -1996,8 +1715,8 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, testVertShader, testFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainSupportDetails, brdfShader, pipelineLayout,
+                     swapChain, renderPass, graphicsPipeline,
                      swapChainFramebuffers);
       continue;
     }
@@ -2014,9 +1733,34 @@ int main(int _argc, char **_argv) {
     UniformBlock uniformBlock = {};
     uniformBlock.ModelMat = Mat4::translate({0, -1, 2}) * Mat4::rotateY(angle) *
                             Mat4::scale({0.01f, 0.01f, 0.01f});
+    uniformBlock.InvModelMat = uniformBlock.ModelMat.inverse();
     uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
+    uniformBlock.ViewPos = cam.Pos;
+    static float albedo[3] = {1, 1, 1};
+    ImGui::ColorPicker3("Albedo", albedo);
+    uniformBlock.Albedo = {albedo[0], albedo[1], albedo[2]};
+    static float metallic = 0;
+    ImGui::SliderFloat("Metallic", &metallic, 0, 1);
+    uniformBlock.Metallic = metallic;
+    static float roughness = 0.5f;
+    ImGui::SliderFloat("Roughness", &roughness, 0.1f, 1);
+    uniformBlock.Roughness = roughness;
+    static float ao = 1;
+    ImGui::SliderFloat("AO", &ao, 0, 1);
+    uniformBlock.AO = ao;
+
+    static int visualizeOption = 0;
+    int i = 0;
+    for (auto option : {"N", "H", "D", "F", "G"}) {
+      if (ImGui::Selectable(option, visualizeOption == i)) {
+        visualizeOption = i;
+      }
+      ++i;
+    }
+    uniformBlock.VisualizeOption = visualizeOption;
+
     {
       void *data;
       vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
@@ -2028,6 +1772,7 @@ int main(int _argc, char **_argv) {
     vkResetCommandPool(device, graphicsCmdPools[currentFrame],
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
+    ImGui::Render();
     recordCommand(graphicsCmdBuffers[currentFrame], renderPass,
                   swapChainFramebuffers[currentFrame], swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer,
@@ -2064,8 +1809,8 @@ int main(int _argc, char **_argv) {
           physicalDevice, surface, &swapChainSupportDetails.Capabilities);
 
       onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, testVertShader, testFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainSupportDetails, brdfShader, pipelineLayout,
+                     swapChain, renderPass, graphicsPipeline,
                      swapChainFramebuffers);
     }
 
@@ -2110,8 +1855,8 @@ int main(int _argc, char **_argv) {
 
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-  vkDestroyShaderModule(device, testVertShader, nullptr);
-  vkDestroyShaderModule(device, testFragShader, nullptr);
+  destroyShader(device, brdfShader);
+  destroyShader(device, testShader);
   vkDestroyDevice(device, nullptr);
   vkDestroySurfaceKHR(instance, surface, nullptr);
   if (messenger != VK_NULL_HANDLE) {

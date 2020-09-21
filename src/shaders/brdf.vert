@@ -6,7 +6,10 @@ layout (binding = 0) uniform UniformBlock {
     mat4 viewMat;
     mat4 projMat;
     vec3 viewPos;
+    vec3 albedo;
+    float metallic;
     float roughness;
+    float ao;
     int visualizeOption;
 } ub;
 

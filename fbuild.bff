@@ -37,6 +37,7 @@ Settings
                    + ' uuid.lib'
                    + ' odbc32.lib'
                    + ' odbccp32.lib'
+                   + ' shcore.lib'
                    + ' SDL2.lib SDL2main.lib'
     .Defines = {
         'WIN32_LEAN_AND_MEAN'
@@ -104,8 +105,10 @@ Settings
 .VSConfigs = {}
 
 .Shaders = {
+    'test.vert',
     'test.frag',
-    'test.vert'
+    'brdf.vert',
+    'brdf.frag',
 }
 
 ForEach (.Shader in .Shaders)
@@ -117,6 +120,7 @@ ForEach (.Shader in .Shaders)
         .ExecOutput = '$ExecInput$.spv'
         .ExecArguments = '"%1" -o "%2"'
         .ExecUseStdOutAsOutput = false
+        .ExecAlways = true
     }
 }
 
