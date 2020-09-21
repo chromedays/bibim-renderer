@@ -1,6 +1,171 @@
 #include "render.h"
+#include "external/SDL2/SDL_vulkan.h"
 
 namespace bb {
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
+    VkDebugUtilsMessageTypeFlagsEXT _type,
+    const VkDebugUtilsMessengerCallbackDataEXT *_callbackData, void *_userData);
+static bool
+checkPhysicalDevice(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
+                    const std::vector<const char *> &_deviceExtensions,
+                    VkPhysicalDeviceFeatures *_outDeviceFeatures,
+                    uint32_t *_outQueueFamilyIndex,
+                    SwapChainSupportDetails *_outSwapChainSupportDetails);
+
+Renderer createRenderer(SDL_Window *_window) {
+  Renderer result;
+
+  VkApplicationInfo appinfo = {};
+  appinfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+  appinfo.pApplicationName = "Bibim Renderer";
+  appinfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+  appinfo.pEngineName = "Bibim Renderer";
+  appinfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+  appinfo.apiVersion = VK_API_VERSION_1_2;
+  VkInstanceCreateInfo instanceCreateInfo = {};
+  instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  instanceCreateInfo.pApplicationInfo = &appinfo;
+
+  std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+
+  bool enableValidationLayers =
+#ifdef BB_DEBUG
+      true;
+#else
+      false;
+#endif
+
+  uint32_t numLayers;
+  vkEnumerateInstanceLayerProperties(&numLayers, nullptr);
+  std::vector<VkLayerProperties> layerProperties(numLayers);
+  vkEnumerateInstanceLayerProperties(&numLayers, layerProperties.data());
+  bool canEnableLayers = true;
+  for (const char *layerName : validationLayers) {
+    bool foundLayer = false;
+    for (VkLayerProperties &properties : layerProperties) {
+      if (strcmp(properties.layerName, layerName) == 0) {
+        foundLayer = true;
+        break;
+      }
+    }
+
+    if (!foundLayer) {
+      canEnableLayers = false;
+      break;
+    }
+  }
+
+  if (enableValidationLayers && canEnableLayers) {
+    instanceCreateInfo.enabledLayerCount = (uint32_t)validationLayers.size();
+    instanceCreateInfo.ppEnabledLayerNames = validationLayers.data();
+  }
+
+  std::vector<const char *> extensions;
+  // TODO: ADD vk_win32_surface extension.
+  unsigned numInstantExtensions = 0;
+  SDL_Vulkan_GetInstanceExtensions(_window, &numInstantExtensions, nullptr);
+  if (enableValidationLayers) {
+    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
+
+  unsigned numExtraInstantExtensions = extensions.size();
+  extensions.resize(numExtraInstantExtensions + numInstantExtensions);
+
+  SDL_Vulkan_GetInstanceExtensions(_window, &numInstantExtensions,
+                                   extensions.data() +
+                                       numExtraInstantExtensions);
+
+  instanceCreateInfo.enabledExtensionCount = (uint32_t)extensions.size();
+  instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
+
+  BB_VK_ASSERT(
+      vkCreateInstance(&instanceCreateInfo, nullptr, &result.Instance));
+  volkLoadInstance(result.Instance);
+
+  if (enableValidationLayers) {
+    VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
+    messengerCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    messengerCreateInfo.messageSeverity =
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    messengerCreateInfo.messageType =
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    messengerCreateInfo.pfnUserCallback = &vulkanDebugCallback;
+    BB_VK_ASSERT(vkCreateDebugUtilsMessengerEXT(result.Instance,
+                                                &messengerCreateInfo, nullptr,
+                                                &result.DebugMessenger));
+  }
+
+  BB_VK_ASSERT(!SDL_Vulkan_CreateSurface(
+      _window, result.Instance,
+      &result.Surface)); // ! to convert SDL_bool to VkResult
+
+  uint32_t numPhysicalDevices = 0;
+  std::vector<VkPhysicalDevice> physicalDevices;
+  BB_VK_ASSERT(vkEnumeratePhysicalDevices(result.Instance, &numPhysicalDevices,
+                                          nullptr));
+  physicalDevices.resize(numPhysicalDevices);
+  BB_VK_ASSERT(vkEnumeratePhysicalDevices(result.Instance, &numPhysicalDevices,
+                                          physicalDevices.data()));
+
+  VkPhysicalDeviceFeatures deviceFeatures = {};
+
+  std::vector<const char *> deviceExtensions = {
+      VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+  for (VkPhysicalDevice currentPhysicalDevice : physicalDevices) {
+    if (checkPhysicalDevice(currentPhysicalDevice, result.Surface,
+                            deviceExtensions, &deviceFeatures,
+                            &result.QueueFamilyIndex,
+                            &result.SwapChainSupportDetails)) {
+      result.PhysicalDevice = currentPhysicalDevice;
+      break;
+    }
+  }
+  BB_ASSERT(result.PhysicalDevice != VK_NULL_HANDLE);
+
+  std::unordered_map<uint32_t, VkQueue> queueMap;
+  float queuePriority = 1.f;
+  VkDeviceQueueCreateInfo queueCreateInfo = {};
+  queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  queueCreateInfo.queueFamilyIndex = result.QueueFamilyIndex;
+  queueCreateInfo.queueCount = 1;
+  queueCreateInfo.pQueuePriorities = &queuePriority;
+
+  VkDeviceCreateInfo deviceCreateInfo = {};
+  deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  deviceCreateInfo.queueCreateInfoCount = 1;
+  deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+  deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
+  deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+  deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+
+  BB_VK_ASSERT(vkCreateDevice(result.PhysicalDevice, &deviceCreateInfo, nullptr,
+                              &result.Device));
+
+  vkGetDeviceQueue(result.Device, result.QueueFamilyIndex, 0, &result.Queue);
+
+  return result;
+}
+
+void destroyRenderer(Renderer &_renderer) {
+  vkDestroyDevice(_renderer.Device, nullptr);
+  vkDestroySurfaceKHR(_renderer.Instance, _renderer.Surface, nullptr);
+  if (_renderer.DebugMessenger != VK_NULL_HANDLE) {
+    vkDestroyDebugUtilsMessengerEXT(_renderer.Instance,
+                                    _renderer.DebugMessenger, nullptr);
+  }
+  vkDestroyInstance(_renderer.Instance, nullptr);
+  _renderer = {};
+}
+
 VKAPI_ATTR VkBool32 VKAPI_CALL
 vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
                     VkDebugUtilsMessageTypeFlagsEXT _type,
@@ -27,8 +192,9 @@ vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
   return VK_FALSE;
 }
 
-bool getQueueFamily(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
-                    uint32_t *_outQueueFamilyIndex) {
+static bool getQueueFamily(VkPhysicalDevice _physicalDevice,
+                           VkSurfaceKHR _surface,
+                           uint32_t *_outQueueFamilyIndex) {
 
   uint32_t numQueueFamilyProperties = 0;
   std::vector<VkQueueFamilyProperties> queueFamilyProperties;
@@ -55,10 +221,10 @@ bool getQueueFamily(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
   return false;
 }
 
-uint32_t findMemoryType(VkPhysicalDevice _physicalDevice, uint32_t _typeFilter,
+uint32_t findMemoryType(const Renderer &_renderer, uint32_t _typeFilter,
                         VkMemoryPropertyFlags _properties) {
   VkPhysicalDeviceMemoryProperties memProperties;
-  vkGetPhysicalDeviceMemoryProperties(_physicalDevice, &memProperties);
+  vkGetPhysicalDeviceMemoryProperties(_renderer.PhysicalDevice, &memProperties);
 
   for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i) {
     if ((_typeFilter & (1 << i)) &&
@@ -195,35 +361,33 @@ bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
          isFeatureComplete && isQueueComplete;
 }
 
-SwapChain createSwapChain(
-    VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
-    const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const SwapChain *_oldSwapChain) {
+SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
+                          uint32_t _height, const SwapChain *_oldSwapChain) {
   VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
   swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-  swapChainCreateInfo.surface = _surface;
+  swapChainCreateInfo.surface = _renderer.Surface;
   swapChainCreateInfo.minImageCount =
-      _swapChainSupportDetails.Capabilities.minImageCount + 1;
-  if (_swapChainSupportDetails.Capabilities.maxImageCount > 0 &&
+      _renderer.SwapChainSupportDetails.Capabilities.minImageCount + 1;
+  if (_renderer.SwapChainSupportDetails.Capabilities.maxImageCount > 0 &&
       swapChainCreateInfo.minImageCount >
-          _swapChainSupportDetails.Capabilities.maxImageCount) {
+          _renderer.SwapChainSupportDetails.Capabilities.maxImageCount) {
     swapChainCreateInfo.minImageCount =
-        _swapChainSupportDetails.Capabilities.maxImageCount;
+        _renderer.SwapChainSupportDetails.Capabilities.maxImageCount;
   }
   VkSurfaceFormatKHR surfaceFormat =
-      _swapChainSupportDetails.chooseSurfaceFormat();
+      _renderer.SwapChainSupportDetails.chooseSurfaceFormat();
   swapChainCreateInfo.imageFormat = surfaceFormat.format;
   swapChainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
   swapChainCreateInfo.imageExtent =
-      _swapChainSupportDetails.chooseExtent(_width, _height);
+      _renderer.SwapChainSupportDetails.chooseExtent(_width, _height);
   swapChainCreateInfo.imageArrayLayers = 1;
   swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
   swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
   swapChainCreateInfo.preTransform =
-      _swapChainSupportDetails.Capabilities.currentTransform;
+      _renderer.SwapChainSupportDetails.Capabilities.currentTransform;
   swapChainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
   swapChainCreateInfo.presentMode =
-      _swapChainSupportDetails.choosePresentMode();
+      _renderer.SwapChainSupportDetails.choosePresentMode();
   swapChainCreateInfo.clipped = VK_TRUE;
   if (_oldSwapChain) {
     swapChainCreateInfo.oldSwapchain = _oldSwapChain->Handle;
@@ -234,13 +398,14 @@ SwapChain createSwapChain(
   SwapChain swapChain;
   swapChain.ColorFormat = swapChainCreateInfo.imageFormat;
   swapChain.Extent = swapChainCreateInfo.imageExtent;
-  BB_VK_ASSERT(vkCreateSwapchainKHR(_device, &swapChainCreateInfo, nullptr,
-                                    &swapChain.Handle));
+  BB_VK_ASSERT(vkCreateSwapchainKHR(_renderer.Device, &swapChainCreateInfo,
+                                    nullptr, &swapChain.Handle));
 
-  vkGetSwapchainImagesKHR(_device, swapChain.Handle, &swapChain.NumColorImages,
-                          nullptr);
+  vkGetSwapchainImagesKHR(_renderer.Device, swapChain.Handle,
+                          &swapChain.NumColorImages, nullptr);
   swapChain.ColorImages.resize(swapChain.NumColorImages);
-  vkGetSwapchainImagesKHR(_device, swapChain.Handle, &swapChain.NumColorImages,
+  vkGetSwapchainImagesKHR(_renderer.Device, swapChain.Handle,
+                          &swapChain.NumColorImages,
                           swapChain.ColorImages.data());
   swapChain.ColorImageViews.resize(swapChain.NumColorImages);
   for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
@@ -260,8 +425,9 @@ SwapChain createSwapChain(
     swapChainImageViewCreateInfo.subresourceRange.levelCount = 1;
     swapChainImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
     swapChainImageViewCreateInfo.subresourceRange.layerCount = 1;
-    BB_VK_ASSERT(vkCreateImageView(_device, &swapChainImageViewCreateInfo,
-                                   nullptr, &swapChain.ColorImageViews[i]));
+    BB_VK_ASSERT(vkCreateImageView(_renderer.Device,
+                                   &swapChainImageViewCreateInfo, nullptr,
+                                   &swapChain.ColorImageViews[i]));
   }
   swapChain.MinNumImages = swapChainCreateInfo.minImageCount;
 
@@ -283,22 +449,23 @@ SwapChain createSwapChain(
   depthImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   depthImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
   depthImageCreateInfo.flags = 0;
-  BB_VK_ASSERT(vkCreateImage(_device, &depthImageCreateInfo, nullptr,
+  BB_VK_ASSERT(vkCreateImage(_renderer.Device, &depthImageCreateInfo, nullptr,
                              &swapChain.DepthImage));
 
   VkMemoryRequirements memRequirements;
-  vkGetImageMemoryRequirements(_device, swapChain.DepthImage, &memRequirements);
+  vkGetImageMemoryRequirements(_renderer.Device, swapChain.DepthImage,
+                               &memRequirements);
 
   VkMemoryAllocateInfo depthImageMemoryAllocInfo = {};
   depthImageMemoryAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   depthImageMemoryAllocInfo.allocationSize = memRequirements.size;
   depthImageMemoryAllocInfo.memoryTypeIndex =
-      findMemoryType(_physicalDevice, memRequirements.memoryTypeBits,
+      findMemoryType(_renderer, memRequirements.memoryTypeBits,
                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  BB_VK_ASSERT(vkAllocateMemory(_device, &depthImageMemoryAllocInfo, nullptr,
-                                &swapChain.DepthImageMemory));
+  BB_VK_ASSERT(vkAllocateMemory(_renderer.Device, &depthImageMemoryAllocInfo,
+                                nullptr, &swapChain.DepthImageMemory));
 
-  BB_VK_ASSERT(vkBindImageMemory(_device, swapChain.DepthImage,
+  BB_VK_ASSERT(vkBindImageMemory(_renderer.Device, swapChain.DepthImage,
                                  swapChain.DepthImageMemory, 0));
 
   VkImageViewCreateInfo depthImageViewCreateInfo = {};
@@ -312,20 +479,20 @@ SwapChain createSwapChain(
   depthImageViewCreateInfo.subresourceRange.levelCount = 1;
   depthImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
   depthImageViewCreateInfo.subresourceRange.layerCount = 1;
-  BB_VK_ASSERT(vkCreateImageView(_device, &depthImageViewCreateInfo, nullptr,
-                                 &swapChain.DepthImageView));
+  BB_VK_ASSERT(vkCreateImageView(_renderer.Device, &depthImageViewCreateInfo,
+                                 nullptr, &swapChain.DepthImageView));
 
   return swapChain;
 }
 
-void destroySwapChain(VkDevice _device, SwapChain &_swapChain) {
+void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain) {
   for (VkImageView imageView : _swapChain.ColorImageViews) {
-    vkDestroyImageView(_device, imageView, nullptr);
+    vkDestroyImageView(_renderer.Device, imageView, nullptr);
   }
-  vkDestroyImageView(_device, _swapChain.DepthImageView, nullptr);
-  vkDestroyImage(_device, _swapChain.DepthImage, nullptr);
-  vkFreeMemory(_device, _swapChain.DepthImageMemory, nullptr);
-  vkDestroySwapchainKHR(_device, _swapChain.Handle, nullptr);
+  vkDestroyImageView(_renderer.Device, _swapChain.DepthImageView, nullptr);
+  vkDestroyImage(_renderer.Device, _swapChain.DepthImage, nullptr);
+  vkFreeMemory(_renderer.Device, _swapChain.DepthImageMemory, nullptr);
+  vkDestroySwapchainKHR(_renderer.Device, _swapChain.Handle, nullptr);
   _swapChain = {};
 }
 
@@ -355,8 +522,8 @@ std::array<VkVertexInputAttributeDescription, 3> Vertex::getAttributeDescs() {
   return attributeDescs;
 }
 
-Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
-                    VkDeviceSize _size, VkBufferUsageFlags _usage,
+Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
+                    VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties) {
   Buffer result = {};
 
@@ -366,43 +533,46 @@ Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
   bufferCreateInfo.usage = _usage;
   bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-  BB_VK_ASSERT(
-      vkCreateBuffer(_device, &bufferCreateInfo, nullptr, &result.Handle));
+  BB_VK_ASSERT(vkCreateBuffer(_renderer.Device, &bufferCreateInfo, nullptr,
+                              &result.Handle));
 
   VkMemoryRequirements memRequirements;
-  vkGetBufferMemoryRequirements(_device, result.Handle, &memRequirements);
+  vkGetBufferMemoryRequirements(_renderer.Device, result.Handle,
+                                &memRequirements);
 
   VkMemoryAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex = findMemoryType(
-      _physicalDevice, memRequirements.memoryTypeBits, _properties);
+  allocInfo.memoryTypeIndex =
+      findMemoryType(_renderer, memRequirements.memoryTypeBits, _properties);
 
-  BB_VK_ASSERT(vkAllocateMemory(_device, &allocInfo, nullptr, &result.Memory));
-  BB_VK_ASSERT(vkBindBufferMemory(_device, result.Handle, result.Memory, 0));
+  BB_VK_ASSERT(
+      vkAllocateMemory(_renderer.Device, &allocInfo, nullptr, &result.Memory));
+  BB_VK_ASSERT(
+      vkBindBufferMemory(_renderer.Device, result.Handle, result.Memory, 0));
 
   result.Size = _size;
 
   return result;
 };
 
-Buffer createStagingBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
+Buffer createStagingBuffer(const Renderer &_renderer,
                            const Buffer &_orgBuffer) {
-  Buffer result = createBuffer(_device, _physicalDevice, _orgBuffer.Size,
-                               VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  Buffer result =
+      createBuffer(_renderer, _orgBuffer.Size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   return result;
 }
 
-void destroyBuffer(VkDevice _device, Buffer &_buffer) {
-  vkDestroyBuffer(_device, _buffer.Handle, nullptr);
+void destroyBuffer(const Renderer &_renderer, Buffer &_buffer) {
+  vkDestroyBuffer(_renderer.Device, _buffer.Handle, nullptr);
   _buffer.Handle = VK_NULL_HANDLE;
-  vkFreeMemory(_device, _buffer.Memory, nullptr);
+  vkFreeMemory(_renderer.Device, _buffer.Memory, nullptr);
   _buffer.Memory = VK_NULL_HANDLE;
 }
 
-void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
+void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
                 Buffer &_dstBuffer, Buffer &_srcBuffer, VkDeviceSize _size) {
   VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
   cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -410,8 +580,8 @@ void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
   cmdBufferAllocInfo.commandPool = _cmdPool;
   cmdBufferAllocInfo.commandBufferCount = 1;
   VkCommandBuffer cmdBuffer;
-  BB_VK_ASSERT(
-      vkAllocateCommandBuffers(_device, &cmdBufferAllocInfo, &cmdBuffer));
+  BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
+                                        &cmdBuffer));
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -431,13 +601,14 @@ void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &cmdBuffer;
-  vkQueueSubmit(_queue, 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(_queue);
+  vkQueueSubmit(_renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(_renderer.Queue);
 
-  vkFreeCommandBuffers(_device, cmdBufferAllocInfo.commandPool, 1, &cmdBuffer);
+  vkFreeCommandBuffers(_renderer.Device, cmdBufferAllocInfo.commandPool, 1,
+                       &cmdBuffer);
 }
 
-VkShaderModule createShaderModuleFromFile(VkDevice _device,
+VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
                                           const std::string &_filePath) {
   FILE *f = fopen(_filePath.c_str(), "rb");
   BB_ASSERT(f);
@@ -452,8 +623,8 @@ VkShaderModule createShaderModuleFromFile(VkDevice _device,
   createInfo.codeSize = fileSize;
   createInfo.pCode = (uint32_t *)contents;
   VkShaderModule shaderModule;
-  BB_VK_ASSERT(
-      vkCreateShaderModule(_device, &createInfo, nullptr, &shaderModule));
+  BB_VK_ASSERT(vkCreateShaderModule(_renderer.Device, &createInfo, nullptr,
+                                    &shaderModule));
 
   delete[] contents;
   fclose(f);
@@ -461,19 +632,19 @@ VkShaderModule createShaderModuleFromFile(VkDevice _device,
   return shaderModule;
 }
 
-Shader createShaderFromFile(VkDevice _device,
+Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_vertShaderFilePath,
                             const std::string &_fragShaderFilePath) {
   Shader result = {};
-  result.Vert = createShaderModuleFromFile(_device, _vertShaderFilePath);
-  result.Frag = createShaderModuleFromFile(_device, _fragShaderFilePath);
+  result.Vert = createShaderModuleFromFile(_renderer, _vertShaderFilePath);
+  result.Frag = createShaderModuleFromFile(_renderer, _fragShaderFilePath);
 
   return result;
 }
 
-void destroyShader(VkDevice _device, Shader &_shader) {
-  vkDestroyShaderModule(_device, _shader.Vert, nullptr);
-  vkDestroyShaderModule(_device, _shader.Frag, nullptr);
+void destroyShader(const Renderer &_renderer, Shader &_shader) {
+  vkDestroyShaderModule(_renderer.Device, _shader.Vert, nullptr);
+  vkDestroyShaderModule(_renderer.Device, _shader.Frag, nullptr);
   _shader = {};
 }
 

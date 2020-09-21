@@ -94,19 +94,15 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
 }
 
-
-
 void initReloadableResources(
-    VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
-    const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const SwapChain *_oldSwapChain, const Shader &_shader,
+    const Renderer &_renderer, uint32_t _width, uint32_t _height,
+    const SwapChain *_oldSwapChain, const Shader &_shader,
     VkPipelineLayout _pipelineLayout, SwapChain *_outSwapChain,
     VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
 
   SwapChain swapChain =
-      createSwapChain(_device, _physicalDevice, _surface,
-                      _swapChainSupportDetails, _width, _height, _oldSwapChain);
+      createSwapChain(_renderer, _width, _height, _oldSwapChain);
 
   VkPipelineShaderStageCreateInfo shaderStages[2] = {};
   shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -272,8 +268,8 @@ void initReloadableResources(
   renderPassCreateInfo.pDependencies = &subpassDependency;
 
   VkRenderPass renderPass;
-  BB_VK_ASSERT(
-      vkCreateRenderPass(_device, &renderPassCreateInfo, nullptr, &renderPass));
+  BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,
+                                  nullptr, &renderPass));
 
   VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
   pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -294,7 +290,7 @@ void initReloadableResources(
   pipelineCreateInfo.basePipelineIndex = -1;
 
   VkPipeline graphicsPipeline;
-  BB_VK_ASSERT(vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1,
+  BB_VK_ASSERT(vkCreateGraphicsPipelines(_renderer.Device, VK_NULL_HANDLE, 1,
                                          &pipelineCreateInfo, nullptr,
                                          &graphicsPipeline));
 
@@ -311,7 +307,7 @@ void initReloadableResources(
     fbCreateInfo.height = swapChain.Extent.height;
     fbCreateInfo.layers = 1;
 
-    BB_VK_ASSERT(vkCreateFramebuffer(_device, &fbCreateInfo, nullptr,
+    BB_VK_ASSERT(vkCreateFramebuffer(_renderer.Device, &fbCreateInfo, nullptr,
                                      &swapChainFramebuffers[i]));
   }
 
@@ -322,25 +318,23 @@ void initReloadableResources(
 }
 
 void cleanupReloadableResources(
-    VkDevice _device, SwapChain &_swapChain, VkRenderPass &_renderPass,
+    const Renderer &_renderer, SwapChain &_swapChain, VkRenderPass &_renderPass,
     VkPipeline &_graphicsPipeline,
     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   for (VkFramebuffer fb : _swapChainFramebuffers) {
-    vkDestroyFramebuffer(_device, fb, nullptr);
+    vkDestroyFramebuffer(_renderer.Device, fb, nullptr);
   }
   _swapChainFramebuffers.clear();
-  vkDestroyPipeline(_device, _graphicsPipeline, nullptr);
+  vkDestroyPipeline(_renderer.Device, _graphicsPipeline, nullptr);
   _graphicsPipeline = VK_NULL_HANDLE;
-  vkDestroyRenderPass(_device, _renderPass, nullptr);
+  vkDestroyRenderPass(_renderer.Device, _renderPass, nullptr);
   _renderPass = VK_NULL_HANDLE;
-  destroySwapChain(_device, _swapChain);
+  destroySwapChain(_renderer, _swapChain);
 }
 
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
-void onWindowResize(SDL_Window *_window, VkDevice _device,
-                    VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
-                    const SwapChainSupportDetails &_swapChainSupportDetails,
+void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
                     const Shader &_shader, VkPipelineLayout _pipelineLayout,
                     SwapChain &_swapChain, VkRenderPass &_renderPass,
                     VkPipeline &_graphicsPipeline,
@@ -352,17 +346,16 @@ void onWindowResize(SDL_Window *_window, VkDevice _device,
 
   SDL_GetWindowSize(_window, &width, &height);
 
-  vkDeviceWaitIdle(_device); // Ensure that device finished using swap chain.
+  vkDeviceWaitIdle(
+      _renderer.Device); // Ensure that device finished using swap chain.
 
-  cleanupReloadableResources(_device, _swapChain, _renderPass,
+  cleanupReloadableResources(_renderer, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
-  initReloadableResources(_device, _physicalDevice, _surface,
-                          _swapChainSupportDetails, width, height, nullptr,
-                          _shader, _pipelineLayout, &_swapChain, &_renderPass,
+  initReloadableResources(_renderer, width, height, nullptr, _shader,
+                          _pipelineLayout, &_swapChain, &_renderPass,
                           &_graphicsPipeline, &_swapChainFramebuffers);
 }
-
 
 } // namespace bb
 
@@ -417,151 +410,15 @@ int main(int _argc, char **_argv) {
   shaderBallIndices.resize(shaderBallVertices.size());
   std::iota(shaderBallIndices.begin(), shaderBallIndices.end(), 0);
 
-  VkInstance instance;
-  VkApplicationInfo appinfo = {};
-  appinfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-  appinfo.pApplicationName = "Bibim Renderer";
-  appinfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-  appinfo.pEngineName = "Bibim Renderer";
-  appinfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  appinfo.apiVersion = VK_API_VERSION_1_2;
-  VkInstanceCreateInfo instanceCreateInfo = {};
-  instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-  instanceCreateInfo.pApplicationInfo = &appinfo;
-
-  std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-
-  bool enableValidationLayers =
-#ifdef BB_DEBUG
-      true;
-#else
-      false;
-#endif
-
-  uint32_t numLayers;
-  vkEnumerateInstanceLayerProperties(&numLayers, nullptr);
-  std::vector<VkLayerProperties> layerProperties(numLayers);
-  vkEnumerateInstanceLayerProperties(&numLayers, layerProperties.data());
-  bool canEnableLayers = true;
-  for (const char *layerName : validationLayers) {
-    bool foundLayer = false;
-    for (VkLayerProperties &properties : layerProperties) {
-      if (strcmp(properties.layerName, layerName) == 0) {
-        foundLayer = true;
-        break;
-      }
-    }
-
-    if (!foundLayer) {
-      canEnableLayers = false;
-      break;
-    }
-  }
-
-  if (enableValidationLayers && canEnableLayers) {
-    instanceCreateInfo.enabledLayerCount = (uint32_t)validationLayers.size();
-    instanceCreateInfo.ppEnabledLayerNames = validationLayers.data();
-  }
-
-  std::vector<const char *> extensions;
-  // TODO: ADD vk_win32_surface extension.
-  unsigned numInstantExtensions = 0;
-  SDL_Vulkan_GetInstanceExtensions(window, &numInstantExtensions, nullptr);
-  if (enableValidationLayers) {
-    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  }
-
-  unsigned numExtraInstantExtensions = extensions.size();
-  extensions.resize(numExtraInstantExtensions + numInstantExtensions);
-
-  SDL_Vulkan_GetInstanceExtensions(window, &numInstantExtensions,
-                                   extensions.data() +
-                                       numExtraInstantExtensions);
-
-  instanceCreateInfo.enabledExtensionCount = (uint32_t)extensions.size();
-  instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
-
-  BB_VK_ASSERT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
-  volkLoadInstance(instance);
-
-  VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
-  if (enableValidationLayers) {
-    VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
-    messengerCreateInfo.sType =
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    messengerCreateInfo.messageSeverity =
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    messengerCreateInfo.messageType =
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    messengerCreateInfo.pfnUserCallback = &vulkanDebugCallback;
-    BB_VK_ASSERT(vkCreateDebugUtilsMessengerEXT(instance, &messengerCreateInfo,
-                                                nullptr, &messenger));
-  }
-
-  VkSurfaceKHR surface = {};
-  BB_VK_ASSERT(!SDL_Vulkan_CreateSurface(
-      window, instance, &surface)); // ! to convert SDL_bool to VkResult
-
-  uint32_t numPhysicalDevices = 0;
-  std::vector<VkPhysicalDevice> physicalDevices;
-  BB_VK_ASSERT(
-      vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, nullptr));
-  physicalDevices.resize(numPhysicalDevices);
-  BB_VK_ASSERT(vkEnumeratePhysicalDevices(instance, &numPhysicalDevices,
-                                          physicalDevices.data()));
-
-  VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-  VkPhysicalDeviceFeatures deviceFeatures = {};
-  uint32_t queueFamilyIndex = 0;
-  SwapChainSupportDetails swapChainSupportDetails = {};
-
-  std::vector<const char *> deviceExtensions = {
-      VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-
-  for (VkPhysicalDevice currentPhysicalDevice : physicalDevices) {
-    if (checkPhysicalDevice(currentPhysicalDevice, surface, deviceExtensions,
-                            &deviceFeatures, &queueFamilyIndex,
-                            &swapChainSupportDetails)) {
-      physicalDevice = currentPhysicalDevice;
-      break;
-    }
-  }
-  BB_ASSERT(physicalDevice != VK_NULL_HANDLE);
-
-  std::unordered_map<uint32_t, VkQueue> queueMap;
-  float queuePriority = 1.f;
-  VkDeviceQueueCreateInfo queueCreateInfo = {};
-  queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
-  queueCreateInfo.queueCount = 1;
-  queueCreateInfo.pQueuePriorities = &queuePriority;
-
-  VkDeviceCreateInfo deviceCreateInfo = {};
-  deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-  deviceCreateInfo.queueCreateInfoCount = 1;
-  deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-  deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
-  deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
-  deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
-  VkDevice device;
-  BB_VK_ASSERT(
-      vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
-
-  VkQueue queue = VK_NULL_HANDLE;
-  vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
+  Renderer renderer = createRenderer(window);
 
   std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
 
   Shader testShader =
-      createShaderFromFile(device, shaderRootPath + "test.vert.spv",
+      createShaderFromFile(renderer, shaderRootPath + "test.vert.spv",
                            shaderRootPath + "test.frag.spv");
   Shader brdfShader =
-      createShaderFromFile(device, shaderRootPath + "brdf.vert.spv",
+      createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv",
                            shaderRootPath + "brdf.frag.spv");
 
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2] = {};
@@ -587,8 +444,9 @@ int main(int _argc, char **_argv) {
   descriptorSetLayoutCreateInfo.pBindings = descriptorSetLayoutBindings;
 
   VkDescriptorSetLayout descriptorSetLayout;
-  BB_VK_ASSERT(vkCreateDescriptorSetLayout(
-      device, &descriptorSetLayoutCreateInfo, nullptr, &descriptorSetLayout));
+  BB_VK_ASSERT(vkCreateDescriptorSetLayout(renderer.Device,
+                                           &descriptorSetLayoutCreateInfo,
+                                           nullptr, &descriptorSetLayout));
 
   VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
   pipelineLayoutCreateInfo.sType =
@@ -599,33 +457,32 @@ int main(int _argc, char **_argv) {
   pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
 
   VkPipelineLayout pipelineLayout;
-  BB_VK_ASSERT(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo,
-                                      nullptr, &pipelineLayout));
+  BB_VK_ASSERT(vkCreatePipelineLayout(
+      renderer.Device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 
   SwapChain swapChain;
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(device, physicalDevice, surface,
-                          swapChainSupportDetails, width, height, nullptr,
-                          brdfShader, pipelineLayout, &swapChain, &renderPass,
+  initReloadableResources(renderer, width, height, nullptr, brdfShader,
+                          pipelineLayout, &swapChain, &renderPass,
                           &graphicsPipeline, &swapChainFramebuffers);
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
+  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
   cmdPoolCreateInfo.flags = 0;
 
   std::vector<VkCommandPool> graphicsCmdPools(swapChain.NumColorImages);
   for (VkCommandPool &cmdPool : graphicsCmdPools) {
-    BB_VK_ASSERT(
-        vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr, &cmdPool));
+    BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo,
+                                     nullptr, &cmdPool));
   }
 
-  cmdPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
+  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
   cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
   VkCommandPool transientCmdPool;
-  BB_VK_ASSERT(vkCreateCommandPool(device, &cmdPoolCreateInfo, nullptr,
+  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
                                    &transientCmdPool));
 
   std::vector<VkCommandBuffer> graphicsCmdBuffers(swapChain.NumColorImages);
@@ -637,7 +494,7 @@ int main(int _argc, char **_argv) {
   for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
 
     cmdBufferAllocInfo.commandPool = graphicsCmdPools[i];
-    BB_VK_ASSERT(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo,
+    BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &cmdBufferAllocInfo,
                                           &graphicsCmdBuffers[i]));
   }
 
@@ -659,64 +516,63 @@ int main(int _argc, char **_argv) {
   };
   // clang-format on
 
-  Buffer quadVertexBuffer = createBuffer(
-      device, physicalDevice, size_bytes32(quadVertices),
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer quadVertexBuffer = createBuffer(renderer, size_bytes32(quadVertices),
+                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-  Buffer quadIndexBuffer = createBuffer(
-      device, physicalDevice, size_bytes32(quadIndices),
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer quadIndexBuffer = createBuffer(renderer, size_bytes32(quadIndices),
+                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   {
     Buffer vertexStagingBuffer =
-        createStagingBuffer(device, physicalDevice, quadVertexBuffer);
+        createStagingBuffer(renderer, quadVertexBuffer);
 
-    Buffer indexStagingBuffer =
-        createStagingBuffer(device, physicalDevice, quadIndexBuffer);
+    Buffer indexStagingBuffer = createStagingBuffer(renderer, quadIndexBuffer);
     void *data;
-    vkMapMemory(device, vertexStagingBuffer.Memory, 0, vertexStagingBuffer.Size,
-                0, &data);
+    vkMapMemory(renderer.Device, vertexStagingBuffer.Memory, 0,
+                vertexStagingBuffer.Size, 0, &data);
     memcpy(data, quadVertices.data(), vertexStagingBuffer.Size);
-    vkUnmapMemory(device, vertexStagingBuffer.Memory);
-    vkMapMemory(device, indexStagingBuffer.Memory, 0, indexStagingBuffer.Size,
-                0, &data);
+    vkUnmapMemory(renderer.Device, vertexStagingBuffer.Memory);
+    vkMapMemory(renderer.Device, indexStagingBuffer.Memory, 0,
+                indexStagingBuffer.Size, 0, &data);
     memcpy(data, quadIndices.data(), indexStagingBuffer.Size);
-    vkUnmapMemory(device, indexStagingBuffer.Memory);
+    vkUnmapMemory(renderer.Device, indexStagingBuffer.Memory);
 
-    copyBuffer(device, transientCmdPool, queue, quadVertexBuffer,
+    copyBuffer(renderer, transientCmdPool, quadVertexBuffer,
                vertexStagingBuffer, vertexStagingBuffer.Size);
-    copyBuffer(device, transientCmdPool, queue, quadIndexBuffer,
-               indexStagingBuffer, indexStagingBuffer.Size);
+    copyBuffer(renderer, transientCmdPool, quadIndexBuffer, indexStagingBuffer,
+               indexStagingBuffer.Size);
 
-    destroyBuffer(device, vertexStagingBuffer);
-    destroyBuffer(device, indexStagingBuffer);
+    destroyBuffer(renderer, vertexStagingBuffer);
+    destroyBuffer(renderer, indexStagingBuffer);
   }
 
   Buffer shaderBallVertexBuffer =
-      createBuffer(device, physicalDevice, size_bytes32(shaderBallVertices),
+      createBuffer(renderer, size_bytes32(shaderBallVertices),
                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   {
     void *data;
-    vkMapMemory(device, shaderBallVertexBuffer.Memory, 0,
+    vkMapMemory(renderer.Device, shaderBallVertexBuffer.Memory, 0,
                 shaderBallVertexBuffer.Size, 0, &data);
     memcpy(data, shaderBallVertices.data(), shaderBallVertexBuffer.Size);
-    vkUnmapMemory(device, shaderBallVertexBuffer.Memory);
+    vkUnmapMemory(renderer.Device, shaderBallVertexBuffer.Memory);
   }
   Buffer shaderBallIndexBuffer =
-      createBuffer(device, physicalDevice, size_bytes32(shaderBallIndices),
+      createBuffer(renderer, size_bytes32(shaderBallIndices),
                    VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   {
     void *data;
-    vkMapMemory(device, shaderBallIndexBuffer.Memory, 0,
+    vkMapMemory(renderer.Device, shaderBallIndexBuffer.Memory, 0,
                 shaderBallIndexBuffer.Size, 0, &data);
     memcpy(data, shaderBallIndices.data(), shaderBallIndexBuffer.Size);
-    vkUnmapMemory(device, shaderBallIndexBuffer.Memory);
+    vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
   }
 
   VkImage textureImage;
@@ -731,15 +587,16 @@ int main(int _argc, char **_argv) {
 
     VkDeviceSize textureSize = textureDims.X * textureDims.Y * 4;
 
-    Buffer textureStagingBuffer = createBuffer(
-        device, physicalDevice, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    Buffer textureStagingBuffer =
+        createBuffer(renderer, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     void *data;
-    vkMapMemory(device, textureStagingBuffer.Memory, 0, textureSize, 0, &data);
+    vkMapMemory(renderer.Device, textureStagingBuffer.Memory, 0, textureSize, 0,
+                &data);
     memcpy(data, pixels, textureSize);
-    vkUnmapMemory(device, textureStagingBuffer.Memory);
+    vkUnmapMemory(renderer.Device, textureStagingBuffer.Memory);
     stbi_image_free(pixels);
 
     VkImageCreateInfo textureImageCreateInfo = {};
@@ -759,25 +616,27 @@ int main(int _argc, char **_argv) {
     textureImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     textureImageCreateInfo.flags = 0;
 
-    BB_VK_ASSERT(
-        vkCreateImage(device, &textureImageCreateInfo, nullptr, &textureImage));
+    BB_VK_ASSERT(vkCreateImage(renderer.Device, &textureImageCreateInfo,
+                               nullptr, &textureImage));
 
     VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+    vkGetImageMemoryRequirements(renderer.Device, textureImage,
+                                 &memRequirements);
 
     VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
     textureImageMemoryAllocateInfo.sType =
         VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
     textureImageMemoryAllocateInfo.memoryTypeIndex =
-        findMemoryType(physicalDevice, memRequirements.memoryTypeBits,
+        findMemoryType(renderer, memRequirements.memoryTypeBits,
                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    BB_VK_ASSERT(vkAllocateMemory(device, &textureImageMemoryAllocateInfo,
-                                  nullptr, &textureImageMemory));
+    BB_VK_ASSERT(vkAllocateMemory(renderer.Device,
+                                  &textureImageMemoryAllocateInfo, nullptr,
+                                  &textureImageMemory));
 
-    BB_VK_ASSERT(
-        vkBindImageMemory(device, textureImage, textureImageMemory, 0));
+    BB_VK_ASSERT(vkBindImageMemory(renderer.Device, textureImage,
+                                   textureImageMemory, 0));
 
     VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
     cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -786,8 +645,8 @@ int main(int _argc, char **_argv) {
     cmdBufferAllocInfo.commandBufferCount = 1;
 
     VkCommandBuffer cmdBuffer;
-    BB_VK_ASSERT(
-        vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &cmdBuffer));
+    BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &cmdBufferAllocInfo,
+                                          &cmdBuffer));
 
     VkCommandBufferBeginInfo cmdBeginInfo = {};
     cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -840,11 +699,11 @@ int main(int _argc, char **_argv) {
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
-    BB_VK_ASSERT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(queue));
-    vkFreeCommandBuffers(device, transientCmdPool, 1, &cmdBuffer);
+    BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
+    BB_VK_ASSERT(vkQueueWaitIdle(renderer.Queue));
+    vkFreeCommandBuffers(renderer.Device, transientCmdPool, 1, &cmdBuffer);
 
-    destroyBuffer(device, textureStagingBuffer);
+    destroyBuffer(renderer, textureStagingBuffer);
   }
 
   VkImageView textureImageView;
@@ -859,8 +718,8 @@ int main(int _argc, char **_argv) {
   textureImageViewCreateInfo.subresourceRange.levelCount = 1;
   textureImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
   textureImageViewCreateInfo.subresourceRange.layerCount = 1;
-  BB_VK_ASSERT(vkCreateImageView(device, &textureImageViewCreateInfo, nullptr,
-                                 &textureImageView));
+  BB_VK_ASSERT(vkCreateImageView(renderer.Device, &textureImageViewCreateInfo,
+                                 nullptr, &textureImageView));
 
   VkSampler textureSampler;
   VkSamplerCreateInfo textureSamplerCreateInfo = {};
@@ -880,12 +739,12 @@ int main(int _argc, char **_argv) {
   textureSamplerCreateInfo.mipLodBias = 0.f;
   textureSamplerCreateInfo.minLod = 0.f;
   textureSamplerCreateInfo.maxLod = 0.f;
-  BB_VK_ASSERT(vkCreateSampler(device, &textureSamplerCreateInfo, nullptr,
-                               &textureSampler));
+  BB_VK_ASSERT(vkCreateSampler(renderer.Device, &textureSamplerCreateInfo,
+                               nullptr, &textureSampler));
 
   std::vector<Buffer> uniformBuffers(swapChain.NumColorImages);
   for (Buffer &uniformBuffer : uniformBuffers) {
-    uniformBuffer = createBuffer(device, physicalDevice, sizeof(UniformBlock),
+    uniformBuffer = createBuffer(renderer, sizeof(UniformBlock),
                                  VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -905,8 +764,8 @@ int main(int _argc, char **_argv) {
   descriptorPoolCreateInfo.maxSets = swapChain.NumColorImages;
 
   VkDescriptorPool descriptorPool;
-  BB_VK_ASSERT(vkCreateDescriptorPool(device, &descriptorPoolCreateInfo,
-                                      nullptr, &descriptorPool));
+  BB_VK_ASSERT(vkCreateDescriptorPool(
+      renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
 
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
@@ -930,7 +789,7 @@ int main(int _argc, char **_argv) {
     poolInfo.poolSizeCount = (uint32_t)IM_ARRAYSIZE(poolSizes);
     poolInfo.pPoolSizes = poolSizes;
 
-    BB_VK_ASSERT(vkCreateDescriptorPool(device, &poolInfo, nullptr,
+    BB_VK_ASSERT(vkCreateDescriptorPool(renderer.Device, &poolInfo, nullptr,
                                         &imguiDescriptorPool));
   }
 
@@ -942,8 +801,8 @@ int main(int _argc, char **_argv) {
   descriptorSetAllocInfo.descriptorPool = descriptorPool;
   descriptorSetAllocInfo.descriptorSetCount = swapChain.NumColorImages;
   descriptorSetAllocInfo.pSetLayouts = descriptorSetLayouts.data();
-  BB_VK_ASSERT(vkAllocateDescriptorSets(device, &descriptorSetAllocInfo,
-                                        descriptorSets.data()));
+  BB_VK_ASSERT(vkAllocateDescriptorSets(
+      renderer.Device, &descriptorSetAllocInfo, descriptorSets.data()));
   for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
     VkDescriptorBufferInfo descriptorBufferInfo = {};
     descriptorBufferInfo.buffer = uniformBuffers[i].Handle;
@@ -971,7 +830,8 @@ int main(int _argc, char **_argv) {
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     descriptorWrites[1].descriptorCount = 1;
     descriptorWrites[1].pImageInfo = &descriptorImageInfo;
-    vkUpdateDescriptorSets(device, (uint32_t)std::size(descriptorWrites),
+    vkUpdateDescriptorSets(renderer.Device,
+                           (uint32_t)std::size(descriptorWrites),
                            descriptorWrites, 0, nullptr);
   }
 
@@ -981,16 +841,16 @@ int main(int _argc, char **_argv) {
 
   VkSemaphoreCreateInfo semaphoreCreateInfo = {};
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  BB_VK_ASSERT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr,
+  BB_VK_ASSERT(vkCreateSemaphore(renderer.Device, &semaphoreCreateInfo, nullptr,
                                  &imageAvailableSemaphore));
-  BB_VK_ASSERT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr,
+  BB_VK_ASSERT(vkCreateSemaphore(renderer.Device, &semaphoreCreateInfo, nullptr,
                                  &renderFinishedSemaphore));
 
   VkFenceCreateInfo fenceCreateInfo = {};
   fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
   for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
-    BB_VK_ASSERT(vkCreateFence(device, &fenceCreateInfo, nullptr,
+    BB_VK_ASSERT(vkCreateFence(renderer.Device, &fenceCreateInfo, nullptr,
                                &renderFinishedFences[i]));
   }
 
@@ -1004,11 +864,11 @@ int main(int _argc, char **_argv) {
 
   ImGui_ImplSDL2_InitForVulkan(window);
   ImGui_ImplVulkan_InitInfo initInfo = {};
-  initInfo.Instance = instance;
-  initInfo.PhysicalDevice = physicalDevice;
-  initInfo.Device = device;
-  initInfo.QueueFamily = queueFamilyIndex;
-  initInfo.Queue = queue;
+  initInfo.Instance = renderer.Instance;
+  initInfo.PhysicalDevice = renderer.PhysicalDevice;
+  initInfo.Device = renderer.Device;
+  initInfo.QueueFamily = renderer.QueueFamilyIndex;
+  initInfo.Queue = renderer.Queue;
   initInfo.PipelineCache = nullptr;
   initInfo.DescriptorPool = imguiDescriptorPool;
   initInfo.Allocator = nullptr;
@@ -1024,7 +884,7 @@ int main(int _argc, char **_argv) {
     cmdBufferAllocInfo.commandPool = transientCmdPool;
     cmdBufferAllocInfo.commandBufferCount = 1;
     VkCommandBuffer cmdBuffer;
-    vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &cmdBuffer);
+    vkAllocateCommandBuffers(renderer.Device, &cmdBufferAllocInfo, &cmdBuffer);
 
     VkCommandBufferBeginInfo beginInfo = {};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1038,8 +898,8 @@ int main(int _argc, char **_argv) {
     endInfo.commandBufferCount = 1;
     endInfo.pCommandBuffers = &cmdBuffer;
     BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-    BB_VK_ASSERT(vkQueueSubmit(queue, 1, &endInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(queue));
+    BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &endInfo, VK_NULL_HANDLE));
+    BB_VK_ASSERT(vkQueueWaitIdle(renderer.Queue));
 
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
@@ -1117,23 +977,22 @@ int main(int _argc, char **_argv) {
     cam.Pos += camMovement;
 
     VkResult acquireNextImageResult = vkAcquireNextImageKHR(
-        device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphore,
+        renderer.Device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphore,
         VK_NULL_HANDLE, &currentFrame);
 
     if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
       vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-          physicalDevice, surface, &swapChainSupportDetails.Capabilities);
+          renderer.PhysicalDevice, renderer.Surface,
+          &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, brdfShader, pipelineLayout,
-                     swapChain, renderPass, graphicsPipeline,
-                     swapChainFramebuffers);
+      onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
+                     renderPass, graphicsPipeline, swapChainFramebuffers);
       continue;
     }
 
-    vkWaitForFences(device, 1, &renderFinishedFences[currentFrame], VK_TRUE,
-                    UINT64_MAX);
-    vkResetFences(device, 1, &renderFinishedFences[currentFrame]);
+    vkWaitForFences(renderer.Device, 1, &renderFinishedFences[currentFrame],
+                    VK_TRUE, UINT64_MAX);
+    vkResetFences(renderer.Device, 1, &renderFinishedFences[currentFrame]);
 
     static float angle = 0;
     angle += 30.f * dt;
@@ -1173,13 +1032,13 @@ int main(int _argc, char **_argv) {
 
     {
       void *data;
-      vkMapMemory(device, uniformBuffers[currentFrame].Memory, 0,
+      vkMapMemory(renderer.Device, uniformBuffers[currentFrame].Memory, 0,
                   sizeof(UniformBlock), 0, &data);
       memcpy(data, &uniformBlock, sizeof(UniformBlock));
-      vkUnmapMemory(device, uniformBuffers[currentFrame].Memory);
+      vkUnmapMemory(renderer.Device, uniformBuffers[currentFrame].Memory);
     }
 
-    vkResetCommandPool(device, graphicsCmdPools[currentFrame],
+    vkResetCommandPool(renderer.Device, graphicsCmdPools[currentFrame],
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
@@ -1201,7 +1060,7 @@ int main(int _argc, char **_argv) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &graphicsCmdBuffers[currentFrame];
 
-    BB_VK_ASSERT(vkQueueSubmit(queue, 1, &submitInfo,
+    BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo,
                                renderFinishedFences[currentFrame]));
 
     VkPresentInfoKHR presentInfo = {};
@@ -1212,68 +1071,62 @@ int main(int _argc, char **_argv) {
     presentInfo.pSwapchains = &swapChain.Handle;
     presentInfo.pImageIndices = &currentFrame;
 
-    VkResult queuePresentResult = vkQueuePresentKHR(queue, &presentInfo);
+    VkResult queuePresentResult =
+        vkQueuePresentKHR(renderer.Queue, &presentInfo);
     if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         queuePresentResult == VK_SUBOPTIMAL_KHR) {
       vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-          physicalDevice, surface, &swapChainSupportDetails.Capabilities);
+          renderer.PhysicalDevice, renderer.Surface,
+          &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, device, physicalDevice, surface,
-                     swapChainSupportDetails, brdfShader, pipelineLayout,
-                     swapChain, renderPass, graphicsPipeline,
-                     swapChainFramebuffers);
+      onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
+                     renderPass, graphicsPipeline, swapChainFramebuffers);
     }
 
     currentFrame = (currentFrame + 1) % swapChain.NumColorImages;
   }
 
-  vkDeviceWaitIdle(device);
+  vkDeviceWaitIdle(renderer.Device);
 
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
 
   for (VkFence fence : renderFinishedFences) {
-    vkDestroyFence(device, fence, nullptr);
+    vkDestroyFence(renderer.Device, fence, nullptr);
   }
-  vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-  vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+  vkDestroySemaphore(renderer.Device, renderFinishedSemaphore, nullptr);
+  vkDestroySemaphore(renderer.Device, imageAvailableSemaphore, nullptr);
 
-  vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-  vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
+  vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
+  vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
   for (Buffer &uniformBuffer : uniformBuffers) {
-    destroyBuffer(device, uniformBuffer);
+    destroyBuffer(renderer, uniformBuffer);
   }
 
-  vkDestroySampler(device, textureSampler, nullptr);
-  vkDestroyImageView(device, textureImageView, nullptr);
-  vkDestroyImage(device, textureImage, nullptr);
-  vkFreeMemory(device, textureImageMemory, nullptr);
-  destroyBuffer(device, shaderBallIndexBuffer);
-  destroyBuffer(device, shaderBallVertexBuffer);
-  destroyBuffer(device, quadIndexBuffer);
-  destroyBuffer(device, quadVertexBuffer);
+  vkDestroySampler(renderer.Device, textureSampler, nullptr);
+  vkDestroyImageView(renderer.Device, textureImageView, nullptr);
+  vkDestroyImage(renderer.Device, textureImage, nullptr);
+  vkFreeMemory(renderer.Device, textureImageMemory, nullptr);
+  destroyBuffer(renderer, shaderBallIndexBuffer);
+  destroyBuffer(renderer, shaderBallVertexBuffer);
+  destroyBuffer(renderer, quadIndexBuffer);
+  destroyBuffer(renderer, quadVertexBuffer);
 
-  vkDestroyCommandPool(device, transientCmdPool, nullptr);
+  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
   for (VkCommandPool cmdPool : graphicsCmdPools) {
-    vkDestroyCommandPool(device, cmdPool, nullptr);
+    vkDestroyCommandPool(renderer.Device, cmdPool, nullptr);
   }
 
-  cleanupReloadableResources(device, swapChain, renderPass, graphicsPipeline,
+  cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);
 
-  vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-  vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-  destroyShader(device, brdfShader);
-  destroyShader(device, testShader);
-  vkDestroyDevice(device, nullptr);
-  vkDestroySurfaceKHR(instance, surface, nullptr);
-  if (messenger != VK_NULL_HANDLE) {
-    vkDestroyDebugUtilsMessengerEXT(instance, messenger, nullptr);
-    messenger = VK_NULL_HANDLE;
-  }
-  vkDestroyInstance(instance, nullptr);
+  vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
+  vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);
+  destroyShader(renderer, brdfShader);
+  destroyShader(renderer, testShader);
+  destroyRenderer(renderer);
 
   SDL_DestroyWindow(window);
   SDL_Quit();

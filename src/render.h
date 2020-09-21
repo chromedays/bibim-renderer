@@ -1,20 +1,10 @@
 #pragma once
 #include "vector_math.h"
 #include "external/volk.h"
+#include "external/SDL2/SDL.h"
 #include <array>
 
 namespace bb {
-
-VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT _severity,
-    VkDebugUtilsMessageTypeFlagsEXT _type,
-    const VkDebugUtilsMessengerCallbackDataEXT *_callbackData, void *_userData);
-
-bool getQueueFamily(VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
-                    uint32_t *_outQueueFamilyIndex);
-
-uint32_t findMemoryType(VkPhysicalDevice _physicalDevice, uint32_t _typeFilter,
-                        VkMemoryPropertyFlags _properties);
 
 struct SwapChainSupportDetails {
   VkSurfaceCapabilitiesKHR Capabilities;
@@ -26,12 +16,24 @@ struct SwapChainSupportDetails {
   VkExtent2D chooseExtent(uint32_t _width, uint32_t _height) const;
 };
 
-bool checkPhysicalDevice(VkPhysicalDevice _physicalDevice,
-                         VkSurfaceKHR _surface,
-                         const std::vector<const char *> &_deviceExtensions,
-                         VkPhysicalDeviceFeatures *_outDeviceFeatures,
-                         uint32_t *_outQueueFamilyIndex,
-                         SwapChainSupportDetails *_outSwapChainSupportDetails);
+struct Renderer {
+  VkInstance Instance;
+  VkDebugUtilsMessengerEXT DebugMessenger;
+  VkSurfaceKHR Surface;
+  VkDevice Device;
+  VkPhysicalDevice PhysicalDevice;
+  SwapChainSupportDetails
+      SwapChainSupportDetails; // TODO(ilgwon): I'm not sure if this field has
+                               // to belong to Renderer, because it's value
+                               // changes when a window is resized.
+  uint32_t QueueFamilyIndex;
+  VkQueue Queue;
+};
+
+Renderer createRenderer(SDL_Window *_window);
+void destroyRenderer(Renderer &_renderer);
+uint32_t findMemoryType(const Renderer &_renderer, uint32_t _typeFilter,
+                        VkMemoryPropertyFlags _properties);
 
 struct SwapChain {
   VkSwapchainKHR Handle;
@@ -47,11 +49,10 @@ struct SwapChain {
   VkImageView DepthImageView;
 };
 
-SwapChain createSwapChain(
-    VkDevice _device, VkPhysicalDevice _physicalDevice, VkSurfaceKHR _surface,
-    const SwapChainSupportDetails &_swapChainSupportDetails, uint32_t _width,
-    uint32_t _height, const SwapChain *_oldSwapChain = nullptr);
-void destroySwapChain(VkDevice _device, SwapChain &_swapChain);
+SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
+                          uint32_t _height,
+                          const SwapChain *_oldSwapChain = nullptr);
+void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
 struct Vertex {
   Float3 Pos;
@@ -68,14 +69,13 @@ struct Buffer {
   uint32_t Size;
 };
 
-Buffer createBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
-                    VkDeviceSize _size, VkBufferUsageFlags _usage,
+Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
+                    VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties);
-Buffer createStagingBuffer(VkDevice _device, VkPhysicalDevice _physicalDevice,
-                           const Buffer &_orgBuffer);
+Buffer createStagingBuffer(const Renderer &_renderer, const Buffer &_orgBuffer);
 
-void destroyBuffer(VkDevice _device, Buffer &_buffer);
-void copyBuffer(VkDevice _device, VkCommandPool _cmdPool, VkQueue _queue,
+void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
+void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
                 Buffer &_dstBuffer, Buffer &_srcBuffer, VkDeviceSize _size);
 
 struct Shader {
@@ -83,13 +83,13 @@ struct Shader {
   VkShaderModule Frag;
 };
 
-VkShaderModule createShaderModuleFromFile(VkDevice _device,
+VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
                                           const std::string &_filePath);
 
-Shader createShaderFromFile(VkDevice _device,
+Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_vertShaderFilePath,
                             const std::string &_fragShaderFilePath);
 
-void destroyShader(VkDevice _device, Shader &_shader);
+void destroyShader(const Renderer &_renderer, Shader &_shader);
 
 } // namespace bb
