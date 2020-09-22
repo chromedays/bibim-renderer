@@ -48,6 +48,108 @@ struct UniformBlock {
   int VisualizeOption;
 };
 
+struct Frame {
+  VkCommandPool CmdPool;
+  VkCommandBuffer CmdBuffer;
+  VkDescriptorPool DescriptorPool;
+  VkDescriptorSet DescriptorSet;
+  Buffer UniformBuffer;
+  VkFence FrameAvailableFence;
+  VkSemaphore RenderFinishedSemaphore;
+  VkSemaphore ImagePresentedSemaphore;
+};
+
+Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
+                  VkDescriptorSetLayout _descriptorSetLayout,
+                  VkImageView _imageView, VkSampler _sampler) {
+  Frame result = {};
+
+  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdPoolCreateInfo.queueFamilyIndex = _renderer.QueueFamilyIndex;
+  cmdPoolCreateInfo.flags = 0;
+
+  BB_VK_ASSERT(vkCreateCommandPool(_renderer.Device, &cmdPoolCreateInfo,
+                                   nullptr, &result.CmdPool));
+
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandBufferCount = 1;
+  cmdBufferAllocInfo.commandPool = result.CmdPool;
+  BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
+                                        &result.CmdBuffer));
+
+  result.UniformBuffer = createBuffer(_renderer, sizeof(UniformBlock),
+                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  result.DescriptorPool = _descriptorPool;
+
+  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  descriptorSetAllocInfo.descriptorPool = _descriptorPool;
+  descriptorSetAllocInfo.descriptorSetCount = 1;
+  descriptorSetAllocInfo.pSetLayouts = &_descriptorSetLayout;
+  BB_VK_ASSERT(vkAllocateDescriptorSets(
+      _renderer.Device, &descriptorSetAllocInfo, &result.DescriptorSet));
+
+  VkDescriptorBufferInfo descriptorBufferInfo = {};
+  descriptorBufferInfo.buffer = result.UniformBuffer.Handle;
+  descriptorBufferInfo.offset = 0;
+  descriptorBufferInfo.range = sizeof(UniformBlock);
+
+  VkDescriptorImageInfo descriptorImageInfo = {};
+  descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  descriptorImageInfo.imageView = _imageView;
+  descriptorImageInfo.sampler = _sampler;
+
+  VkWriteDescriptorSet descriptorWrites[2] = {};
+  descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrites[0].dstSet = result.DescriptorSet;
+  descriptorWrites[0].dstBinding = 0;
+  descriptorWrites[0].dstArrayElement = 0;
+  descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorWrites[0].descriptorCount = 1;
+  descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
+  descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrites[1].dstSet = result.DescriptorSet;
+  descriptorWrites[1].dstBinding = 1;
+  descriptorWrites[1].dstArrayElement = 0;
+  descriptorWrites[1].descriptorType =
+      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  descriptorWrites[1].descriptorCount = 1;
+  descriptorWrites[1].pImageInfo = &descriptorImageInfo;
+  vkUpdateDescriptorSets(_renderer.Device,
+                         (uint32_t)std::size(descriptorWrites),
+                         descriptorWrites, 0, nullptr);
+
+  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
+                                 nullptr, &result.RenderFinishedSemaphore));
+  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
+                                 nullptr, &result.ImagePresentedSemaphore));
+
+  VkFenceCreateInfo fenceCreateInfo = {};
+  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+  BB_VK_ASSERT(vkCreateFence(_renderer.Device, &fenceCreateInfo, nullptr,
+                             &result.FrameAvailableFence));
+
+  return result;
+}
+
+void destroyFrame(const Renderer &_renderer, Frame &_frame) {
+  vkDestroySemaphore(_renderer.Device, _frame.ImagePresentedSemaphore, nullptr);
+  vkDestroySemaphore(_renderer.Device, _frame.RenderFinishedSemaphore, nullptr);
+  vkDestroyFence(_renderer.Device, _frame.FrameAvailableFence, nullptr);
+  destroyBuffer(_renderer, _frame.UniformBuffer);
+  vkDestroyCommandPool(_renderer.Device, _frame.CmdPool, nullptr);
+  _frame = {};
+}
+
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
@@ -460,6 +562,14 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreatePipelineLayout(
       renderer.Device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 
+  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
+  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  VkCommandPool transientCmdPool;
+  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
+                                   &transientCmdPool));
+
   SwapChain swapChain;
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
@@ -467,36 +577,6 @@ int main(int _argc, char **_argv) {
   initReloadableResources(renderer, width, height, nullptr, brdfShader,
                           pipelineLayout, &swapChain, &renderPass,
                           &graphicsPipeline, &swapChainFramebuffers);
-
-  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
-  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
-  cmdPoolCreateInfo.flags = 0;
-
-  std::vector<VkCommandPool> graphicsCmdPools(swapChain.NumColorImages);
-  for (VkCommandPool &cmdPool : graphicsCmdPools) {
-    BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo,
-                                     nullptr, &cmdPool));
-  }
-
-  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
-  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-  VkCommandPool transientCmdPool;
-  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
-                                   &transientCmdPool));
-
-  std::vector<VkCommandBuffer> graphicsCmdBuffers(swapChain.NumColorImages);
-
-  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  cmdBufferAllocInfo.commandBufferCount = 1;
-  for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
-
-    cmdBufferAllocInfo.commandPool = graphicsCmdPools[i];
-    BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &cmdBufferAllocInfo,
-                                          &graphicsCmdBuffers[i]));
-  }
 
   // clang-format off
   std::vector<Vertex> quadVertices = {
@@ -742,26 +822,20 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateSampler(renderer.Device, &textureSamplerCreateInfo,
                                nullptr, &textureSampler));
 
-  std::vector<Buffer> uniformBuffers(swapChain.NumColorImages);
-  for (Buffer &uniformBuffer : uniformBuffers) {
-    uniformBuffer = createBuffer(renderer, sizeof(UniformBlock),
-                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  }
+  const int numFrames = 1;
 
   VkDescriptorPoolSize descriptorPoolSizes[2] = {};
   descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  descriptorPoolSizes[0].descriptorCount = swapChain.NumColorImages;
+  descriptorPoolSizes[0].descriptorCount = numFrames;
   descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorPoolSizes[1].descriptorCount = swapChain.NumColorImages;
+  descriptorPoolSizes[1].descriptorCount = numFrames;
   VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
   descriptorPoolCreateInfo.sType =
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   descriptorPoolCreateInfo.poolSizeCount =
       (uint32_t)std::size(descriptorPoolSizes);
   descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-  descriptorPoolCreateInfo.maxSets = swapChain.NumColorImages;
+  descriptorPoolCreateInfo.maxSets = numFrames;
 
   VkDescriptorPool descriptorPool;
   BB_VK_ASSERT(vkCreateDescriptorPool(
@@ -793,68 +867,14 @@ int main(int _argc, char **_argv) {
                                         &imguiDescriptorPool));
   }
 
-  std::vector<VkDescriptorSet> descriptorSets(swapChain.NumColorImages);
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts(
-      swapChain.NumColorImages, descriptorSetLayout);
-  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
-  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  descriptorSetAllocInfo.descriptorPool = descriptorPool;
-  descriptorSetAllocInfo.descriptorSetCount = swapChain.NumColorImages;
-  descriptorSetAllocInfo.pSetLayouts = descriptorSetLayouts.data();
-  BB_VK_ASSERT(vkAllocateDescriptorSets(
-      renderer.Device, &descriptorSetAllocInfo, descriptorSets.data()));
-  for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
-    VkDescriptorBufferInfo descriptorBufferInfo = {};
-    descriptorBufferInfo.buffer = uniformBuffers[i].Handle;
-    descriptorBufferInfo.offset = 0;
-    descriptorBufferInfo.range = sizeof(UniformBlock);
-
-    VkDescriptorImageInfo descriptorImageInfo = {};
-    descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    descriptorImageInfo.imageView = textureImageView;
-    descriptorImageInfo.sampler = textureSampler;
-
-    VkWriteDescriptorSet descriptorWrites[2] = {};
-    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[0].dstSet = descriptorSets[i];
-    descriptorWrites[0].dstBinding = 0;
-    descriptorWrites[0].dstArrayElement = 0;
-    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptorWrites[0].descriptorCount = 1;
-    descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[1].dstSet = descriptorSets[i];
-    descriptorWrites[1].dstBinding = 1;
-    descriptorWrites[1].dstArrayElement = 0;
-    descriptorWrites[1].descriptorType =
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWrites[1].descriptorCount = 1;
-    descriptorWrites[1].pImageInfo = &descriptorImageInfo;
-    vkUpdateDescriptorSets(renderer.Device,
-                           (uint32_t)std::size(descriptorWrites),
-                           descriptorWrites, 0, nullptr);
+  std::vector<Frame> frames;
+  for (int i = 0; i < numFrames; ++i) {
+    frames.push_back(createFrame(renderer, descriptorPool, descriptorSetLayout,
+                                 textureImageView, textureSampler));
   }
 
-  VkSemaphore imageAvailableSemaphore;
-  VkSemaphore renderFinishedSemaphore;
-  std::vector<VkFence> renderFinishedFences(swapChain.NumColorImages);
-
-  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  BB_VK_ASSERT(vkCreateSemaphore(renderer.Device, &semaphoreCreateInfo, nullptr,
-                                 &imageAvailableSemaphore));
-  BB_VK_ASSERT(vkCreateSemaphore(renderer.Device, &semaphoreCreateInfo, nullptr,
-                                 &renderFinishedSemaphore));
-
-  VkFenceCreateInfo fenceCreateInfo = {};
-  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-  for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
-    BB_VK_ASSERT(vkCreateFence(renderer.Device, &fenceCreateInfo, nullptr,
-                               &renderFinishedFences[i]));
-  }
-
-  uint32_t currentFrame = 0;
+  uint32_t currentFrameIndex = 0;
+  uint32_t currentSwapChainImageIndex = 0;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -872,13 +892,13 @@ int main(int _argc, char **_argv) {
   initInfo.PipelineCache = nullptr;
   initInfo.DescriptorPool = imguiDescriptorPool;
   initInfo.Allocator = nullptr;
-  initInfo.MinImageCount = swapChain.MinNumImages;
-  initInfo.ImageCount = swapChain.NumColorImages;
+  initInfo.MinImageCount = numFrames;
+  initInfo.ImageCount = numFrames;
   initInfo.CheckVkResultFn = nullptr;
   ImGui_ImplVulkan_Init(&initInfo, renderPass);
 
   {
-    cmdBufferAllocInfo = {};
+    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
     cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cmdBufferAllocInfo.commandPool = transientCmdPool;
@@ -976,9 +996,12 @@ int main(int _argc, char **_argv) {
         dt;
     cam.Pos += camMovement;
 
-    VkResult acquireNextImageResult = vkAcquireNextImageKHR(
-        renderer.Device, swapChain.Handle, UINT64_MAX, imageAvailableSemaphore,
-        VK_NULL_HANDLE, &currentFrame);
+    Frame &currentFrame = frames[currentFrameIndex];
+
+    VkResult acquireNextImageResult =
+        vkAcquireNextImageKHR(renderer.Device, swapChain.Handle, UINT64_MAX,
+                              currentFrame.ImagePresentedSemaphore,
+                              VK_NULL_HANDLE, &currentSwapChainImageIndex);
 
     if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
       vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
@@ -990,9 +1013,14 @@ int main(int _argc, char **_argv) {
       continue;
     }
 
-    vkWaitForFences(renderer.Device, 1, &renderFinishedFences[currentFrame],
+    VkFramebuffer currentSwapChainFramebuffer =
+        swapChainFramebuffers[currentSwapChainImageIndex];
+
+    vkWaitForFences(renderer.Device, 1, &currentFrame.FrameAvailableFence,
                     VK_TRUE, UINT64_MAX);
-    vkResetFences(renderer.Device, 1, &renderFinishedFences[currentFrame]);
+    vkResetFences(renderer.Device, 1, &currentFrame.FrameAvailableFence);
+
+    currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
     static float angle = 0;
     angle += 30.f * dt;
@@ -1032,44 +1060,44 @@ int main(int _argc, char **_argv) {
 
     {
       void *data;
-      vkMapMemory(renderer.Device, uniformBuffers[currentFrame].Memory, 0,
+      vkMapMemory(renderer.Device, currentFrame.UniformBuffer.Memory, 0,
                   sizeof(UniformBlock), 0, &data);
       memcpy(data, &uniformBlock, sizeof(UniformBlock));
-      vkUnmapMemory(renderer.Device, uniformBuffers[currentFrame].Memory);
+      vkUnmapMemory(renderer.Device, currentFrame.UniformBuffer.Memory);
     }
 
-    vkResetCommandPool(renderer.Device, graphicsCmdPools[currentFrame],
+    vkResetCommandPool(renderer.Device, currentFrame.CmdPool,
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
-    recordCommand(graphicsCmdBuffers[currentFrame], renderPass,
-                  swapChainFramebuffers[currentFrame], swapChain.Extent,
+    recordCommand(currentFrame.CmdBuffer, renderPass,
+                  currentSwapChainFramebuffer, swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer,
                   shaderBallIndexBuffer, textureImage, pipelineLayout,
-                  descriptorSets[currentFrame], shaderBallIndices);
+                  currentFrame.DescriptorSet, shaderBallIndices);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+    submitInfo.pWaitSemaphores = &currentFrame.ImagePresentedSemaphore;
     VkPipelineStageFlags waitStage =
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     submitInfo.pWaitDstStageMask = &waitStage;
     submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
+    submitInfo.pSignalSemaphores = &currentFrame.RenderFinishedSemaphore;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &graphicsCmdBuffers[currentFrame];
+    submitInfo.pCommandBuffers = &currentFrame.CmdBuffer;
 
     BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo,
-                               renderFinishedFences[currentFrame]));
+                               currentFrame.FrameAvailableFence));
 
     VkPresentInfoKHR presentInfo = {};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
+    presentInfo.pWaitSemaphores = &currentFrame.RenderFinishedSemaphore;
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapChain.Handle;
-    presentInfo.pImageIndices = &currentFrame;
+    presentInfo.pImageIndices = &currentSwapChainImageIndex;
 
     VkResult queuePresentResult =
         vkQueuePresentKHR(renderer.Queue, &presentInfo);
@@ -1082,8 +1110,6 @@ int main(int _argc, char **_argv) {
       onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
                      renderPass, graphicsPipeline, swapChainFramebuffers);
     }
-
-    currentFrame = (currentFrame + 1) % swapChain.NumColorImages;
   }
 
   vkDeviceWaitIdle(renderer.Device);
@@ -1092,19 +1118,13 @@ int main(int _argc, char **_argv) {
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
 
-  for (VkFence fence : renderFinishedFences) {
-    vkDestroyFence(renderer.Device, fence, nullptr);
+  for (Frame &frame : frames) {
+    destroyFrame(renderer, frame);
   }
-  vkDestroySemaphore(renderer.Device, renderFinishedSemaphore, nullptr);
-  vkDestroySemaphore(renderer.Device, imageAvailableSemaphore, nullptr);
 
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
-
-  for (Buffer &uniformBuffer : uniformBuffers) {
-    destroyBuffer(renderer, uniformBuffer);
-  }
-
+  ;
   vkDestroySampler(renderer.Device, textureSampler, nullptr);
   vkDestroyImageView(renderer.Device, textureImageView, nullptr);
   vkDestroyImage(renderer.Device, textureImage, nullptr);
@@ -1114,13 +1134,10 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, quadIndexBuffer);
   destroyBuffer(renderer, quadVertexBuffer);
 
-  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
-  for (VkCommandPool cmdPool : graphicsCmdPools) {
-    vkDestroyCommandPool(renderer.Device, cmdPool, nullptr);
-  }
-
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);
+
+  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
   vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);
