@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define AI_SMOOTHINGGROUPS_INL_INCLUDED
 
 // internal headers
-#include <assimp/SGSpatialSort.h>
+#include "SGSpatialSort.h"
 
 // CRT header
 #include <algorithm>

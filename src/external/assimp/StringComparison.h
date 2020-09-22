@@ -52,8 +52,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef INCLUDED_AI_STRING_WORKERS_H
 #define INCLUDED_AI_STRING_WORKERS_H
 
-#include <assimp/ai_assert.h>
-#include <assimp/defs.h>
+#include "ai_assert.h"
+#include "defs.h"
 #include "StringComparison.h"
 
 #include <string.h>

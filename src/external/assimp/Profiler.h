@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define INCLUDED_PROFILER_H
 
 #include <chrono>
-#include <assimp/DefaultLogger.hpp>
+#include "DefaultLogger.hpp"
 #include "TinyFormatter.h"
 
 #include <map>

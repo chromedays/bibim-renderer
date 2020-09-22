@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define AI_SPATIALSORT_H_INC
 
 #include <vector>
-#include <assimp/types.h>
+#include "types.h"
 
 namespace Assimp {
 
