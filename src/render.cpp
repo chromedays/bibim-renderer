@@ -512,64 +512,58 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
 
 std::array<VkVertexInputAttributeDescription, 11> Vertex::getAttributeDescs() {
   std::array<VkVertexInputAttributeDescription, 11> attributeDescs = {};
-  attributeDescs[0].binding = 0;
-  attributeDescs[0].location = 0;
-  attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attributeDescs[0].offset = offsetof(Vertex, Pos);
-  attributeDescs[1].binding = 0;
-  attributeDescs[1].location = 1;
-  attributeDescs[1].format = VK_FORMAT_R32G32_SFLOAT;
-  attributeDescs[1].offset = offsetof(Vertex, UV);
-  attributeDescs[2].binding = 0;
-  attributeDescs[2].location = 2;
-  attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attributeDescs[2].offset = offsetof(Vertex, Normal);
 
-  uint32_t vec4Offset = (uint32_t)(sizeof(float) * 4);
+  int lastAttributeIndex = 0;
 
-  attributeDescs[3].binding = 1;
-  attributeDescs[3].location = 3;
-  attributeDescs[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[3].offset = offsetof(InstanceBlock, ModelMat);
+  auto pushVecAttribute = [&](uint32_t _binding, int _numComponents,
+                              uint32_t _offset) {
+    BB_ASSERT(_numComponents >= 1 && _numComponents <= 4);
+    VkFormat format;
+    switch (_numComponents) {
+    case 1:
+      format = VK_FORMAT_R32_SFLOAT;
+      break;
+    case 2:
+      format = VK_FORMAT_R32G32_SFLOAT;
+      break;
+    case 3:
+      format = VK_FORMAT_R32G32B32_SFLOAT;
+      break;
+    case 4:
+      format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      break;
+    }
 
-  attributeDescs[4].binding = 1;
-  attributeDescs[4].location = 4;
-  attributeDescs[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[4].offset = offsetof(InstanceBlock, ModelMat) + vec4Offset;
+    VkVertexInputAttributeDescription &attribute =
+        attributeDescs[lastAttributeIndex];
+    attribute.binding = _binding;
+    attribute.location = lastAttributeIndex;
+    attribute.format = format;
+    attribute.offset = _offset;
 
-  attributeDescs[5].binding = 1;
-  attributeDescs[5].location = 5;
-  attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[5].offset =
-      offsetof(InstanceBlock, ModelMat) + (2 * vec4Offset);
+    ++lastAttributeIndex;
+  };
 
-  attributeDescs[6].binding = 1;
-  attributeDescs[6].location = 6;
-  attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[6].offset =
-      offsetof(InstanceBlock, ModelMat) + (3 * vec4Offset);
+  pushVecAttribute(0, 3, offsetof(Vertex, Pos));
+  pushVecAttribute(0, 2, offsetof(Vertex, UV));
+  pushVecAttribute(0, 3, offsetof(Vertex, Normal));
 
-  attributeDescs[7].binding = 1;
-  attributeDescs[7].location = 7;
-  attributeDescs[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[7].offset = offsetof(InstanceBlock, InvModelMat);
+  auto pushMat4Attribute = [&](uint32_t _binding, uint32_t _offset) {
+    for (int i = 0; i < 4; ++i) {
+      VkVertexInputAttributeDescription &attribute =
+          attributeDescs[lastAttributeIndex + i];
+      attribute.binding = _binding;
+      attribute.location = lastAttributeIndex + i;
+      attribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      attribute.offset = _offset + (uint32_t)(sizeof(float) * 4 * i);
+    }
+    lastAttributeIndex += 4;
+  };
 
-  attributeDescs[8].binding = 1;
-  attributeDescs[8].location = 8;
-  attributeDescs[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[8].offset = offsetof(InstanceBlock, InvModelMat) + vec4Offset;
+  pushMat4Attribute(1, offsetof(InstanceBlock, ModelMat));
+  pushMat4Attribute(1, offsetof(InstanceBlock, InvModelMat));
 
-  attributeDescs[9].binding = 1;
-  attributeDescs[9].location = 9;
-  attributeDescs[9].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[9].offset =
-      offsetof(InstanceBlock, InvModelMat) + (2 * vec4Offset);
-
-  attributeDescs[10].binding = 1;
-  attributeDescs[10].location = 10;
-  attributeDescs[10].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  attributeDescs[10].offset =
-      offsetof(InstanceBlock, InvModelMat) + (3 * vec4Offset);
+  BB_ASSERT(lastAttributeIndex == attributeDescs.size());
 
   return attributeDescs;
 }
