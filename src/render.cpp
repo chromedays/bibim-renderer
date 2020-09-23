@@ -496,16 +496,22 @@ void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain) {
   _swapChain = {};
 }
 
-VkVertexInputBindingDescription Vertex::getBindingDesc() {
-  VkVertexInputBindingDescription bindingDesc = {};
-  bindingDesc.binding = 0;
-  bindingDesc.stride = sizeof(Vertex);
-  bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-  return bindingDesc;
+std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
+  std::array<VkVertexInputBindingDescription, 2> bindingDescs = {};
+  // Vertex
+  bindingDescs[0].binding = 0;
+  bindingDescs[0].stride = sizeof(Vertex);
+  bindingDescs[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  // instance
+  bindingDescs[1].binding = 1;
+  bindingDescs[1].stride = sizeof(InstanceBlock);
+  bindingDescs[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+  return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 3> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
+std::array<VkVertexInputAttributeDescription, 11> Vertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 11> attributeDescs = {};
   attributeDescs[0].binding = 0;
   attributeDescs[0].location = 0;
   attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -518,6 +524,52 @@ std::array<VkVertexInputAttributeDescription, 3> Vertex::getAttributeDescs() {
   attributeDescs[2].location = 2;
   attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
   attributeDescs[2].offset = offsetof(Vertex, Normal);
+
+  uint32_t vec4Offset = (uint32_t)(sizeof(float) * 4);
+
+  attributeDescs[3].binding = 1;
+  attributeDescs[3].location = 3;
+  attributeDescs[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[3].offset = offsetof(InstanceBlock, ModelMat);
+
+  attributeDescs[4].binding = 1;
+  attributeDescs[4].location = 4;
+  attributeDescs[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[4].offset = offsetof(InstanceBlock, ModelMat) + vec4Offset;
+
+  attributeDescs[5].binding = 1;
+  attributeDescs[5].location = 5;
+  attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[5].offset =
+      offsetof(InstanceBlock, ModelMat) + (2 * vec4Offset);
+
+  attributeDescs[6].binding = 1;
+  attributeDescs[6].location = 6;
+  attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[6].offset =
+      offsetof(InstanceBlock, ModelMat) + (3 * vec4Offset);
+
+  attributeDescs[7].binding = 1;
+  attributeDescs[7].location = 7;
+  attributeDescs[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[7].offset = offsetof(InstanceBlock, InvModelMat);
+
+  attributeDescs[8].binding = 1;
+  attributeDescs[8].location = 8;
+  attributeDescs[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[8].offset = offsetof(InstanceBlock, InvModelMat) + vec4Offset;
+
+  attributeDescs[9].binding = 1;
+  attributeDescs[9].location = 9;
+  attributeDescs[9].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[9].offset =
+      offsetof(InstanceBlock, InvModelMat) + (2 * vec4Offset);
+
+  attributeDescs[10].binding = 1;
+  attributeDescs[10].location = 10;
+  attributeDescs[10].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributeDescs[10].offset =
+      offsetof(InstanceBlock, InvModelMat) + (3 * vec4Offset);
 
   return attributeDescs;
 }

@@ -54,13 +54,18 @@ SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
                           const SwapChain *_oldSwapChain = nullptr);
 void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
+struct InstanceBlock {
+  Mat4 ModelMat;
+  Mat4 InvModelMat;
+};
+
 struct Vertex {
   Float3 Pos;
   Float2 UV;
   Float3 Normal = {0, 0, -1};
 
-  static VkVertexInputBindingDescription getBindingDesc();
-  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs();
+  static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
+  static std::array<VkVertexInputAttributeDescription, 11> getAttributeDescs();
 };
 
 struct Buffer {

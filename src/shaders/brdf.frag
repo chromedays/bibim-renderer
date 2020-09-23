@@ -4,8 +4,6 @@
 #include "debug.glsl"
 
 layout (binding = 0) uniform UniformBlock {
-    mat4 modelMat;
-    mat4 invModelMat;
     mat4 viewMat;
     mat4 projMat;
     vec3 viewPos;

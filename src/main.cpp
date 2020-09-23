@@ -21,7 +21,6 @@
 #include "external/imgui/imgui_impl_sdl.h"
 #include "external/imgui/imgui_impl_vulkan.h"
 #include "external/stb_image.h"
-#include "vulkan/vulkan_core.h"
 #include <WinUser.h>
 #include <ShellScalingApi.h>
 #include <limits>
@@ -36,8 +35,6 @@
 namespace bb {
 
 struct UniformBlock {
-  Mat4 ModelMat;
-  Mat4 InvModelMat;
   Mat4 ViewMat;
   Mat4 ProjMat;
   alignas(16) Float3 ViewPos;
@@ -153,10 +150,12 @@ void destroyFrame(const Renderer &_renderer, Frame &_frame) {
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
-                   const Buffer &_vertexBuffer, const Buffer &_indexBuffer,
-                   VkImage textureImage, VkPipelineLayout _pipelineLayout,
+                   const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
+                   const Buffer &_indexBuffer, VkImage textureImage,
+                   VkPipelineLayout _pipelineLayout,
                    VkDescriptorSet _descriptorSet,
-                   const std::vector<uint32_t> &_indices) {
+                   const std::vector<uint32_t> &_indices,
+                   uint32_t _numInstances) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -183,11 +182,14 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                     _graphicsPipeline);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
   vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
-  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
+
+  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
+                   0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
 
@@ -216,14 +218,16 @@ void initReloadableResources(
   shaderStages[1].module = _shader.Frag;
   shaderStages[1].pName = "main";
 
-  VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDesc();
-  std::array<VkVertexInputAttributeDescription, 3> attributeDescs =
+  std::array<VkVertexInputBindingDescription, 2> bindingDescs =
+      Vertex::getBindingDescs();
+  std::array<VkVertexInputAttributeDescription, 11> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertexInputState.vertexBindingDescriptionCount = 1;
-  vertexInputState.pVertexBindingDescriptions = &bindingDesc;
+  vertexInputState.vertexBindingDescriptionCount =
+      (uint32_t)bindingDescs.size();
+  vertexInputState.pVertexBindingDescriptions = bindingDescs.data();
   vertexInputState.vertexAttributeDescriptionCount =
       (uint32_t)attributeDescs.size();
   vertexInputState.pVertexAttributeDescriptions = attributeDescs.data();
@@ -924,6 +928,16 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
+  uint32_t numInstances = 300;
+
+  std::vector<InstanceBlock> instanceData(numInstances);
+
+  Buffer instanceBuffer = createBuffer(renderer, size_bytes32(instanceData),
+                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
   FreeLookCamera cam = {};
   Input input = {};
 
@@ -1028,9 +1042,6 @@ int main(int _argc, char **_argv) {
       angle -= 360;
     }
     UniformBlock uniformBlock = {};
-    uniformBlock.ModelMat = Mat4::translate({0, -1, 2}) * Mat4::rotateY(angle) *
-                            Mat4::scale({0.01f, 0.01f, 0.01f});
-    uniformBlock.InvModelMat = uniformBlock.ModelMat.inverse();
     uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
@@ -1066,15 +1077,30 @@ int main(int _argc, char **_argv) {
       vkUnmapMemory(renderer.Device, currentFrame.UniformBuffer.Memory);
     }
 
+    for (int i = 0; i < instanceData.size(); i++) {
+      instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
+                                 Mat4::rotateY(angle) *
+                                 Mat4::scale({0.01f, 0.01f, 0.01f});
+      instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
+    }
+
+    {
+      void *data;
+      vkMapMemory(renderer.Device, instanceBuffer.Memory, 0,
+                  instanceBuffer.Size, 0, &data);
+      memcpy(data, instanceData.data(), instanceBuffer.Size);
+      vkUnmapMemory(renderer.Device, instanceBuffer.Memory);
+    }
+
     vkResetCommandPool(renderer.Device, currentFrame.CmdPool,
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
     recordCommand(currentFrame.CmdBuffer, renderPass,
                   currentSwapChainFramebuffer, swapChain.Extent,
-                  graphicsPipeline, shaderBallVertexBuffer,
+                  graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
                   shaderBallIndexBuffer, textureImage, pipelineLayout,
-                  currentFrame.DescriptorSet, shaderBallIndices);
+                  currentFrame.DescriptorSet, shaderBallIndices, numInstances);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1122,22 +1148,23 @@ int main(int _argc, char **_argv) {
     destroyFrame(renderer, frame);
   }
 
+  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
+
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
-  ;
+
   vkDestroySampler(renderer.Device, textureSampler, nullptr);
   vkDestroyImageView(renderer.Device, textureImageView, nullptr);
   vkDestroyImage(renderer.Device, textureImage, nullptr);
   vkFreeMemory(renderer.Device, textureImageMemory, nullptr);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
+  destroyBuffer(renderer, instanceBuffer);
   destroyBuffer(renderer, quadIndexBuffer);
   destroyBuffer(renderer, quadVertexBuffer);
 
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);
-
-  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
   vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);
