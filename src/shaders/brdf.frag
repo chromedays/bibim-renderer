@@ -7,24 +7,21 @@ layout (binding = 0) uniform UniformBlock {
     mat4 viewMat;
     mat4 projMat;
     vec3 viewPos;
-    vec3 albedo;
-    float metallic;
-    float roughness;
-    float ao;
-    int visualizeOption;
 } ub;
 
 layout (location = 0) in vec2 vUV;
 layout (location = 1) in vec3 vPosWorld;
 layout (location = 2) in vec3 vNormalWorld;
+layout (location = 3) in vec3 vAlbedo;
+layout (location = 4) in vec3 vMRA; // Metallic, Roughness, AO
 
 layout (location = 0) out vec4 outColor;
 
 void main() {
-    vec3 albedo = ub.albedo;
-    float metallic = ub.metallic;
-    float roughness = ub.roughness;
-    float ao = ub.ao;
+    vec3 albedo = vAlbedo;
+    float metallic = vMRA.x;
+    float roughness = vMRA.y;
+    float ao = vMRA.z;
 
     vec3 lightDir = vec3(-1, -1, 0);
 

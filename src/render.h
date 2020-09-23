@@ -58,16 +58,15 @@ struct UniformBlock {
   Mat4 ViewMat;
   Mat4 ProjMat;
   alignas(16) Float3 ViewPos;
-  alignas(16) Float3 Albedo;
-  float Metallic;
-  float Roughness;
-  float AO;
-  int VisualizeOption;
 };
 
 struct InstanceBlock {
   Mat4 ModelMat;
   Mat4 InvModelMat;
+  alignas(16) Float3 Albedo = {1, 1, 1};
+  float Metallic;
+  float Roughness = 0.5f;
+  float AO = 1;
 };
 
 struct Vertex {
@@ -76,7 +75,7 @@ struct Vertex {
   Float3 Normal = {0, 0, -1};
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 11> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 15> getAttributeDescs();
 };
 
 struct Buffer {

@@ -209,7 +209,7 @@ void initReloadableResources(
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
-  std::array<VkVertexInputAttributeDescription, 11> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 15> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -815,7 +815,7 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateSampler(renderer.Device, &textureSamplerCreateInfo,
                                nullptr, &textureSampler));
 
-  const int numFrames = 1;
+  const int numFrames = 2;
 
   VkDescriptorPoolSize descriptorPoolSizes[2] = {};
   descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -917,7 +917,7 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
-  uint32_t numInstances = 300;
+  uint32_t numInstances = 10;
 
   std::vector<InstanceBlock> instanceData(numInstances);
 
@@ -961,7 +961,7 @@ int main(int _argc, char **_argv) {
     ImGui_ImplSDL2_NewFrame(window);
     ImGui::NewFrame();
 
-#if 1
+#if 0
     ImGui::ShowDemoWindow();
 #endif
 
@@ -1035,28 +1035,6 @@ int main(int _argc, char **_argv) {
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     uniformBlock.ViewPos = cam.Pos;
-    static float albedo[3] = {1, 1, 1};
-    ImGui::ColorPicker3("Albedo", albedo);
-    uniformBlock.Albedo = {albedo[0], albedo[1], albedo[2]};
-    static float metallic = 0;
-    ImGui::SliderFloat("Metallic", &metallic, 0, 1);
-    uniformBlock.Metallic = metallic;
-    static float roughness = 0.5f;
-    ImGui::SliderFloat("Roughness", &roughness, 0.1f, 1);
-    uniformBlock.Roughness = roughness;
-    static float ao = 1;
-    ImGui::SliderFloat("AO", &ao, 0, 1);
-    uniformBlock.AO = ao;
-
-    static int visualizeOption = 0;
-    int i = 0;
-    for (auto option : {"N", "H", "D", "F", "G"}) {
-      if (ImGui::Selectable(option, visualizeOption == i)) {
-        visualizeOption = i;
-      }
-      ++i;
-    }
-    uniformBlock.VisualizeOption = visualizeOption;
 
     {
       void *data;
@@ -1065,6 +1043,28 @@ int main(int _argc, char **_argv) {
       memcpy(data, &uniformBlock, sizeof(UniformBlock));
       vkUnmapMemory(renderer.Device, currentFrame.UniformBuffer.Memory);
     }
+
+    static int selectedInstanceIndex = -1;
+
+    if (ImGui::Begin("Objects")) {
+      for (size_t i = 0; i < instanceData.size(); ++i) {
+        std::string label = fmt::format("Shader Ball {}", i);
+        if (ImGui::Selectable(label.c_str(), i == selectedInstanceIndex)) {
+          selectedInstanceIndex = i;
+        }
+      }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Material")) {
+      if (selectedInstanceIndex >= 0) {
+        InstanceBlock &currentInstance = instanceData[selectedInstanceIndex];
+
+        guiMaterialPicker(fmt::format("Instance {}", selectedInstanceIndex),
+                          currentInstance);
+      }
+    }
+    ImGui::End();
 
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *

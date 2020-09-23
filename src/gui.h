@@ -1,10 +1,16 @@
 #pragma once
+#include "render.h"
 #include "external/imgui/imgui.h"
 
-// ImGui extension functions
-namespace ImGui {
-template <typename... Args> void TextFmt(Args... args) {
-  std::string formatted = fmt::format(args...);
+namespace bb {
+
+template <typename... Args> void guiTextFmt(Args... _args) {
+  std::string formatted = fmt::format(_args...);
   ImGui::Text(formatted.c_str());
 }
-} // namespace ImGui
+
+void guiColorPicker3(const std::string &_label, Float3 &_color);
+void guiMaterialPicker(const std::string &_label,
+                       InstanceBlock &_instanceBlock);
+
+} // namespace bb
