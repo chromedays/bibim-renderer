@@ -96,8 +96,6 @@ struct Input {
 };
 
 struct UniformBlock {
-  Mat4 ModelMat;
-  Mat4 InvModelMat;
   Mat4 ViewMat;
   Mat4 ProjMat;
   alignas(16) Float3 ViewPos;
@@ -108,21 +106,32 @@ struct UniformBlock {
   int VisualizeOption;
 };
 
+struct InstanceBlock {
+  Mat4 ModelMat;
+  Mat4 InvModelMat;
+};
+
 struct Vertex {
   Float3 Pos;
   Float2 UV;
   Float3 Normal = {0, 0, -1};
 
-  static VkVertexInputBindingDescription getBindingDesc() {
-    VkVertexInputBindingDescription bindingDesc = {};
-    bindingDesc.binding = 0;
-    bindingDesc.stride = sizeof(Vertex);
-    bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    return bindingDesc;
+  static std::array<VkVertexInputBindingDescription, 2> getBindingDescs() {
+    std::array<VkVertexInputBindingDescription, 2> bindingDescs = {};
+    // Vertex
+    bindingDescs[0].binding = 0;
+    bindingDescs[0].stride = sizeof(Vertex);
+    bindingDescs[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    // instance
+    bindingDescs[1].binding = 1;
+    bindingDescs[1].stride = sizeof(InstanceBlock);
+    bindingDescs[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    return bindingDescs;
   }
 
-  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs() {
-    std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
+  static std::array<VkVertexInputAttributeDescription, 11> getAttributeDescs() {
+    std::array<VkVertexInputAttributeDescription, 11> attributeDescs = {};
     attributeDescs[0].binding = 0;
     attributeDescs[0].location = 0;
     attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -135,6 +144,53 @@ struct Vertex {
     attributeDescs[2].location = 2;
     attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescs[2].offset = offsetof(Vertex, Normal);
+
+    uint32_t vec4Offset = (uint32_t)(sizeof(float) * 4);
+
+    attributeDescs[3].binding = 1;
+    attributeDescs[3].location = 3;
+    attributeDescs[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[3].offset = offsetof(InstanceBlock, ModelMat);
+
+    attributeDescs[4].binding = 1;
+    attributeDescs[4].location = 4;
+    attributeDescs[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[4].offset = offsetof(InstanceBlock, ModelMat) + vec4Offset;
+
+    attributeDescs[5].binding = 1;
+    attributeDescs[5].location = 5;
+    attributeDescs[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[5].offset =
+        offsetof(InstanceBlock, ModelMat) + (2 * vec4Offset);
+
+    attributeDescs[6].binding = 1;
+    attributeDescs[6].location = 6;
+    attributeDescs[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[6].offset =
+        offsetof(InstanceBlock, ModelMat) + (3 * vec4Offset);
+
+    attributeDescs[7].binding = 1;
+    attributeDescs[7].location = 7;
+    attributeDescs[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[7].offset = offsetof(InstanceBlock, InvModelMat);
+
+    attributeDescs[8].binding = 1;
+    attributeDescs[8].location = 8;
+    attributeDescs[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[8].offset =
+        offsetof(InstanceBlock, InvModelMat) + vec4Offset;
+
+    attributeDescs[9].binding = 1;
+    attributeDescs[9].location = 9;
+    attributeDescs[9].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[9].offset =
+        offsetof(InstanceBlock, InvModelMat) + (2 * vec4Offset);
+
+    attributeDescs[10].binding = 1;
+    attributeDescs[10].location = 10;
+    attributeDescs[10].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescs[10].offset =
+        offsetof(InstanceBlock, InvModelMat) + (3 * vec4Offset);
 
     return attributeDescs;
   }
@@ -495,10 +551,12 @@ void destroySwapChain(VkDevice _device, SwapChain &_swapChain) {
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
-                   const Buffer &_vertexBuffer, const Buffer &_indexBuffer,
-                   VkImage textureImage, VkPipelineLayout _pipelineLayout,
+                   const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
+                   const Buffer &_indexBuffer, VkImage textureImage,
+                   VkPipelineLayout _pipelineLayout,
                    VkDescriptorSet _descriptorSet,
-                   const std::vector<uint32_t> &_indices) {
+                   const std::vector<uint32_t> &_indices,
+                   uint32_t _numInstances) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -525,11 +583,14 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                     _graphicsPipeline);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
   vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
-  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), 1, 0, 0, 0);
+
+  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
+                   0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
 
@@ -599,14 +660,16 @@ void initReloadableResources(
   shaderStages[1].module = _shader.Frag;
   shaderStages[1].pName = "main";
 
-  VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDesc();
-  std::array<VkVertexInputAttributeDescription, 3> attributeDescs =
+  std::array<VkVertexInputBindingDescription, 2> bindingDescs =
+      Vertex::getBindingDescs();
+  std::array<VkVertexInputAttributeDescription, 11> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertexInputState.vertexBindingDescriptionCount = 1;
-  vertexInputState.pVertexBindingDescriptions = &bindingDesc;
+  vertexInputState.vertexBindingDescriptionCount =
+      (uint32_t)bindingDescs.size();
+  vertexInputState.pVertexBindingDescriptions = bindingDescs.data();
   vertexInputState.vertexAttributeDescriptionCount =
       (uint32_t)attributeDescs.size();
   vertexInputState.pVertexAttributeDescriptions = attributeDescs.data();
@@ -1634,6 +1697,16 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
+  uint32_t numInstances = 300;
+
+  std::vector<InstanceBlock> instanceData(numInstances);
+
+  Buffer instanceBuffer = createBuffer(
+      device, physicalDevice, size_bytes32(instanceData),
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
   FreeLookCamera cam = {};
   Input input = {};
 
@@ -1731,9 +1804,6 @@ int main(int _argc, char **_argv) {
       angle -= 360;
     }
     UniformBlock uniformBlock = {};
-    uniformBlock.ModelMat = Mat4::translate({0, -1, 2}) * Mat4::rotateY(angle) *
-                            Mat4::scale({0.01f, 0.01f, 0.01f});
-    uniformBlock.InvModelMat = uniformBlock.ModelMat.inverse();
     uniformBlock.ViewMat = cam.getViewMatrix();
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
@@ -1769,15 +1839,31 @@ int main(int _argc, char **_argv) {
       vkUnmapMemory(device, uniformBuffers[currentFrame].Memory);
     }
 
+    for (int i = 0; i < instanceData.size(); i++) {
+      instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
+                                 Mat4::rotateY(angle) *
+                                 Mat4::scale({0.01f, 0.01f, 0.01f});
+      instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
+    }
+
+    {
+      void *data;
+      vkMapMemory(device, instanceBuffer.Memory, 0, instanceBuffer.Size, 0,
+                  &data);
+      memcpy(data, instanceData.data(), instanceBuffer.Size);
+      vkUnmapMemory(device, instanceBuffer.Memory);
+    }
+
     vkResetCommandPool(device, graphicsCmdPools[currentFrame],
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
     recordCommand(graphicsCmdBuffers[currentFrame], renderPass,
                   swapChainFramebuffers[currentFrame], swapChain.Extent,
-                  graphicsPipeline, shaderBallVertexBuffer,
+                  graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
                   shaderBallIndexBuffer, textureImage, pipelineLayout,
-                  descriptorSets[currentFrame], shaderBallIndices);
+                  descriptorSets[currentFrame], shaderBallIndices,
+                  numInstances);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1842,6 +1928,7 @@ int main(int _argc, char **_argv) {
   vkFreeMemory(device, textureImageMemory, nullptr);
   destroyBuffer(device, shaderBallIndexBuffer);
   destroyBuffer(device, shaderBallVertexBuffer);
+  destroyBuffer(device, instanceBuffer);
   destroyBuffer(device, quadIndexBuffer);
   destroyBuffer(device, quadVertexBuffer);
 
