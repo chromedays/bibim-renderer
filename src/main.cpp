@@ -34,17 +34,6 @@
 
 namespace bb {
 
-struct UniformBlock {
-  Mat4 ViewMat;
-  Mat4 ProjMat;
-  alignas(16) Float3 ViewPos;
-  alignas(16) Float3 Albedo;
-  float Metallic;
-  float Roughness;
-  float AO;
-  int VisualizeOption;
-};
-
 struct Frame {
   VkCommandPool CmdPool;
   VkCommandBuffer CmdBuffer;

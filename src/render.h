@@ -54,6 +54,17 @@ SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
                           const SwapChain *_oldSwapChain = nullptr);
 void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
+struct UniformBlock {
+  Mat4 ViewMat;
+  Mat4 ProjMat;
+  alignas(16) Float3 ViewPos;
+  alignas(16) Float3 Albedo;
+  float Metallic;
+  float Roughness;
+  float AO;
+  int VisualizeOption;
+};
+
 struct InstanceBlock {
   Mat4 ModelMat;
   Mat4 InvModelMat;
