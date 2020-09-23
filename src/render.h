@@ -93,6 +93,16 @@ void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
 void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
                 Buffer &_dstBuffer, Buffer &_srcBuffer, VkDeviceSize _size);
 
+struct Image {
+  VkImage Handle;
+  VkDeviceMemory Memory;
+};
+
+Image createImageFromFile(const Renderer &_renderer,
+                          VkCommandPool _transientCmdPool,
+                          const std::string &_filePath);
+void destroyImage(const Renderer &_renderer, Image &_image);
+
 struct Shader {
   VkShaderModule Vert;
   VkShaderModule Frag;

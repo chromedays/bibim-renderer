@@ -20,7 +20,6 @@
 #include "external/imgui/imgui.h"
 #include "external/imgui/imgui_impl_sdl.h"
 #include "external/imgui/imgui_impl_vulkan.h"
-#include "external/stb_image.h"
 #include <WinUser.h>
 #include <ShellScalingApi.h>
 #include <limits>
@@ -648,141 +647,13 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
   }
 
-  VkImage textureImage;
-  VkDeviceMemory textureImageMemory;
-  {
-    std::string textureFilePath = resourceRootPath + "\\uv_debug.png";
-    Int2 textureDims = {};
-    int numChannels;
-    stbi_uc *pixels = stbi_load(textureFilePath.c_str(), &textureDims.X,
-                                &textureDims.Y, &numChannels, STBI_rgb_alpha);
-    BB_ASSERT(pixels);
-
-    VkDeviceSize textureSize = textureDims.X * textureDims.Y * 4;
-
-    Buffer textureStagingBuffer =
-        createBuffer(renderer, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    void *data;
-    vkMapMemory(renderer.Device, textureStagingBuffer.Memory, 0, textureSize, 0,
-                &data);
-    memcpy(data, pixels, textureSize);
-    vkUnmapMemory(renderer.Device, textureStagingBuffer.Memory);
-    stbi_image_free(pixels);
-
-    VkImageCreateInfo textureImageCreateInfo = {};
-    textureImageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    textureImageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-    textureImageCreateInfo.extent.width = (uint32_t)textureDims.X;
-    textureImageCreateInfo.extent.height = (uint32_t)textureDims.Y;
-    textureImageCreateInfo.extent.depth = 1;
-    textureImageCreateInfo.mipLevels = 1;
-    textureImageCreateInfo.arrayLayers = 1;
-    textureImageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
-    textureImageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    textureImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    textureImageCreateInfo.usage =
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    textureImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    textureImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    textureImageCreateInfo.flags = 0;
-
-    BB_VK_ASSERT(vkCreateImage(renderer.Device, &textureImageCreateInfo,
-                               nullptr, &textureImage));
-
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(renderer.Device, textureImage,
-                                 &memRequirements);
-
-    VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
-    textureImageMemoryAllocateInfo.sType =
-        VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
-    textureImageMemoryAllocateInfo.memoryTypeIndex =
-        findMemoryType(renderer, memRequirements.memoryTypeBits,
-                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    BB_VK_ASSERT(vkAllocateMemory(renderer.Device,
-                                  &textureImageMemoryAllocateInfo, nullptr,
-                                  &textureImageMemory));
-
-    BB_VK_ASSERT(vkBindImageMemory(renderer.Device, textureImage,
-                                   textureImageMemory, 0));
-
-    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdBufferAllocInfo.commandPool = transientCmdPool;
-    cmdBufferAllocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer cmdBuffer;
-    BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &cmdBufferAllocInfo,
-                                          &cmdBuffer));
-
-    VkCommandBufferBeginInfo cmdBeginInfo = {};
-    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
-    VkImageMemoryBarrier barrier = {};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.image = textureImage;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &barrier);
-    VkBufferImageCopy region = {};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = int2ToExtent3D(textureDims);
-    vkCmdCopyBufferToImage(cmdBuffer, textureStagingBuffer.Handle, textureImage,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-                         0, nullptr, 1, &barrier);
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-
-    VkSubmitInfo submitInfo = {};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-    BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(renderer.Queue));
-    vkFreeCommandBuffers(renderer.Device, transientCmdPool, 1, &cmdBuffer);
-
-    destroyBuffer(renderer, textureStagingBuffer);
-  }
+  Image textureImage = createImageFromFile(renderer, transientCmdPool,
+                                           resourceRootPath + "\\uv_debug.png");
 
   VkImageView textureImageView;
   VkImageViewCreateInfo textureImageViewCreateInfo = {};
   textureImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  textureImageViewCreateInfo.image = textureImage;
+  textureImageViewCreateInfo.image = textureImage.Handle;
   textureImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
   textureImageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
   textureImageViewCreateInfo.subresourceRange.aspectMask =
@@ -1088,7 +959,7 @@ int main(int _argc, char **_argv) {
     recordCommand(currentFrame.CmdBuffer, renderPass,
                   currentSwapChainFramebuffer, swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, textureImage, pipelineLayout,
+                  shaderBallIndexBuffer, textureImage.Handle, pipelineLayout,
                   currentFrame.DescriptorSet, shaderBallIndices, numInstances);
 
     VkSubmitInfo submitInfo = {};
@@ -1144,8 +1015,7 @@ int main(int _argc, char **_argv) {
 
   vkDestroySampler(renderer.Device, textureSampler, nullptr);
   vkDestroyImageView(renderer.Device, textureImageView, nullptr);
-  vkDestroyImage(renderer.Device, textureImage, nullptr);
-  vkFreeMemory(renderer.Device, textureImageMemory, nullptr);
+  destroyImage(renderer, textureImage);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
