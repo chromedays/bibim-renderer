@@ -33,6 +33,43 @@
 
 namespace bb {
 
+struct PBRMaterial {
+  Image AlbedoMap;
+  Image MetallicMap;
+  Image RoughnessMap;
+  Image AOMap;
+  Image NormalMap;
+  Image HeightMap;
+};
+
+PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
+                                       VkCommandPool _transientCmdPool,
+                                       const std::string &_rootPath) {
+  PBRMaterial result = {};
+  result.AlbedoMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         _rootPath + "\\albedo.png");
+  result.MetallicMap = createImageFromFile(_renderer, _transientCmdPool,
+                                           _rootPath + "\\metallic.png");
+  result.RoughnessMap = createImageFromFile(_renderer, _transientCmdPool,
+                                            _rootPath + "\\roughness.png");
+  result.AOMap =
+      createImageFromFile(_renderer, _transientCmdPool, _rootPath + "\\ao.png");
+  result.NormalMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         _rootPath + "\\normal.png");
+  result.HeightMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         _rootPath + "\\height.png");
+  return result;
+}
+
+void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
+  destroyImage(_renderer, _material.HeightMap);
+  destroyImage(_renderer, _material.NormalMap);
+  destroyImage(_renderer, _material.AOMap);
+  destroyImage(_renderer, _material.RoughnessMap);
+  destroyImage(_renderer, _material.MetallicMap);
+  destroyImage(_renderer, _material.AlbedoMap);
+}
+
 struct Frame {
   VkCommandPool CmdPool;
   VkCommandBuffer CmdBuffer;
@@ -46,7 +83,7 @@ struct Frame {
 
 Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
                   VkDescriptorSetLayout _descriptorSetLayout,
-                  VkImageView _imageView, VkSampler _sampler) {
+                  const std::vector<PBRMaterial> &_pbrMaterials) {
   Frame result = {};
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
@@ -85,12 +122,31 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorBufferInfo.offset = 0;
   descriptorBufferInfo.range = sizeof(UniformBlock);
 
-  VkDescriptorImageInfo descriptorImageInfo = {};
-  descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  descriptorImageInfo.imageView = _imageView;
-  descriptorImageInfo.sampler = _sampler;
+  std::vector<VkDescriptorImageInfo> descriptorImageInfos[6];
+  for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
+       descriptorImageInfos) {
+    descriptorImageInfo.reserve(_pbrMaterials.size());
+  }
 
-  VkWriteDescriptorSet descriptorWrites[2] = {};
+  for (const PBRMaterial &material : _pbrMaterials) {
+    VkDescriptorImageInfo materialDesc = {};
+    materialDesc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    materialDesc.imageView = material.AlbedoMap.View;
+    descriptorImageInfos[0].push_back(materialDesc);
+    materialDesc.imageView = material.MetallicMap.View;
+    descriptorImageInfos[1].push_back(materialDesc);
+    materialDesc.imageView = material.RoughnessMap.View;
+    descriptorImageInfos[2].push_back(materialDesc);
+    materialDesc.imageView = material.AOMap.View;
+    descriptorImageInfos[3].push_back(materialDesc);
+    materialDesc.imageView = material.NormalMap.View;
+    descriptorImageInfos[4].push_back(materialDesc);
+    materialDesc.imageView = material.HeightMap.View;
+    descriptorImageInfos[5].push_back(materialDesc);
+  }
+
+  VkWriteDescriptorSet descriptorWrites[7] = {};
   descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   descriptorWrites[0].dstSet = result.DescriptorSet;
   descriptorWrites[0].dstBinding = 0;
@@ -98,14 +154,16 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorWrites[0].descriptorCount = 1;
   descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-  descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  descriptorWrites[1].dstSet = result.DescriptorSet;
-  descriptorWrites[1].dstBinding = 1;
-  descriptorWrites[1].dstArrayElement = 0;
-  descriptorWrites[1].descriptorType =
-      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorWrites[1].descriptorCount = 1;
-  descriptorWrites[1].pImageInfo = &descriptorImageInfo;
+  for (int i = 0; i < 6; ++i) {
+    VkWriteDescriptorSet &write = descriptorWrites[i + 1];
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = result.DescriptorSet;
+    write.dstBinding = i + 2;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    write.descriptorCount = (uint32_t)_pbrMaterials.size();
+    write.pImageInfo = descriptorImageInfos[i].data();
+  }
   vkUpdateDescriptorSets(_renderer.Device,
                          (uint32_t)std::size(descriptorWrites),
                          descriptorWrites, 0, nullptr);
@@ -139,8 +197,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
                    const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
-                   const Buffer &_indexBuffer, VkImage textureImage,
-                   VkPipelineLayout _pipelineLayout,
+                   const Buffer &_indexBuffer, VkPipelineLayout _pipelineLayout,
                    VkDescriptorSet _descriptorSet,
                    const std::vector<uint32_t> &_indices,
                    uint32_t _numInstances) {
@@ -208,7 +265,7 @@ void initReloadableResources(
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
-  std::array<VkVertexInputAttributeDescription, 15> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 16> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -515,20 +572,79 @@ int main(int _argc, char **_argv) {
       createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv",
                            shaderRootPath + "brdf.frag.spv");
 
-  VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2] = {};
+  VkSampler nearestSampler;
+  VkSampler bilinearSampler;
+  {
+    VkSamplerCreateInfo samplerCreateInfo = {};
+    samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
+    samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
+    samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCreateInfo.anisotropyEnable = VK_TRUE;
+    samplerCreateInfo.maxAnisotropy = 16.f;
+    samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+    samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+    samplerCreateInfo.compareEnable = VK_FALSE;
+    samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerCreateInfo.mipLodBias = 0.f;
+    samplerCreateInfo.minLod = 0.f;
+    samplerCreateInfo.maxLod = 0.f;
+
+    BB_VK_ASSERT(vkCreateSampler(renderer.Device, &samplerCreateInfo, nullptr,
+                                 &nearestSampler));
+
+    samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+    samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    BB_VK_ASSERT(vkCreateSampler(renderer.Device, &samplerCreateInfo, nullptr,
+                                 &bilinearSampler));
+  }
+
+  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
+  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  VkCommandPool transientCmdPool;
+  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
+                                   &transientCmdPool));
+
+  std::vector<PBRMaterial> pbrMaterials;
+  pbrMaterials.push_back(
+      createPBRMaterialFromFiles(renderer, transientCmdPool,
+                                 resourceRootPath + "\\pbr\\branches_twisted"));
+
+  VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
+
+  // Uniform Block
   descriptorSetLayoutBindings[0].binding = 0;
   descriptorSetLayoutBindings[0].descriptorType =
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorSetLayoutBindings[0].descriptorCount = 1;
   descriptorSetLayoutBindings[0].stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  descriptorSetLayoutBindings[0].pImmutableSamplers = nullptr;
+
+  // Immutable Samplers (Nearest and Bilinear)
+  VkSampler samplers[2] = {nearestSampler, bilinearSampler};
   descriptorSetLayoutBindings[1].binding = 1;
-  descriptorSetLayoutBindings[1].descriptorType =
-      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorSetLayoutBindings[1].descriptorCount = 1;
+  descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+  descriptorSetLayoutBindings[1].descriptorCount =
+      (uint32_t)std::size(samplers);
   descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  descriptorSetLayoutBindings[1].pImmutableSamplers = nullptr;
+  descriptorSetLayoutBindings[1].pImmutableSamplers = samplers;
+
+  // PBR Textures (Albedo, Metallic, Roughness, AO, Normal, Height)
+  for (int i = 0; i < 6; ++i) {
+    VkDescriptorSetLayoutBinding &binding = descriptorSetLayoutBindings[i + 2];
+    binding.binding = i + 2;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    binding.descriptorCount = (uint32_t)pbrMaterials.size();
+    binding.stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
 
   VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
   descriptorSetLayoutCreateInfo.sType =
@@ -553,14 +669,6 @@ int main(int _argc, char **_argv) {
   VkPipelineLayout pipelineLayout;
   BB_VK_ASSERT(vkCreatePipelineLayout(
       renderer.Device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
-
-  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
-  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
-  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-  VkCommandPool transientCmdPool;
-  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
-                                   &transientCmdPool));
 
   SwapChain swapChain;
   VkRenderPass renderPass;
@@ -647,52 +755,15 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
   }
 
-  Image textureImage = createImageFromFile(renderer, transientCmdPool,
-                                           resourceRootPath + "\\uv_debug.png");
-
-  VkImageView textureImageView;
-  VkImageViewCreateInfo textureImageViewCreateInfo = {};
-  textureImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  textureImageViewCreateInfo.image = textureImage.Handle;
-  textureImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  textureImageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
-  textureImageViewCreateInfo.subresourceRange.aspectMask =
-      VK_IMAGE_ASPECT_COLOR_BIT;
-  textureImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-  textureImageViewCreateInfo.subresourceRange.levelCount = 1;
-  textureImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-  textureImageViewCreateInfo.subresourceRange.layerCount = 1;
-  BB_VK_ASSERT(vkCreateImageView(renderer.Device, &textureImageViewCreateInfo,
-                                 nullptr, &textureImageView));
-
-  VkSampler textureSampler;
-  VkSamplerCreateInfo textureSamplerCreateInfo = {};
-  textureSamplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  textureSamplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-  textureSamplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-  textureSamplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  textureSamplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  textureSamplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  textureSamplerCreateInfo.anisotropyEnable = VK_TRUE;
-  textureSamplerCreateInfo.maxAnisotropy = 16.f;
-  textureSamplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
-  textureSamplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
-  textureSamplerCreateInfo.compareEnable = VK_FALSE;
-  textureSamplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  textureSamplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  textureSamplerCreateInfo.mipLodBias = 0.f;
-  textureSamplerCreateInfo.minLod = 0.f;
-  textureSamplerCreateInfo.maxLod = 0.f;
-  BB_VK_ASSERT(vkCreateSampler(renderer.Device, &textureSamplerCreateInfo,
-                               nullptr, &textureSampler));
-
   const int numFrames = 2;
 
-  VkDescriptorPoolSize descriptorPoolSizes[2] = {};
+  VkDescriptorPoolSize descriptorPoolSizes[3] = {};
   descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorPoolSizes[0].descriptorCount = numFrames;
-  descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorPoolSizes[1].descriptorCount = numFrames;
+  descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  descriptorPoolSizes[1].descriptorCount = numFrames * 6 * pbrMaterials.size();
+  descriptorPoolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+  descriptorPoolSizes[2].descriptorCount = numFrames * 2;
   VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
   descriptorPoolCreateInfo.sType =
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -734,7 +805,7 @@ int main(int _argc, char **_argv) {
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
     frames.push_back(createFrame(renderer, descriptorPool, descriptorSetLayout,
-                                 textureImageView, textureSampler));
+                                 pbrMaterials));
   }
 
   uint32_t currentFrameIndex = 0;
@@ -959,7 +1030,7 @@ int main(int _argc, char **_argv) {
     recordCommand(currentFrame.CmdBuffer, renderPass,
                   currentSwapChainFramebuffer, swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, textureImage.Handle, pipelineLayout,
+                  shaderBallIndexBuffer, pipelineLayout,
                   currentFrame.DescriptorSet, shaderBallIndices, numInstances);
 
     VkSubmitInfo submitInfo = {};
@@ -1008,14 +1079,9 @@ int main(int _argc, char **_argv) {
     destroyFrame(renderer, frame);
   }
 
-  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
-
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
-  vkDestroySampler(renderer.Device, textureSampler, nullptr);
-  vkDestroyImageView(renderer.Device, textureImageView, nullptr);
-  destroyImage(renderer, textureImage);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
@@ -1027,6 +1093,14 @@ int main(int _argc, char **_argv) {
 
   vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);
+
+  for (PBRMaterial &material : pbrMaterials) {
+    destroyPBRMaterial(renderer, material);
+  }
+  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
+  vkDestroySampler(renderer.Device, bilinearSampler, nullptr);
+  vkDestroySampler(renderer.Device, nearestSampler, nullptr);
+
   destroyShader(renderer, brdfShader);
   destroyShader(renderer, testShader);
   destroyRenderer(renderer);

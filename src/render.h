@@ -67,6 +67,7 @@ struct InstanceBlock {
   float Metallic;
   float Roughness = 0.5f;
   float AO = 1;
+  int MaterialIndex;
 };
 
 struct Vertex {
@@ -75,7 +76,7 @@ struct Vertex {
   Float3 Normal = {0, 0, -1};
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 15> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 16> getAttributeDescs();
 };
 
 struct Buffer {
@@ -96,6 +97,7 @@ void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
 struct Image {
   VkImage Handle;
   VkDeviceMemory Memory;
+  VkImageView View;
 };
 
 Image createImageFromFile(const Renderer &_renderer,

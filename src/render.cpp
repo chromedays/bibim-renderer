@@ -512,10 +512,39 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 15> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 15> attributeDescs = {};
+std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 16> attributeDescs = {};
 
   int lastAttributeIndex = 0;
+
+  auto pushIntAttribute = [&](uint32_t _binding, int _numComponents,
+                              uint32_t _offset) {
+    BB_ASSERT(_numComponents >= 1 && _numComponents <= 4);
+    VkFormat format;
+    switch (_numComponents) {
+    case 1:
+      format = VK_FORMAT_R32_SINT;
+      break;
+    case 2:
+      format = VK_FORMAT_R32G32_SINT;
+      break;
+    case 3:
+      format = VK_FORMAT_R32G32B32_SINT;
+      break;
+    case 4:
+      format = VK_FORMAT_R32G32B32A32_SINT;
+      break;
+    }
+
+    VkVertexInputAttributeDescription &attribute =
+        attributeDescs[lastAttributeIndex];
+    attribute.binding = _binding;
+    attribute.location = lastAttributeIndex;
+    attribute.format = format;
+    attribute.offset = _offset;
+
+    ++lastAttributeIndex;
+  };
 
   auto pushVecAttribute = [&](uint32_t _binding, int _numComponents,
                               uint32_t _offset) {
@@ -568,6 +597,7 @@ std::array<VkVertexInputAttributeDescription, 15> Vertex::getAttributeDescs() {
   pushVecAttribute(1, 1, offsetof(InstanceBlock, Metallic));
   pushVecAttribute(1, 1, offsetof(InstanceBlock, Roughness));
   pushVecAttribute(1, 1, offsetof(InstanceBlock, AO));
+  pushIntAttribute(1, 1, offsetof(InstanceBlock, MaterialIndex));
 
   BB_ASSERT(lastAttributeIndex == attributeDescs.size());
 
@@ -669,7 +699,8 @@ Image createImageFromFile(const Renderer &_renderer,
   int numChannels;
   stbi_uc *pixels = stbi_load(_filePath.c_str(), &textureDims.X, &textureDims.Y,
                               &numChannels, STBI_rgb_alpha);
-  BB_ASSERT(pixels);
+  if (!pixels)
+    return {};
 
   VkDeviceSize textureSize = textureDims.X * textureDims.Y * 4;
 
@@ -686,24 +717,24 @@ Image createImageFromFile(const Renderer &_renderer,
 
   stbi_image_free(pixels);
 
-  VkImageCreateInfo textureImageCreateInfo = {};
-  textureImageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  textureImageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-  textureImageCreateInfo.extent.width = (uint32_t)textureDims.X;
-  textureImageCreateInfo.extent.height = (uint32_t)textureDims.Y;
-  textureImageCreateInfo.extent.depth = 1;
-  textureImageCreateInfo.mipLevels = 1;
-  textureImageCreateInfo.arrayLayers = 1;
-  textureImageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
-  textureImageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-  textureImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  textureImageCreateInfo.usage =
+  VkImageCreateInfo imageCreateInfo = {};
+  imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageCreateInfo.extent.width = (uint32_t)textureDims.X;
+  imageCreateInfo.extent.height = (uint32_t)textureDims.Y;
+  imageCreateInfo.extent.depth = 1;
+  imageCreateInfo.mipLevels = 1;
+  imageCreateInfo.arrayLayers = 1;
+  imageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageCreateInfo.usage =
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  textureImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  textureImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-  textureImageCreateInfo.flags = 0;
+  imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageCreateInfo.flags = 0;
 
-  BB_VK_ASSERT(vkCreateImage(_renderer.Device, &textureImageCreateInfo, nullptr,
+  BB_VK_ASSERT(vkCreateImage(_renderer.Device, &imageCreateInfo, nullptr,
                              &result.Handle));
 
   VkMemoryRequirements memRequirements;
@@ -791,12 +822,27 @@ Image createImageFromFile(const Renderer &_renderer,
 
   destroyBuffer(_renderer, textureStagingBuffer);
 
+  VkImageViewCreateInfo imageViewCreateInfo = {};
+  imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  imageViewCreateInfo.image = result.Handle;
+  imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  imageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+  imageViewCreateInfo.subresourceRange.levelCount = 1;
+  imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+  imageViewCreateInfo.subresourceRange.layerCount = 1;
+  BB_VK_ASSERT(vkCreateImageView(_renderer.Device, &imageViewCreateInfo,
+                                 nullptr, &result.View));
+
   return result;
 }
 
 void destroyImage(const Renderer &_renderer, Image &_image) {
+  vkDestroyImageView(_renderer.Device, _image.View, nullptr);
   vkDestroyImage(_renderer.Device, _image.Handle, nullptr);
   vkFreeMemory(_renderer.Device, _image.Memory, nullptr);
+  _image = {};
 }
 
 VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
