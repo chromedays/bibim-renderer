@@ -1,7 +1,6 @@
 #version 450
 
 #include "brdf.glsl"
-#include "debug.glsl"
 
 layout (binding = 0) uniform UniformBlock {
     mat4 viewMat;

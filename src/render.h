@@ -106,17 +106,14 @@ Image createImageFromFile(const Renderer &_renderer,
 void destroyImage(const Renderer &_renderer, Image &_image);
 
 struct Shader {
-  VkShaderModule Vert;
-  VkShaderModule Frag;
+  VkShaderStageFlagBits Stage;
+  VkShaderModule Handle;
+
+  VkPipelineShaderStageCreateInfo getStageInfo() const;
 };
 
-VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
-                                          const std::string &_filePath);
-
 Shader createShaderFromFile(const Renderer &_renderer,
-                            const std::string &_vertShaderFilePath,
-                            const std::string &_fragShaderFilePath);
-
+                            const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
 
 } // namespace bb

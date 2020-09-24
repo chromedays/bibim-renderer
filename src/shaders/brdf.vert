@@ -4,7 +4,6 @@ layout (binding = 0) uniform UniformBlock {
     mat4 viewMat;
     mat4 projMat;
     vec3 viewPos;
-    vec3 albedo;
 } ub;
 
 layout (location = 0) in vec3 aPosition;

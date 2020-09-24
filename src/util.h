@@ -49,6 +49,9 @@ using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
 Time getCurrentTime();
 float getElapsedTimeInSeconds(Time _start, Time _end);
 
+bool endsWith(const std::string &_str, const char *_suffix);
+bool endsWith(const std::string &_str, const std::string &_suffix);
+
 } // namespace bb
 
 #include "util.inl"

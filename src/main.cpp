@@ -245,23 +245,18 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
 void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
-    const SwapChain *_oldSwapChain, const Shader &_shader,
-    VkPipelineLayout _pipelineLayout, SwapChain *_outSwapChain,
-    VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
+    const SwapChain *_oldSwapChain, const Shader &_vertShader,
+    const Shader &_fragShader, VkPipelineLayout _pipelineLayout,
+    SwapChain *_outSwapChain, VkRenderPass *_outRenderPass,
+    VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
 
   SwapChain swapChain =
       createSwapChain(_renderer, _width, _height, _oldSwapChain);
 
   VkPipelineShaderStageCreateInfo shaderStages[2] = {};
-  shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  shaderStages[0].module = _shader.Vert;
-  shaderStages[0].pName = "main";
-  shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  shaderStages[1].module = _shader.Frag;
-  shaderStages[1].pName = "main";
+  shaderStages[0] = _vertShader.getStageInfo();
+  shaderStages[1] = _fragShader.getStageInfo();
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
@@ -486,9 +481,9 @@ void cleanupReloadableResources(
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
-                    const Shader &_shader, VkPipelineLayout _pipelineLayout,
-                    SwapChain &_swapChain, VkRenderPass &_renderPass,
-                    VkPipeline &_graphicsPipeline,
+                    const Shader &_vertShader, const Shader &_fragShader,
+                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
+                    VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
                     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   int width = 0, height = 0;
 
@@ -503,9 +498,10 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
   cleanupReloadableResources(_renderer, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
-  initReloadableResources(_renderer, width, height, nullptr, _shader,
-                          _pipelineLayout, &_swapChain, &_renderPass,
-                          &_graphicsPipeline, &_swapChainFramebuffers);
+  initReloadableResources(_renderer, width, height, nullptr, _vertShader,
+                          _fragShader, _pipelineLayout, &_swapChain,
+                          &_renderPass, &_graphicsPipeline,
+                          &_swapChainFramebuffers);
 }
 
 } // namespace bb
@@ -535,7 +531,7 @@ int main(int _argc, char **_argv) {
   Assimp::Importer importer;
   const aiScene *shaderBallScene =
       importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
-                        aiProcess_Triangulate | aiProcess_FlipUVs);
+                        aiProcess_Triangulate | aiProcess_CalcTangentSpace);
   const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
   std::vector<Vertex> shaderBallVertices;
   shaderBallVertices.reserve(shaderBallMesh->mNumFaces * 3);
@@ -544,15 +540,17 @@ int main(int _argc, char **_argv) {
     BB_ASSERT(face.mNumIndices == 3);
 
     for (int j = 0; j < 3; ++j) {
+      unsigned int vi = face.mIndices[j];
+
       Vertex v = {};
-      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[face.mIndices[j]]);
-      std::swap(v.Pos.Y, v.Pos.Z);
-      v.Pos.Z *= -1.f;
-      v.UV.X = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].x;
-      v.UV.Y = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].y;
-      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[face.mIndices[j]]);
-      std::swap(v.Normal.Y, v.Normal.Z);
-      v.Normal.Z *= -1.f;
+      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[vi]);
+      // std::swap(v.Pos.Y, v.Pos.Z);
+      // v.Pos.Z *= -1.f;
+      v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
+      // const aiVector3D &tangent = shaderBallMesh->mTangents[face] v.Normal =
+      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
+      // std::swap(v.Normal.Y, v.Normal.Z);
+      // v.Normal.Z *= -1.f;
       shaderBallVertices.push_back(v);
     }
   }
@@ -565,12 +563,10 @@ int main(int _argc, char **_argv) {
 
   std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
 
-  Shader testShader =
-      createShaderFromFile(renderer, shaderRootPath + "test.vert.spv",
-                           shaderRootPath + "test.frag.spv");
-  Shader brdfShader =
-      createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv",
-                           shaderRootPath + "brdf.frag.spv");
+  Shader brdfVertShader =
+      createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv");
+  Shader brdfFragShader =
+      createShaderFromFile(renderer, shaderRootPath + "brdf.frag.spv");
 
   VkSampler nearestSampler;
   VkSampler bilinearSampler;
@@ -674,9 +670,10 @@ int main(int _argc, char **_argv) {
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(renderer, width, height, nullptr, brdfShader,
-                          pipelineLayout, &swapChain, &renderPass,
-                          &graphicsPipeline, &swapChainFramebuffers);
+  initReloadableResources(renderer, width, height, nullptr, brdfVertShader,
+                          brdfFragShader, pipelineLayout, &swapChain,
+                          &renderPass, &graphicsPipeline,
+                          &swapChainFramebuffers);
 
   // clang-format off
   std::vector<Vertex> quadVertices = {
@@ -953,8 +950,9 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
-                     renderPass, graphicsPipeline, swapChainFramebuffers);
+      onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
+                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainFramebuffers);
       continue;
     }
 
@@ -1064,8 +1062,9 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
-                     renderPass, graphicsPipeline, swapChainFramebuffers);
+      onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
+                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainFramebuffers);
     }
   }
 
@@ -1101,8 +1100,8 @@ int main(int _argc, char **_argv) {
   vkDestroySampler(renderer.Device, bilinearSampler, nullptr);
   vkDestroySampler(renderer.Device, nearestSampler, nullptr);
 
-  destroyShader(renderer, brdfShader);
-  destroyShader(renderer, testShader);
+  destroyShader(renderer, brdfVertShader);
+  destroyShader(renderer, brdfFragShader);
   destroyRenderer(renderer);
 
   SDL_DestroyWindow(window);

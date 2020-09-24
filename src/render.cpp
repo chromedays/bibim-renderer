@@ -845,8 +845,29 @@ void destroyImage(const Renderer &_renderer, Image &_image) {
   _image = {};
 }
 
-VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
-                                          const std::string &_filePath) {
+VkPipelineShaderStageCreateInfo Shader::getStageInfo() const {
+  VkPipelineShaderStageCreateInfo stageInfo = {};
+  stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stageInfo.stage = Stage;
+  stageInfo.module = Handle;
+  stageInfo.pName = "main";
+  return stageInfo;
+}
+
+Shader createShaderFromFile(const Renderer &_renderer,
+                            const std::string &_filePath) {
+  Shader result;
+
+  if (endsWith(_filePath, ".vert.spv")) {
+    result.Stage = VK_SHADER_STAGE_VERTEX_BIT;
+  } else if (endsWith(_filePath, ".frag.spv")) {
+    result.Stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  } else if (endsWith(_filePath, ".geom.spv")) {
+    result.Stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+  } else {
+    BB_ASSERT(false);
+  }
+
   FILE *f = fopen(_filePath.c_str(), "rb");
   BB_ASSERT(f);
   fseek(f, 0, SEEK_END);
@@ -859,29 +880,18 @@ VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   createInfo.codeSize = fileSize;
   createInfo.pCode = (uint32_t *)contents;
-  VkShaderModule shaderModule;
+
   BB_VK_ASSERT(vkCreateShaderModule(_renderer.Device, &createInfo, nullptr,
-                                    &shaderModule));
+                                    &result.Handle));
 
   delete[] contents;
   fclose(f);
-
-  return shaderModule;
-}
-
-Shader createShaderFromFile(const Renderer &_renderer,
-                            const std::string &_vertShaderFilePath,
-                            const std::string &_fragShaderFilePath) {
-  Shader result = {};
-  result.Vert = createShaderModuleFromFile(_renderer, _vertShaderFilePath);
-  result.Frag = createShaderModuleFromFile(_renderer, _fragShaderFilePath);
 
   return result;
 }
 
 void destroyShader(const Renderer &_renderer, Shader &_shader) {
-  vkDestroyShaderModule(_renderer.Device, _shader.Vert, nullptr);
-  vkDestroyShaderModule(_renderer.Device, _shader.Frag, nullptr);
+  vkDestroyShaderModule(_renderer.Device, _shader.Handle, nullptr);
   _shader = {};
 }
 
