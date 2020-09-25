@@ -29,8 +29,8 @@
 #endif
 #define BB_VK_ASSERT(exp)                                                      \
   do {                                                                         \
-    auto result##__LINE__ = exp;                                               \
-    BB_ASSERT(result##__LINE__ == VK_SUCCESS);                                 \
+    auto __result__ = exp;                                                     \
+    BB_ASSERT(__result__ == VK_SUCCESS);                                       \
   } while (0)
 
 namespace bb {
@@ -48,6 +48,9 @@ using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
 
 Time getCurrentTime();
 float getElapsedTimeInSeconds(Time _start, Time _end);
+
+bool endsWith(const std::string &_str, const char *_suffix);
+bool endsWith(const std::string &_str, const std::string &_suffix);
 
 } // namespace bb
 

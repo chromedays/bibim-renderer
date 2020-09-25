@@ -20,7 +20,6 @@
 #include "external/imgui/imgui.h"
 #include "external/imgui/imgui_impl_sdl.h"
 #include "external/imgui/imgui_impl_vulkan.h"
-#include "external/stb_image.h"
 #include <WinUser.h>
 #include <ShellScalingApi.h>
 #include <limits>
@@ -33,6 +32,48 @@
 #include <assert.h>
 
 namespace bb {
+
+constexpr uint32_t numInstances = 300;
+constexpr int numFrames = 2;
+
+struct PBRMaterial {
+  static constexpr int ImageCount = 6;
+
+  Image AlbedoMap;
+  Image MetallicMap;
+  Image RoughnessMap;
+  Image AOMap;
+  Image NormalMap;
+  Image HeightMap;
+};
+
+PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
+                                       VkCommandPool _transientCmdPool,
+                                       const std::string &_rootPath) {
+  PBRMaterial result = {};
+  result.AlbedoMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         _rootPath + "\\albedo.png");
+  result.MetallicMap = createImageFromFile(_renderer, _transientCmdPool,
+                                           _rootPath + "\\metallic.png");
+  result.RoughnessMap = createImageFromFile(_renderer, _transientCmdPool,
+                                            _rootPath + "\\roughness.png");
+  result.AOMap =
+      createImageFromFile(_renderer, _transientCmdPool, _rootPath + "\\ao.png");
+  result.NormalMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         _rootPath + "\\normal.png");
+  result.HeightMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         _rootPath + "\\height.png");
+  return result;
+}
+
+void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
+  destroyImage(_renderer, _material.HeightMap);
+  destroyImage(_renderer, _material.NormalMap);
+  destroyImage(_renderer, _material.AOMap);
+  destroyImage(_renderer, _material.RoughnessMap);
+  destroyImage(_renderer, _material.MetallicMap);
+  destroyImage(_renderer, _material.AlbedoMap);
+}
 
 struct Frame {
   VkCommandPool CmdPool;
@@ -47,7 +88,7 @@ struct Frame {
 
 Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
                   VkDescriptorSetLayout _descriptorSetLayout,
-                  VkImageView _imageView, VkSampler _sampler) {
+                  const std::vector<PBRMaterial> &_pbrMaterials) {
   Frame result = {};
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
@@ -86,12 +127,32 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorBufferInfo.offset = 0;
   descriptorBufferInfo.range = sizeof(UniformBlock);
 
-  VkDescriptorImageInfo descriptorImageInfo = {};
-  descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  descriptorImageInfo.imageView = _imageView;
-  descriptorImageInfo.sampler = _sampler;
+  std::vector<VkDescriptorImageInfo>
+      descriptorImageInfos[PBRMaterial::ImageCount];
+  for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
+       descriptorImageInfos) {
+    descriptorImageInfo.reserve(_pbrMaterials.size());
+  }
 
-  VkWriteDescriptorSet descriptorWrites[2] = {};
+  for (const PBRMaterial &material : _pbrMaterials) {
+    VkDescriptorImageInfo materialDesc = {};
+    materialDesc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    materialDesc.imageView = material.AlbedoMap.View;
+    descriptorImageInfos[0].push_back(materialDesc);
+    materialDesc.imageView = material.MetallicMap.View;
+    descriptorImageInfos[1].push_back(materialDesc);
+    materialDesc.imageView = material.RoughnessMap.View;
+    descriptorImageInfos[2].push_back(materialDesc);
+    materialDesc.imageView = material.AOMap.View;
+    descriptorImageInfos[3].push_back(materialDesc);
+    materialDesc.imageView = material.NormalMap.View;
+    descriptorImageInfos[4].push_back(materialDesc);
+    materialDesc.imageView = material.HeightMap.View;
+    descriptorImageInfos[5].push_back(materialDesc);
+  }
+
+  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::ImageCount] = {};
   descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   descriptorWrites[0].dstSet = result.DescriptorSet;
   descriptorWrites[0].dstBinding = 0;
@@ -99,14 +160,16 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorWrites[0].descriptorCount = 1;
   descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-  descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  descriptorWrites[1].dstSet = result.DescriptorSet;
-  descriptorWrites[1].dstBinding = 1;
-  descriptorWrites[1].dstArrayElement = 0;
-  descriptorWrites[1].descriptorType =
-      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorWrites[1].descriptorCount = 1;
-  descriptorWrites[1].pImageInfo = &descriptorImageInfo;
+  for (int i = 0; i < PBRMaterial::ImageCount; ++i) {
+    VkWriteDescriptorSet &write = descriptorWrites[i + 1];
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = result.DescriptorSet;
+    write.dstBinding = i + 2;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    write.descriptorCount = (uint32_t)_pbrMaterials.size();
+    write.pImageInfo = descriptorImageInfos[i].data();
+  }
   vkUpdateDescriptorSets(_renderer.Device,
                          (uint32_t)std::size(descriptorWrites),
                          descriptorWrites, 0, nullptr);
@@ -140,8 +203,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
                    const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
-                   const Buffer &_indexBuffer, VkImage textureImage,
-                   VkPipelineLayout _pipelineLayout,
+                   const Buffer &_indexBuffer, VkPipelineLayout _pipelineLayout,
                    VkDescriptorSet _descriptorSet,
                    const std::vector<uint32_t> &_indices,
                    uint32_t _numInstances) {
@@ -189,27 +251,22 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
 void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
-    const SwapChain *_oldSwapChain, const Shader &_shader,
-    VkPipelineLayout _pipelineLayout, SwapChain *_outSwapChain,
-    VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
+    const SwapChain *_oldSwapChain, const Shader &_vertShader,
+    const Shader &_fragShader, VkPipelineLayout _pipelineLayout,
+    SwapChain *_outSwapChain, VkRenderPass *_outRenderPass,
+    VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
 
   SwapChain swapChain =
       createSwapChain(_renderer, _width, _height, _oldSwapChain);
 
   VkPipelineShaderStageCreateInfo shaderStages[2] = {};
-  shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  shaderStages[0].module = _shader.Vert;
-  shaderStages[0].pName = "main";
-  shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  shaderStages[1].module = _shader.Frag;
-  shaderStages[1].pName = "main";
+  shaderStages[0] = _vertShader.getStageInfo();
+  shaderStages[1] = _fragShader.getStageInfo();
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
-  std::array<VkVertexInputAttributeDescription, 11> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 16> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -430,9 +487,9 @@ void cleanupReloadableResources(
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
-                    const Shader &_shader, VkPipelineLayout _pipelineLayout,
-                    SwapChain &_swapChain, VkRenderPass &_renderPass,
-                    VkPipeline &_graphicsPipeline,
+                    const Shader &_vertShader, const Shader &_fragShader,
+                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
+                    VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
                     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   int width = 0, height = 0;
 
@@ -447,9 +504,10 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
   cleanupReloadableResources(_renderer, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
-  initReloadableResources(_renderer, width, height, nullptr, _shader,
-                          _pipelineLayout, &_swapChain, &_renderPass,
-                          &_graphicsPipeline, &_swapChainFramebuffers);
+  initReloadableResources(_renderer, width, height, nullptr, _vertShader,
+                          _fragShader, _pipelineLayout, &_swapChain,
+                          &_renderPass, &_graphicsPipeline,
+                          &_swapChainFramebuffers);
 }
 
 } // namespace bb
@@ -479,7 +537,7 @@ int main(int _argc, char **_argv) {
   Assimp::Importer importer;
   const aiScene *shaderBallScene =
       importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
-                        aiProcess_Triangulate | aiProcess_FlipUVs);
+                        aiProcess_Triangulate | aiProcess_CalcTangentSpace);
   const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
   std::vector<Vertex> shaderBallVertices;
   shaderBallVertices.reserve(shaderBallMesh->mNumFaces * 3);
@@ -488,15 +546,17 @@ int main(int _argc, char **_argv) {
     BB_ASSERT(face.mNumIndices == 3);
 
     for (int j = 0; j < 3; ++j) {
+      unsigned int vi = face.mIndices[j];
+
       Vertex v = {};
-      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[face.mIndices[j]]);
-      std::swap(v.Pos.Y, v.Pos.Z);
-      v.Pos.Z *= -1.f;
-      v.UV.X = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].x;
-      v.UV.Y = shaderBallMesh->mTextureCoords[0][face.mIndices[j]].y;
-      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[face.mIndices[j]]);
-      std::swap(v.Normal.Y, v.Normal.Z);
-      v.Normal.Z *= -1.f;
+      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[vi]);
+      // std::swap(v.Pos.Y, v.Pos.Z);
+      // v.Pos.Z *= -1.f;
+      v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
+      // const aiVector3D &tangent = shaderBallMesh->mTangents[face] v.Normal =
+      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
+      // std::swap(v.Normal.Y, v.Normal.Z);
+      // v.Normal.Z *= -1.f;
       shaderBallVertices.push_back(v);
     }
   }
@@ -509,27 +569,84 @@ int main(int _argc, char **_argv) {
 
   std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
 
-  Shader testShader =
-      createShaderFromFile(renderer, shaderRootPath + "test.vert.spv",
-                           shaderRootPath + "test.frag.spv");
-  Shader brdfShader =
-      createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv",
-                           shaderRootPath + "brdf.frag.spv");
+  Shader brdfVertShader =
+      createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv");
+  Shader brdfFragShader =
+      createShaderFromFile(renderer, shaderRootPath + "brdf.frag.spv");
 
-  VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2] = {};
+  VkSampler nearestSampler;
+  VkSampler bilinearSampler;
+  {
+    VkSamplerCreateInfo samplerCreateInfo = {};
+    samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
+    samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
+    samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCreateInfo.anisotropyEnable = VK_TRUE;
+    samplerCreateInfo.maxAnisotropy = 16.f;
+    samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+    samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+    samplerCreateInfo.compareEnable = VK_FALSE;
+    samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerCreateInfo.mipLodBias = 0.f;
+    samplerCreateInfo.minLod = 0.f;
+    samplerCreateInfo.maxLod = 0.f;
+
+    BB_VK_ASSERT(vkCreateSampler(renderer.Device, &samplerCreateInfo, nullptr,
+                                 &nearestSampler));
+
+    samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+    samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    BB_VK_ASSERT(vkCreateSampler(renderer.Device, &samplerCreateInfo, nullptr,
+                                 &bilinearSampler));
+  }
+
+  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
+  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  VkCommandPool transientCmdPool;
+  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
+                                   &transientCmdPool));
+
+  std::vector<PBRMaterial> pbrMaterials;
+  pbrMaterials.push_back(
+      createPBRMaterialFromFiles(renderer, transientCmdPool,
+                                 resourceRootPath + "\\pbr\\branches_twisted"));
+
+  VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
+
+  // Uniform Block
   descriptorSetLayoutBindings[0].binding = 0;
   descriptorSetLayoutBindings[0].descriptorType =
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorSetLayoutBindings[0].descriptorCount = 1;
   descriptorSetLayoutBindings[0].stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  descriptorSetLayoutBindings[0].pImmutableSamplers = nullptr;
+
+  // Immutable Samplers (Nearest and Bilinear)
+  VkSampler samplers[2] = {nearestSampler, bilinearSampler};
   descriptorSetLayoutBindings[1].binding = 1;
-  descriptorSetLayoutBindings[1].descriptorType =
-      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorSetLayoutBindings[1].descriptorCount = 1;
+  descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+  descriptorSetLayoutBindings[1].descriptorCount =
+      (uint32_t)std::size(samplers);
   descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  descriptorSetLayoutBindings[1].pImmutableSamplers = nullptr;
+  descriptorSetLayoutBindings[1].pImmutableSamplers = samplers;
+
+  // PBR Textures (Albedo, Metallic, Roughness, AO, Normal, Height)
+  for (int i = 0; i < PBRMaterial::ImageCount; ++i) {
+    VkDescriptorSetLayoutBinding &binding = descriptorSetLayoutBindings[i + 2];
+    binding.binding = i + 2;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    binding.descriptorCount = (uint32_t)pbrMaterials.size();
+    binding.stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
 
   VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
   descriptorSetLayoutCreateInfo.sType =
@@ -555,21 +672,14 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreatePipelineLayout(
       renderer.Device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 
-  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
-  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
-  cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-  VkCommandPool transientCmdPool;
-  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
-                                   &transientCmdPool));
-
   SwapChain swapChain;
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(renderer, width, height, nullptr, brdfShader,
-                          pipelineLayout, &swapChain, &renderPass,
-                          &graphicsPipeline, &swapChainFramebuffers);
+  initReloadableResources(renderer, width, height, nullptr, brdfVertShader,
+                          brdfFragShader, pipelineLayout, &swapChain,
+                          &renderPass, &graphicsPipeline,
+                          &swapChainFramebuffers);
 
   // clang-format off
   std::vector<Vertex> quadVertices = {
@@ -648,180 +758,14 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
   }
 
-  VkImage textureImage;
-  VkDeviceMemory textureImageMemory;
-  {
-    std::string textureFilePath = resourceRootPath + "\\uv_debug.png";
-    Int2 textureDims = {};
-    int numChannels;
-    stbi_uc *pixels = stbi_load(textureFilePath.c_str(), &textureDims.X,
-                                &textureDims.Y, &numChannels, STBI_rgb_alpha);
-    BB_ASSERT(pixels);
-
-    VkDeviceSize textureSize = textureDims.X * textureDims.Y * 4;
-
-    Buffer textureStagingBuffer =
-        createBuffer(renderer, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    void *data;
-    vkMapMemory(renderer.Device, textureStagingBuffer.Memory, 0, textureSize, 0,
-                &data);
-    memcpy(data, pixels, textureSize);
-    vkUnmapMemory(renderer.Device, textureStagingBuffer.Memory);
-    stbi_image_free(pixels);
-
-    VkImageCreateInfo textureImageCreateInfo = {};
-    textureImageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    textureImageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-    textureImageCreateInfo.extent.width = (uint32_t)textureDims.X;
-    textureImageCreateInfo.extent.height = (uint32_t)textureDims.Y;
-    textureImageCreateInfo.extent.depth = 1;
-    textureImageCreateInfo.mipLevels = 1;
-    textureImageCreateInfo.arrayLayers = 1;
-    textureImageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
-    textureImageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    textureImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    textureImageCreateInfo.usage =
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    textureImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    textureImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    textureImageCreateInfo.flags = 0;
-
-    BB_VK_ASSERT(vkCreateImage(renderer.Device, &textureImageCreateInfo,
-                               nullptr, &textureImage));
-
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(renderer.Device, textureImage,
-                                 &memRequirements);
-
-    VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
-    textureImageMemoryAllocateInfo.sType =
-        VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
-    textureImageMemoryAllocateInfo.memoryTypeIndex =
-        findMemoryType(renderer, memRequirements.memoryTypeBits,
-                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    BB_VK_ASSERT(vkAllocateMemory(renderer.Device,
-                                  &textureImageMemoryAllocateInfo, nullptr,
-                                  &textureImageMemory));
-
-    BB_VK_ASSERT(vkBindImageMemory(renderer.Device, textureImage,
-                                   textureImageMemory, 0));
-
-    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdBufferAllocInfo.commandPool = transientCmdPool;
-    cmdBufferAllocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer cmdBuffer;
-    BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &cmdBufferAllocInfo,
-                                          &cmdBuffer));
-
-    VkCommandBufferBeginInfo cmdBeginInfo = {};
-    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
-    VkImageMemoryBarrier barrier = {};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.image = textureImage;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &barrier);
-    VkBufferImageCopy region = {};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = int2ToExtent3D(textureDims);
-    vkCmdCopyBufferToImage(cmdBuffer, textureStagingBuffer.Handle, textureImage,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-                         0, nullptr, 1, &barrier);
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
-
-    VkSubmitInfo submitInfo = {};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-    BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(renderer.Queue));
-    vkFreeCommandBuffers(renderer.Device, transientCmdPool, 1, &cmdBuffer);
-
-    destroyBuffer(renderer, textureStagingBuffer);
-  }
-
-  VkImageView textureImageView;
-  VkImageViewCreateInfo textureImageViewCreateInfo = {};
-  textureImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  textureImageViewCreateInfo.image = textureImage;
-  textureImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  textureImageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
-  textureImageViewCreateInfo.subresourceRange.aspectMask =
-      VK_IMAGE_ASPECT_COLOR_BIT;
-  textureImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-  textureImageViewCreateInfo.subresourceRange.levelCount = 1;
-  textureImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-  textureImageViewCreateInfo.subresourceRange.layerCount = 1;
-  BB_VK_ASSERT(vkCreateImageView(renderer.Device, &textureImageViewCreateInfo,
-                                 nullptr, &textureImageView));
-
-  VkSampler textureSampler;
-  VkSamplerCreateInfo textureSamplerCreateInfo = {};
-  textureSamplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  textureSamplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-  textureSamplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-  textureSamplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  textureSamplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  textureSamplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  textureSamplerCreateInfo.anisotropyEnable = VK_TRUE;
-  textureSamplerCreateInfo.maxAnisotropy = 16.f;
-  textureSamplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
-  textureSamplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
-  textureSamplerCreateInfo.compareEnable = VK_FALSE;
-  textureSamplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  textureSamplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  textureSamplerCreateInfo.mipLodBias = 0.f;
-  textureSamplerCreateInfo.minLod = 0.f;
-  textureSamplerCreateInfo.maxLod = 0.f;
-  BB_VK_ASSERT(vkCreateSampler(renderer.Device, &textureSamplerCreateInfo,
-                               nullptr, &textureSampler));
-
-  const int numFrames = 1;
-
-  VkDescriptorPoolSize descriptorPoolSizes[2] = {};
+  VkDescriptorPoolSize descriptorPoolSizes[3] = {};
   descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorPoolSizes[0].descriptorCount = numFrames;
-  descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  descriptorPoolSizes[1].descriptorCount = numFrames;
+  descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  descriptorPoolSizes[1].descriptorCount =
+      numFrames * PBRMaterial::ImageCount * pbrMaterials.size();
+  descriptorPoolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+  descriptorPoolSizes[2].descriptorCount = numFrames * 2;
   VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
   descriptorPoolCreateInfo.sType =
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -863,7 +807,7 @@ int main(int _argc, char **_argv) {
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
     frames.push_back(createFrame(renderer, descriptorPool, descriptorSetLayout,
-                                 textureImageView, textureSampler));
+                                 pbrMaterials));
   }
 
   uint32_t currentFrameIndex = 0;
@@ -917,8 +861,6 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
-  uint32_t numInstances = 300;
-
   std::vector<InstanceBlock> instanceData(numInstances);
 
   Buffer instanceBuffer = createBuffer(renderer, size_bytes32(instanceData),
@@ -961,7 +903,7 @@ int main(int _argc, char **_argv) {
     ImGui_ImplSDL2_NewFrame(window);
     ImGui::NewFrame();
 
-#if 1
+#if 0
     ImGui::ShowDemoWindow();
 #endif
 
@@ -1011,8 +953,9 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
-                     renderPass, graphicsPipeline, swapChainFramebuffers);
+      onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
+                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainFramebuffers);
       continue;
     }
 
@@ -1035,28 +978,6 @@ int main(int _argc, char **_argv) {
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     uniformBlock.ViewPos = cam.Pos;
-    static float albedo[3] = {1, 1, 1};
-    ImGui::ColorPicker3("Albedo", albedo);
-    uniformBlock.Albedo = {albedo[0], albedo[1], albedo[2]};
-    static float metallic = 0;
-    ImGui::SliderFloat("Metallic", &metallic, 0, 1);
-    uniformBlock.Metallic = metallic;
-    static float roughness = 0.5f;
-    ImGui::SliderFloat("Roughness", &roughness, 0.1f, 1);
-    uniformBlock.Roughness = roughness;
-    static float ao = 1;
-    ImGui::SliderFloat("AO", &ao, 0, 1);
-    uniformBlock.AO = ao;
-
-    static int visualizeOption = 0;
-    int i = 0;
-    for (auto option : {"N", "H", "D", "F", "G"}) {
-      if (ImGui::Selectable(option, visualizeOption == i)) {
-        visualizeOption = i;
-      }
-      ++i;
-    }
-    uniformBlock.VisualizeOption = visualizeOption;
 
     {
       void *data;
@@ -1065,6 +986,28 @@ int main(int _argc, char **_argv) {
       memcpy(data, &uniformBlock, sizeof(UniformBlock));
       vkUnmapMemory(renderer.Device, currentFrame.UniformBuffer.Memory);
     }
+
+    static int selectedInstanceIndex = -1;
+
+    if (ImGui::Begin("Objects")) {
+      for (size_t i = 0; i < instanceData.size(); ++i) {
+        std::string label = fmt::format("Shader Ball {}", i);
+        if (ImGui::Selectable(label.c_str(), i == selectedInstanceIndex)) {
+          selectedInstanceIndex = i;
+        }
+      }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Material")) {
+      if (selectedInstanceIndex >= 0) {
+        InstanceBlock &currentInstance = instanceData[selectedInstanceIndex];
+
+        guiMaterialPicker(fmt::format("Instance {}", selectedInstanceIndex),
+                          currentInstance);
+      }
+    }
+    ImGui::End();
 
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
@@ -1088,7 +1031,7 @@ int main(int _argc, char **_argv) {
     recordCommand(currentFrame.CmdBuffer, renderPass,
                   currentSwapChainFramebuffer, swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, textureImage, pipelineLayout,
+                  shaderBallIndexBuffer, pipelineLayout,
                   currentFrame.DescriptorSet, shaderBallIndices, numInstances);
 
     VkSubmitInfo submitInfo = {};
@@ -1122,8 +1065,9 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, brdfShader, pipelineLayout, swapChain,
-                     renderPass, graphicsPipeline, swapChainFramebuffers);
+      onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
+                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     swapChainFramebuffers);
     }
   }
 
@@ -1137,15 +1081,9 @@ int main(int _argc, char **_argv) {
     destroyFrame(renderer, frame);
   }
 
-  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
-
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
-  vkDestroySampler(renderer.Device, textureSampler, nullptr);
-  vkDestroyImageView(renderer.Device, textureImageView, nullptr);
-  vkDestroyImage(renderer.Device, textureImage, nullptr);
-  vkFreeMemory(renderer.Device, textureImageMemory, nullptr);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
@@ -1157,8 +1095,16 @@ int main(int _argc, char **_argv) {
 
   vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);
-  destroyShader(renderer, brdfShader);
-  destroyShader(renderer, testShader);
+
+  for (PBRMaterial &material : pbrMaterials) {
+    destroyPBRMaterial(renderer, material);
+  }
+  vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
+  vkDestroySampler(renderer.Device, bilinearSampler, nullptr);
+  vkDestroySampler(renderer.Device, nearestSampler, nullptr);
+
+  destroyShader(renderer, brdfVertShader);
+  destroyShader(renderer, brdfFragShader);
   destroyRenderer(renderer);
 
   SDL_DestroyWindow(window);

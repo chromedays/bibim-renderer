@@ -1,5 +1,7 @@
 #include "render.h"
+#include "type_conversion.h"
 #include "external/SDL2/SDL_vulkan.h"
+#include "external/stb_image.h"
 
 namespace bb {
 
@@ -510,10 +512,39 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 11> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 11> attributeDescs = {};
+std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 16> attributeDescs = {};
 
   int lastAttributeIndex = 0;
+
+  auto pushIntAttribute = [&](uint32_t _binding, int _numComponents,
+                              uint32_t _offset) {
+    BB_ASSERT(_numComponents >= 1 && _numComponents <= 4);
+    VkFormat format;
+    switch (_numComponents) {
+    case 1:
+      format = VK_FORMAT_R32_SINT;
+      break;
+    case 2:
+      format = VK_FORMAT_R32G32_SINT;
+      break;
+    case 3:
+      format = VK_FORMAT_R32G32B32_SINT;
+      break;
+    case 4:
+      format = VK_FORMAT_R32G32B32A32_SINT;
+      break;
+    }
+
+    VkVertexInputAttributeDescription &attribute =
+        attributeDescs[lastAttributeIndex];
+    attribute.binding = _binding;
+    attribute.location = lastAttributeIndex;
+    attribute.format = format;
+    attribute.offset = _offset;
+
+    ++lastAttributeIndex;
+  };
 
   auto pushVecAttribute = [&](uint32_t _binding, int _numComponents,
                               uint32_t _offset) {
@@ -562,6 +593,11 @@ std::array<VkVertexInputAttributeDescription, 11> Vertex::getAttributeDescs() {
 
   pushMat4Attribute(1, offsetof(InstanceBlock, ModelMat));
   pushMat4Attribute(1, offsetof(InstanceBlock, InvModelMat));
+  pushVecAttribute(1, 3, offsetof(InstanceBlock, Albedo));
+  pushVecAttribute(1, 1, offsetof(InstanceBlock, Metallic));
+  pushVecAttribute(1, 1, offsetof(InstanceBlock, Roughness));
+  pushVecAttribute(1, 1, offsetof(InstanceBlock, AO));
+  pushIntAttribute(1, 1, offsetof(InstanceBlock, MaterialIndex));
 
   BB_ASSERT(lastAttributeIndex == attributeDescs.size());
 
@@ -654,8 +690,184 @@ void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
                        &cmdBuffer);
 }
 
-VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
-                                          const std::string &_filePath) {
+Image createImageFromFile(const Renderer &_renderer,
+                          VkCommandPool _transientCmdPool,
+                          const std::string &_filePath) {
+  Image result = {};
+
+  Int2 textureDims = {};
+  int numChannels;
+  stbi_uc *pixels = stbi_load(_filePath.c_str(), &textureDims.X, &textureDims.Y,
+                              &numChannels, STBI_rgb_alpha);
+  if (!pixels)
+    return {};
+
+  VkDeviceSize textureSize = textureDims.X * textureDims.Y * 4;
+
+  Buffer textureStagingBuffer =
+      createBuffer(_renderer, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  void *data;
+  vkMapMemory(_renderer.Device, textureStagingBuffer.Memory, 0, textureSize, 0,
+              &data);
+  memcpy(data, pixels, textureSize);
+  vkUnmapMemory(_renderer.Device, textureStagingBuffer.Memory);
+
+  stbi_image_free(pixels);
+
+  VkImageCreateInfo imageCreateInfo = {};
+  imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageCreateInfo.extent.width = (uint32_t)textureDims.X;
+  imageCreateInfo.extent.height = (uint32_t)textureDims.Y;
+  imageCreateInfo.extent.depth = 1;
+  imageCreateInfo.mipLevels = 1;
+  imageCreateInfo.arrayLayers = 1;
+  imageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageCreateInfo.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageCreateInfo.flags = 0;
+
+  BB_VK_ASSERT(vkCreateImage(_renderer.Device, &imageCreateInfo, nullptr,
+                             &result.Handle));
+
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(_renderer.Device, result.Handle,
+                               &memRequirements);
+
+  VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
+  textureImageMemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
+  textureImageMemoryAllocateInfo.memoryTypeIndex =
+      findMemoryType(_renderer, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  BB_VK_ASSERT(vkAllocateMemory(_renderer.Device,
+                                &textureImageMemoryAllocateInfo, nullptr,
+                                &result.Memory));
+
+  BB_VK_ASSERT(
+      vkBindImageMemory(_renderer.Device, result.Handle, result.Memory, 0));
+
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandPool = _transientCmdPool;
+  cmdBufferAllocInfo.commandBufferCount = 1;
+
+  VkCommandBuffer cmdBuffer;
+  BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
+                                        &cmdBuffer));
+
+  VkCommandBufferBeginInfo cmdBeginInfo = {};
+  cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+  VkImageMemoryBarrier barrier = {};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+  barrier.srcAccessMask = 0;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.image = result.Handle;
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel = 0;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = 1;
+  vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+  VkBufferImageCopy region = {};
+  region.bufferOffset = 0;
+  region.bufferRowLength = 0;
+  region.bufferImageHeight = 0;
+  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  region.imageSubresource.mipLevel = 0;
+  region.imageSubresource.baseArrayLayer = 0;
+  region.imageSubresource.layerCount = 1;
+  region.imageOffset = {0, 0, 0};
+  region.imageExtent = int2ToExtent3D(textureDims);
+  vkCmdCopyBufferToImage(cmdBuffer, textureStagingBuffer.Handle, result.Handle,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+  BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &cmdBuffer;
+  BB_VK_ASSERT(vkQueueSubmit(_renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
+  BB_VK_ASSERT(vkQueueWaitIdle(_renderer.Queue));
+  vkFreeCommandBuffers(_renderer.Device, _transientCmdPool, 1, &cmdBuffer);
+
+  destroyBuffer(_renderer, textureStagingBuffer);
+
+  VkImageViewCreateInfo imageViewCreateInfo = {};
+  imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  imageViewCreateInfo.image = result.Handle;
+  imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  imageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+  imageViewCreateInfo.subresourceRange.levelCount = 1;
+  imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+  imageViewCreateInfo.subresourceRange.layerCount = 1;
+  BB_VK_ASSERT(vkCreateImageView(_renderer.Device, &imageViewCreateInfo,
+                                 nullptr, &result.View));
+
+  return result;
+}
+
+void destroyImage(const Renderer &_renderer, Image &_image) {
+  vkDestroyImageView(_renderer.Device, _image.View, nullptr);
+  vkDestroyImage(_renderer.Device, _image.Handle, nullptr);
+  vkFreeMemory(_renderer.Device, _image.Memory, nullptr);
+  _image = {};
+}
+
+VkPipelineShaderStageCreateInfo Shader::getStageInfo() const {
+  VkPipelineShaderStageCreateInfo stageInfo = {};
+  stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stageInfo.stage = Stage;
+  stageInfo.module = Handle;
+  stageInfo.pName = "main";
+  return stageInfo;
+}
+
+Shader createShaderFromFile(const Renderer &_renderer,
+                            const std::string &_filePath) {
+  Shader result;
+
+  if (endsWith(_filePath, ".vert.spv")) {
+    result.Stage = VK_SHADER_STAGE_VERTEX_BIT;
+  } else if (endsWith(_filePath, ".frag.spv")) {
+    result.Stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  } else if (endsWith(_filePath, ".geom.spv")) {
+    result.Stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+  } else {
+    BB_ASSERT(false);
+  }
+
   FILE *f = fopen(_filePath.c_str(), "rb");
   BB_ASSERT(f);
   fseek(f, 0, SEEK_END);
@@ -668,29 +880,18 @@ VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   createInfo.codeSize = fileSize;
   createInfo.pCode = (uint32_t *)contents;
-  VkShaderModule shaderModule;
+
   BB_VK_ASSERT(vkCreateShaderModule(_renderer.Device, &createInfo, nullptr,
-                                    &shaderModule));
+                                    &result.Handle));
 
   delete[] contents;
   fclose(f);
-
-  return shaderModule;
-}
-
-Shader createShaderFromFile(const Renderer &_renderer,
-                            const std::string &_vertShaderFilePath,
-                            const std::string &_fragShaderFilePath) {
-  Shader result = {};
-  result.Vert = createShaderModuleFromFile(_renderer, _vertShaderFilePath);
-  result.Frag = createShaderModuleFromFile(_renderer, _fragShaderFilePath);
 
   return result;
 }
 
 void destroyShader(const Renderer &_renderer, Shader &_shader) {
-  vkDestroyShaderModule(_renderer.Device, _shader.Vert, nullptr);
-  vkDestroyShaderModule(_renderer.Device, _shader.Frag, nullptr);
+  vkDestroyShaderModule(_renderer.Device, _shader.Handle, nullptr);
   _shader = {};
 }
 

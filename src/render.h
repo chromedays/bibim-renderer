@@ -58,16 +58,16 @@ struct UniformBlock {
   Mat4 ViewMat;
   Mat4 ProjMat;
   alignas(16) Float3 ViewPos;
-  alignas(16) Float3 Albedo;
-  float Metallic;
-  float Roughness;
-  float AO;
-  int VisualizeOption;
 };
 
 struct InstanceBlock {
   Mat4 ModelMat;
   Mat4 InvModelMat;
+  alignas(16) Float3 Albedo = {1, 1, 1};
+  float Metallic;
+  float Roughness = 0.5f;
+  float AO = 1;
+  int MaterialIndex;
 };
 
 struct Vertex {
@@ -76,7 +76,7 @@ struct Vertex {
   Float3 Normal = {0, 0, -1};
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 11> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 16> getAttributeDescs();
 };
 
 struct Buffer {
@@ -94,18 +94,26 @@ void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
 void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
                 Buffer &_dstBuffer, Buffer &_srcBuffer, VkDeviceSize _size);
 
-struct Shader {
-  VkShaderModule Vert;
-  VkShaderModule Frag;
+struct Image {
+  VkImage Handle;
+  VkDeviceMemory Memory;
+  VkImageView View;
 };
 
-VkShaderModule createShaderModuleFromFile(const Renderer &_renderer,
-                                          const std::string &_filePath);
+Image createImageFromFile(const Renderer &_renderer,
+                          VkCommandPool _transientCmdPool,
+                          const std::string &_filePath);
+void destroyImage(const Renderer &_renderer, Image &_image);
+
+struct Shader {
+  VkShaderStageFlagBits Stage;
+  VkShaderModule Handle;
+
+  VkPipelineShaderStageCreateInfo getStageInfo() const;
+};
 
 Shader createShaderFromFile(const Renderer &_renderer,
-                            const std::string &_vertShaderFilePath,
-                            const std::string &_fragShaderFilePath);
-
+                            const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
 
 } // namespace bb

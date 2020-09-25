@@ -17,4 +17,9 @@ Float3 aiVector3DToFloat3(const aiVector3D &_aiVec3) {
   return result;
 }
 
+Float2 aiVector3DToFloat2(const aiVector3D &_aiVec3) {
+  Float2 result = {_aiVec3.x, _aiVec3.y};
+  return result;
+}
+
 } // namespace bb
