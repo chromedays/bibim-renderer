@@ -249,10 +249,15 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
 }
 
+struct PipelineParams
+{
+  std::vector<const Shader *> shaders;
+  VkPipelineLayout pipelineLayout;
+};
+
 void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
-    const SwapChain *_oldSwapChain, const Shader &_vertShader,
-    const Shader &_fragShader, VkPipelineLayout _pipelineLayout,
+    const SwapChain *_oldSwapChain, const PipelineParams& _pipelineParams,
     SwapChain *_outSwapChain, VkRenderPass *_outRenderPass,
     VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
@@ -260,9 +265,10 @@ void initReloadableResources(
   SwapChain swapChain =
       createSwapChain(_renderer, _width, _height, _oldSwapChain);
 
-  VkPipelineShaderStageCreateInfo shaderStages[2] = {};
-  shaderStages[0] = _vertShader.getStageInfo();
-  shaderStages[1] = _fragShader.getStageInfo();
+  std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
+
+  for(const Shader* shader : _pipelineParams.shaders)
+    shaderStages.push_back(shader->getStageInfo());
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
@@ -423,10 +429,12 @@ void initReloadableResources(
   BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,
                                   nullptr, &renderPass));
 
+  
+
   VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
   pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipelineCreateInfo.stageCount = 2;
-  pipelineCreateInfo.pStages = shaderStages;
+  pipelineCreateInfo.stageCount = _pipelineParams.shaders.size();
+  pipelineCreateInfo.pStages = shaderStages.data();
   pipelineCreateInfo.pVertexInputState = &vertexInputState;
   pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
   pipelineCreateInfo.pViewportState = &viewportState;
@@ -435,7 +443,7 @@ void initReloadableResources(
   pipelineCreateInfo.pDepthStencilState = &depthStencilState;
   pipelineCreateInfo.pColorBlendState = &colorBlendState;
   pipelineCreateInfo.pDynamicState = nullptr;
-  pipelineCreateInfo.layout = _pipelineLayout;
+  pipelineCreateInfo.layout = _pipelineParams.pipelineLayout;
   pipelineCreateInfo.renderPass = renderPass;
   pipelineCreateInfo.subpass = 0;
   pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
@@ -487,8 +495,7 @@ void cleanupReloadableResources(
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
-                    const Shader &_vertShader, const Shader &_fragShader,
-                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
+                    const PipelineParams& _pipelineParams, SwapChain &_swapChain,
                     VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
                     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   int width = 0, height = 0;
@@ -504,8 +511,7 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
   cleanupReloadableResources(_renderer, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
-  initReloadableResources(_renderer, width, height, nullptr, _vertShader,
-                          _fragShader, _pipelineLayout, &_swapChain,
+  initReloadableResources(_renderer, width, height, nullptr, _pipelineParams, &_swapChain,
                           &_renderPass, &_graphicsPipeline,
                           &_swapChainFramebuffers);
 }
@@ -568,6 +574,11 @@ int main(int _argc, char **_argv) {
   Renderer renderer = createRenderer(window);
 
   std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
+
+  Shader gBufferVertShader =
+      createShaderFromFile(renderer, shaderRootPath + "gbuffer.vert.spv");
+  Shader gBufferFragShader =
+      createShaderFromFile(renderer, shaderRootPath + "gbuffer.frag.spv");
 
   Shader brdfVertShader =
       createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv");
@@ -676,9 +687,14 @@ int main(int _argc, char **_argv) {
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(renderer, width, height, nullptr, brdfVertShader,
-                          brdfFragShader, pipelineLayout, &swapChain,
-                          &renderPass, &graphicsPipeline,
+
+  PipelineParams pipelineParam;
+  pipelineParam.shaders.push_back(&brdfVertShader);
+  pipelineParam.shaders.push_back(&brdfFragShader);
+  pipelineParam.pipelineLayout = pipelineLayout;
+
+  initReloadableResources(renderer, width, height, nullptr, pipelineParam, 
+                          &swapChain, &renderPass, &graphicsPipeline,
                           &swapChainFramebuffers);
 
   // clang-format off
@@ -953,8 +969,7 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+      onWindowResize(window, renderer, pipelineParam, swapChain, renderPass, graphicsPipeline,
                      swapChainFramebuffers);
       continue;
     }
@@ -1066,7 +1081,7 @@ int main(int _argc, char **_argv) {
           &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
+                     pipelineParam, swapChain, renderPass, graphicsPipeline,
                      swapChainFramebuffers);
     }
   }
@@ -1105,6 +1120,8 @@ int main(int _argc, char **_argv) {
 
   destroyShader(renderer, brdfVertShader);
   destroyShader(renderer, brdfFragShader);
+  destroyShader(renderer, gBufferVertShader);
+  destroyShader(renderer, gBufferFragShader);
   destroyRenderer(renderer);
 
   SDL_DestroyWindow(window);
