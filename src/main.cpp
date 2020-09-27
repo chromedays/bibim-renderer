@@ -38,7 +38,7 @@ constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
 struct PBRMaterial {
-  static constexpr int ImageCount = 6;
+  static constexpr int NumImages = 6;
 
   Image AlbedoMap;
   Image MetallicMap;
@@ -130,7 +130,7 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorBufferInfo.range = sizeof(UniformBlock);
 
   std::vector<VkDescriptorImageInfo>
-      descriptorImageInfos[PBRMaterial::ImageCount];
+      descriptorImageInfos[PBRMaterial::NumImages];
   for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
        descriptorImageInfos) {
     descriptorImageInfo.reserve(_pbrMaterials.size());
@@ -154,7 +154,7 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
     descriptorImageInfos[5].push_back(materialDesc);
   }
 
-  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::ImageCount] = {};
+  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::NumImages] = {};
   descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   descriptorWrites[0].dstSet = result.DescriptorSet;
   descriptorWrites[0].dstBinding = 0;
@@ -162,7 +162,7 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorWrites[0].descriptorCount = 1;
   descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-  for (int i = 0; i < PBRMaterial::ImageCount; ++i) {
+  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
     VkWriteDescriptorSet &write = descriptorWrites[i + 1];
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = result.DescriptorSet;
@@ -640,7 +640,7 @@ int main(int _argc, char **_argv) {
   descriptorSetLayoutBindings[1].pImmutableSamplers = samplers;
 
   // PBR Textures (Albedo, Metallic, Roughness, AO, Normal, Height)
-  for (int i = 0; i < PBRMaterial::ImageCount; ++i) {
+  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
     VkDescriptorSetLayoutBinding &binding = descriptorSetLayoutBindings[i + 2];
     binding.binding = i + 2;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -764,7 +764,7 @@ int main(int _argc, char **_argv) {
   descriptorPoolSizes[0].descriptorCount = numFrames;
   descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
   descriptorPoolSizes[1].descriptorCount =
-      numFrames * PBRMaterial::ImageCount * pbrMaterials.size();
+      numFrames * PBRMaterial::NumImages * pbrMaterials.size();
   descriptorPoolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLER;
   descriptorPoolSizes[2].descriptorCount = numFrames * 2;
   VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
