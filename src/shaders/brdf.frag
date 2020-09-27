@@ -2,14 +2,28 @@
 
 #include "brdf.glsl"
 
+#define MAX_NUM_LIGHTS 100
+#define NUM_MATERIALS 1
+
+struct Light {
+    vec3 pos;
+    int type; // 0 = point light, 1 = spot light, 2 = directional light
+    vec3 dir;
+    float intensity;
+    vec3 color;
+    float innerCutOff;
+    float outerCutOff;
+};
+
 layout (binding = 0) uniform UniformBlock {
     mat4 viewMat;
     mat4 projMat;
     vec3 viewPos;
+    int numLights;
+    Light lights[MAX_NUM_LIGHTS];
 } ub;
 
 layout (binding = 1) uniform sampler uSamplers[2]; // 0 - Nearest, 1 - Bilinear
-#define NUM_MATERIALS 1
 layout (binding = 2) uniform texture2D uAlbedoMap[NUM_MATERIALS];
 layout (binding = 3) uniform texture2D uMetallicMap[NUM_MATERIALS];
 layout (binding = 4) uniform texture2D uRoughnessMap[NUM_MATERIALS];
@@ -32,36 +46,53 @@ void main() {
     float roughness = texture(sampler2D(uRoughnessMap[vMaterialIndex], uSamplers[1]), vUV).r;
     float ao = texture(sampler2D(uAOMap[vMaterialIndex], uSamplers[1]), vUV).r;
 
-    vec3 lightDir = vec3(-1, -1, 0);
-
-    vec3 L = -normalize(lightDir);
-    vec3 V = normalize(ub.viewPos - vPosWorld);
-    vec3 N = normalize(vNormalWorld);
-    vec3 H = normalize(L + V);
-    
-
-    float D = distributionGGX(N, H, roughness);
-
-    vec3 F0 = vec3(0.04);
-    F0 = mix(F0, albedo, metallic);
-    vec3 F = fresnelSchlick(N, V, F0);
-    float G = geometrySmith(N, V, L, roughness);
-
-    vec3 color;
-
-    vec3 lightColor = vec3(23.47, 21.31, 20.79) * 0.1;
-    vec3 radiance = lightColor;
-
-    vec3 specular = (D * F * G) / max(4 * max(dot(V, N), 0) * max(dot(L, N), 0), 0.001);
-    vec3 kS = F;
-    vec3 kD = vec3(1) - kS;
-    kD *= (1 - metallic);
-
     vec3 Lo = vec3(0);
-    Lo += (kD * albedo / PI + specular) * radiance * max(dot(N, L), 0);
-    
+
+    for (int i = 0; i < ub.numLights; ++i) {
+        Light light = ub.lights[i];
+        vec3 L;
+        float att;
+        if (light.type == 0) {
+            L = light.pos - vPosWorld;
+            float d = length(L);
+            att = 1 / (d * d);
+            L = normalize(L);
+        } else if (light.type == 1) {
+            L = light.pos - vPosWorld;
+            float d = length(L);
+            att = 1 / (d * d);
+            L = normalize(L);
+            float theta = dot(L, normalize(-light.dir));
+            float epsilon = light.innerCutOff - light.outerCutOff;
+            att *= clamp((theta - light.outerCutOff) / epsilon, 0, 1);
+        } else if (light.type == 2) {
+            L = -normalize(light.dir);
+            att = 1;
+        }
+            
+        vec3 V = normalize(ub.viewPos - vPosWorld);
+        vec3 N = normalize(vNormalWorld);
+        vec3 H = normalize(L + V);
+
+        float D = distributionGGX(N, H, roughness);
+
+        vec3 F0 = vec3(0.04);
+        F0 = mix(F0, albedo, metallic);
+        vec3 F = fresnelSchlick(N, V, F0);
+        float G = geometrySmith(N, V, L, roughness);
+
+        vec3 radiance = att * light.color * light.intensity;
+
+        vec3 specular = (D * F * G) / max(4 * max(dot(V, N), 0) * max(dot(L, N), 0), 0.001);
+        vec3 kS = F;
+        vec3 kD = vec3(1) - kS;
+        kD *= (1 - metallic);
+
+        Lo += (kD * albedo / PI + specular) * radiance * max(dot(N, L), 0);
+    }
+
     vec3 ambient = vec3(0.03) * albedo * ao;
-    color = ambient + Lo;
+    vec3 color = ambient + Lo;
 
     outColor = vec4(color, 1);
 }
