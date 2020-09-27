@@ -6,6 +6,7 @@
 #include "input.h"
 #include "render.h"
 #include "type_conversion.h"
+#include "resource.h"
 #include "external/volk.h"
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
@@ -50,19 +51,20 @@ struct PBRMaterial {
 PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
                                        VkCommandPool _transientCmdPool,
                                        const std::string &_rootPath) {
+  // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
   PBRMaterial result = {};
   result.AlbedoMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         _rootPath + "\\albedo.png");
-  result.MetallicMap = createImageFromFile(_renderer, _transientCmdPool,
-                                           _rootPath + "\\metallic.png");
-  result.RoughnessMap = createImageFromFile(_renderer, _transientCmdPool,
-                                            _rootPath + "\\roughness.png");
-  result.AOMap =
-      createImageFromFile(_renderer, _transientCmdPool, _rootPath + "\\ao.png");
+                                         joinPaths(_rootPath, "albedo.png"));
+  result.MetallicMap = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "metallic.png"));
+  result.RoughnessMap = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "roughness.png"));
+  result.AOMap = createImageFromFile(_renderer, _transientCmdPool,
+                                     joinPaths(_rootPath, "ao.png"));
   result.NormalMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         _rootPath + "\\normal.png");
+                                         joinPaths(_rootPath, "normal.png"));
   result.HeightMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         _rootPath + "\\height.png");
+                                         joinPaths(_rootPath, "height.png"));
   return result;
 }
 
@@ -531,12 +533,11 @@ int main(int _argc, char **_argv) {
   SDL_VERSION(&sysinfo.version);
   SDL_GetWindowWMInfo(window, &sysinfo);
 
-  std::string resourceRootPath = SDL_GetBasePath();
-  resourceRootPath += "\\..\\..\\resources\\";
+  initResourceRoot();
 
   Assimp::Importer importer;
   const aiScene *shaderBallScene =
-      importer.ReadFile(resourceRootPath + "ShaderBall.fbx",
+      importer.ReadFile(createAbsolutePath("ShaderBall.fbx"),
                         aiProcess_Triangulate | aiProcess_CalcTangentSpace);
   const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
   std::vector<Vertex> shaderBallVertices;
@@ -553,7 +554,8 @@ int main(int _argc, char **_argv) {
       // std::swap(v.Pos.Y, v.Pos.Z);
       // v.Pos.Z *= -1.f;
       v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
-      // const aiVector3D &tangent = shaderBallMesh->mTangents[face] v.Normal =
+      // const aiVector3D &tangent = shaderBallMesh->mTangents[face]
+      // v.Normal =
       v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
       // std::swap(v.Normal.Y, v.Normal.Z);
       // v.Normal.Z *= -1.f;
@@ -567,12 +569,12 @@ int main(int _argc, char **_argv) {
 
   Renderer renderer = createRenderer(window);
 
-  std::string shaderRootPath = resourceRootPath + "..\\src\\shaders\\";
+  std::string shaderRootPath = "../src/shaders";
 
-  Shader brdfVertShader =
-      createShaderFromFile(renderer, shaderRootPath + "brdf.vert.spv");
-  Shader brdfFragShader =
-      createShaderFromFile(renderer, shaderRootPath + "brdf.frag.spv");
+  Shader brdfVertShader = createShaderFromFile(
+      renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.vert.spv")));
+  Shader brdfFragShader = createShaderFromFile(
+      renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.frag.spv")));
 
   VkSampler nearestSampler;
   VkSampler bilinearSampler;
@@ -615,9 +617,8 @@ int main(int _argc, char **_argv) {
                                    &transientCmdPool));
 
   std::vector<PBRMaterial> pbrMaterials;
-  pbrMaterials.push_back(
-      createPBRMaterialFromFiles(renderer, transientCmdPool,
-                                 resourceRootPath + "\\pbr\\branches_twisted"));
+  pbrMaterials.push_back(createPBRMaterialFromFiles(
+      renderer, transientCmdPool, createAbsolutePath("pbr/branches_twisted")));
 
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
 
@@ -699,12 +700,12 @@ int main(int _argc, char **_argv) {
   };
   // clang-format on
 
-  Buffer quadVertexBuffer = createBuffer(renderer, size_bytes32(quadVertices),
+  Buffer quadVertexBuffer = createBuffer(renderer, sizeBytes32(quadVertices),
                                          VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-  Buffer quadIndexBuffer = createBuffer(renderer, size_bytes32(quadIndices),
+  Buffer quadIndexBuffer = createBuffer(renderer, sizeBytes32(quadIndices),
                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -734,7 +735,7 @@ int main(int _argc, char **_argv) {
   }
 
   Buffer shaderBallVertexBuffer =
-      createBuffer(renderer, size_bytes32(shaderBallVertices),
+      createBuffer(renderer, sizeBytes32(shaderBallVertices),
                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -746,7 +747,7 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, shaderBallVertexBuffer.Memory);
   }
   Buffer shaderBallIndexBuffer =
-      createBuffer(renderer, size_bytes32(shaderBallIndices),
+      createBuffer(renderer, sizeBytes32(shaderBallIndices),
                    VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -863,7 +864,7 @@ int main(int _argc, char **_argv) {
 
   std::vector<InstanceBlock> instanceData(numInstances);
 
-  Buffer instanceBuffer = createBuffer(renderer, size_bytes32(instanceData),
+  Buffer instanceBuffer = createBuffer(renderer, sizeBytes32(instanceData),
                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
