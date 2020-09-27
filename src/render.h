@@ -55,10 +55,13 @@ SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
 void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
 struct alignas(16) Light {
-  Float3 PosOrDir;
+  Float3 Pos;
   int Type;
-  Float3 Color;
+  Float3 Dir;
   float Intensity;
+  Float3 Color;
+  float InnerCutOff;
+  float OuterCutOff;
 };
 
 #define MAX_NUM_LIGHTS 100

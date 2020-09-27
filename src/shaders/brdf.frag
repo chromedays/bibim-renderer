@@ -5,12 +5,14 @@
 #define MAX_NUM_LIGHTS 100
 #define NUM_MATERIALS 1
 
-struct Light
-{
-    vec3 posOrDir; // Pos for point and spot lights, Dir for directional lights
+struct Light {
+    vec3 pos;
     int type; // 0 = point light, 1 = spot light, 2 = directional light
-    vec3 color;
+    vec3 dir;
     float intensity;
+    vec3 color;
+    float innerCutOff;
+    float outerCutOff;
 };
 
 layout (binding = 0) uniform UniformBlock {
@@ -51,12 +53,20 @@ void main() {
         vec3 L;
         float att;
         if (light.type == 0) {
-            L = light.posOrDir - vPosWorld;
+            L = light.pos - vPosWorld;
             float d = length(L);
             att = 1 / (d * d);
             L = normalize(L);
+        } else if (light.type == 1) {
+            L = light.pos - vPosWorld;
+            float d = length(L);
+            att = 1 / (d * d);
+            L = normalize(L);
+            float theta = dot(L, normalize(-light.dir));
+            float epsilon = light.innerCutOff - light.outerCutOff;
+            att *= clamp((theta - light.outerCutOff) / epsilon, 0, 1);
         } else if (light.type == 2) {
-            L = -normalize(light.posOrDir);
+            L = -normalize(light.dir);
             att = 1;
         }
             

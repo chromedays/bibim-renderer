@@ -5,10 +5,11 @@
 
 struct Light
 {
-    vec3 posOrDir; // Pos for point and spot lights, Dir for directional lights
+    vec3 pos;
     int type; // 0 = point light, 1 = spot light, 2 = directional light
-    vec3 color;
+    vec3 dir;
     float intensity;
+    vec3 color;
 };
 
 layout (binding = 0) uniform UniformBlock {

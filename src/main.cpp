@@ -979,17 +979,25 @@ int main(int _argc, char **_argv) {
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     uniformBlock.ViewPos = cam.Pos;
-    uniformBlock.NumLights = 2;
+    uniformBlock.NumLights = 3;
     Light *light = &uniformBlock.lights[0];
-    light->PosOrDir = {-1, -1, 0};
+    light->Dir = {-1, -1, 0};
     light->Type = 2;
     light->Color = {23.47f, 21.31f, 20.79f};
     light->Intensity = 0.1f;
     ++light;
-    light->PosOrDir = {0, 2, 0};
+    light->Pos = {0, 2, 0};
     light->Type = 0;
     light->Color = {1, 0, 0};
     light->Intensity = 200;
+    ++light;
+    light->Pos = {4, 2, 0};
+    light->Dir = {0, -1, 0};
+    light->Type = 1;
+    light->Color = {0, 1, 0};
+    light->Intensity = 200;
+    light->InnerCutOff = degToRad(30);
+    light->OuterCutOff = degToRad(25);
 
     {
       void *data;
