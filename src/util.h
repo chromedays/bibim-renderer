@@ -43,6 +43,7 @@ template <typename... Args> void printLine(Args... args);
 template <typename... Args> void log(LogLevel level, Args... args);
 
 template <typename T> uint32_t sizeBytes32(const T &_container);
+template <typename T> int32_t ssizeBytes32(const T &_container);
 
 using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
 

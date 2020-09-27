@@ -34,10 +34,11 @@
 
 namespace bb {
 
-constexpr uint32_t numInstances = 300;
+constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
 struct PBRMaterial {
+  // TODO(ilgwon): ImageCount -> NumImages
   static constexpr int ImageCount = 6;
 
   Image AlbedoMap;
@@ -619,8 +620,11 @@ int main(int _argc, char **_argv) {
   std::vector<PBRMaterial> pbrMaterials;
   pbrMaterials.push_back(createPBRMaterialFromFiles(
       renderer, transientCmdPool, createAbsolutePath("pbr/branches_twisted")));
+  pbrMaterials.push_back(createPBRMaterialFromFiles(
+      renderer, transientCmdPool, createAbsolutePath("pbr/rough_rockface1")));
 
-  VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
+  VkDescriptorSetLayoutBinding
+      descriptorSetLayoutBindings[2 + PBRMaterial::ImageCount] = {};
 
   // Uniform Block
   descriptorSetLayoutBindings[0].binding = 0;
@@ -636,7 +640,8 @@ int main(int _argc, char **_argv) {
   descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
   descriptorSetLayoutBindings[1].descriptorCount =
       (uint32_t)std::size(samplers);
-  descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  descriptorSetLayoutBindings[1].stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   descriptorSetLayoutBindings[1].pImmutableSamplers = samplers;
 
   // PBR Textures (Albedo, Metallic, Roughness, AO, Normal, Height)
@@ -682,82 +687,22 @@ int main(int _argc, char **_argv) {
                           &renderPass, &graphicsPipeline,
                           &swapChainFramebuffers);
 
-  // clang-format off
-  std::vector<Vertex> quadVertices = {
-      {{-0.5f, -0.5f, 0}, {0, 0}},
-      {{0.5f, -0.5f, 0},  {1, 0}},
-      {{0.5f, 0.5f, 0},  {1, 1}},
-      {{-0.5f, 0.5f, 0}, {0, 1}},
+  std::vector<Vertex> quadVertices;
+  std::vector<uint32_t> quadIndices;
+  generateQuadVerticesAndIndices(&quadVertices, &quadIndices);
+  Buffer quadVertexBuffer = createBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      quadVertices.data(), ssizeBytes32(quadVertices));
+  Buffer quadIndexBuffer = createBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      quadIndices.data(), ssizeBytes32(quadIndices));
 
-      {{-0.5f, -0.5f, -0.5f}, {0, 0}},
-      {{0.5f, -0.5f, -0.5f},  {1, 0}},
-      {{0.5f, 0.5f, -0.5f}, {1, 1}},
-      {{-0.5f, 0.5f, -0.5f},  {0, 1}}};
-
-  std::vector<uint32_t> quadIndices = {
-    4, 5, 6, 6, 7, 4,
-    0, 1, 2, 2, 3, 0,
-  };
-  // clang-format on
-
-  Buffer quadVertexBuffer = createBuffer(renderer, sizeBytes32(quadVertices),
-                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  Buffer quadIndexBuffer = createBuffer(renderer, sizeBytes32(quadIndices),
-                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  {
-    Buffer vertexStagingBuffer =
-        createStagingBuffer(renderer, quadVertexBuffer);
-
-    Buffer indexStagingBuffer = createStagingBuffer(renderer, quadIndexBuffer);
-    void *data;
-    vkMapMemory(renderer.Device, vertexStagingBuffer.Memory, 0,
-                vertexStagingBuffer.Size, 0, &data);
-    memcpy(data, quadVertices.data(), vertexStagingBuffer.Size);
-    vkUnmapMemory(renderer.Device, vertexStagingBuffer.Memory);
-    vkMapMemory(renderer.Device, indexStagingBuffer.Memory, 0,
-                indexStagingBuffer.Size, 0, &data);
-    memcpy(data, quadIndices.data(), indexStagingBuffer.Size);
-    vkUnmapMemory(renderer.Device, indexStagingBuffer.Memory);
-
-    copyBuffer(renderer, transientCmdPool, quadVertexBuffer,
-               vertexStagingBuffer, vertexStagingBuffer.Size);
-    copyBuffer(renderer, transientCmdPool, quadIndexBuffer, indexStagingBuffer,
-               indexStagingBuffer.Size);
-
-    destroyBuffer(renderer, vertexStagingBuffer);
-    destroyBuffer(renderer, indexStagingBuffer);
-  }
-
-  Buffer shaderBallVertexBuffer =
-      createBuffer(renderer, sizeBytes32(shaderBallVertices),
-                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  {
-    void *data;
-    vkMapMemory(renderer.Device, shaderBallVertexBuffer.Memory, 0,
-                shaderBallVertexBuffer.Size, 0, &data);
-    memcpy(data, shaderBallVertices.data(), shaderBallVertexBuffer.Size);
-    vkUnmapMemory(renderer.Device, shaderBallVertexBuffer.Memory);
-  }
-  Buffer shaderBallIndexBuffer =
-      createBuffer(renderer, sizeBytes32(shaderBallIndices),
-                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  {
-    void *data;
-    vkMapMemory(renderer.Device, shaderBallIndexBuffer.Memory, 0,
-                shaderBallIndexBuffer.Size, 0, &data);
-    memcpy(data, shaderBallIndices.data(), shaderBallIndexBuffer.Size);
-    vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
-  }
+  Buffer shaderBallVertexBuffer = createBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      shaderBallVertices.data(), ssizeBytes32(shaderBallVertices));
+  Buffer shaderBallIndexBuffer = createBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      shaderBallIndices.data(), ssizeBytes32(shaderBallIndices));
 
   VkDescriptorPoolSize descriptorPoolSizes[3] = {};
   descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1015,6 +960,7 @@ int main(int _argc, char **_argv) {
                                  Mat4::rotateY(angle) *
                                  Mat4::scale({0.01f, 0.01f, 0.01f});
       instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
+      instanceData[i].MaterialIndex = 1;
     }
 
     {

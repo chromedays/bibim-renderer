@@ -6,6 +6,10 @@ layout (binding = 0) uniform UniformBlock {
     vec3 viewPos;
 } ub;
 
+layout (binding = 1) uniform sampler uSamplers[2]; // 0 - Nearest, 1 - Bilinear
+#define NUM_MATERIALS 1
+layout (binding = 7) uniform texture2D uHeightMap[NUM_MATERIALS];
+
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec2 aUV;
 layout (location = 2) in vec3 aNormal;
@@ -25,7 +29,11 @@ layout (location = 4) out flat vec3 vMRA; // Metallic, Roughness, AO
 layout (location = 5) out flat int vMaterialIndex;
 
 void main() {
-    vec4 posWorld = aModel * vec4(aPosition, 1.0);
+    float displacement = texture(sampler2D(uHeightMap[aMaterialIndex], uSamplers[1]), aUV).r;
+    vec4 posModel = vec4(aPosition + aNormal * displacement * 10, 1);
+    // vec4 posModel = vec4(aPosition, 1);
+
+    vec4 posWorld = aModel * posModel;
     vPosWorld = posWorld.xyz;
     gl_Position = ub.projMat * ub.viewMat * posWorld;
     vUV = aUV;

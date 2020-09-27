@@ -89,6 +89,10 @@ Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
                     VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties);
 Buffer createStagingBuffer(const Renderer &_renderer, const Buffer &_orgBuffer);
+Buffer createBufferFromMemory(const Renderer &_renderer,
+                              VkCommandPool _transientCmdPool,
+                              VkBufferUsageFlags _usage, void *_memory,
+                              int _size);
 
 void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
 void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
@@ -115,5 +119,8 @@ struct Shader {
 Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
+
+void generateQuadVerticesAndIndices(std::vector<Vertex> *_outVertices,
+                                    std::vector<uint32_t> *_outIndices);
 
 } // namespace bb

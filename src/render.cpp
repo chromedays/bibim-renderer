@@ -647,6 +647,30 @@ Buffer createStagingBuffer(const Renderer &_renderer,
   return result;
 }
 
+Buffer createBufferFromMemory(const Renderer &_renderer,
+                              VkCommandPool _transientCmdPool,
+                              VkBufferUsageFlags _usage, void *_memory,
+                              int _size) {
+  Buffer buffer =
+      createBuffer(_renderer, _size, _usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  Buffer stagingBuffer = createStagingBuffer(_renderer, buffer);
+
+  void *dst;
+  vkMapMemory(_renderer.Device, stagingBuffer.Memory, 0, stagingBuffer.Size, 0,
+              &dst);
+  memcpy(dst, _memory, (size_t)_size);
+  vkUnmapMemory(_renderer.Device, stagingBuffer.Memory);
+
+  copyBuffer(_renderer, _transientCmdPool, buffer, stagingBuffer,
+             stagingBuffer.Size);
+
+  destroyBuffer(_renderer, stagingBuffer);
+
+  return buffer;
+} // namespace bb
+
 void destroyBuffer(const Renderer &_renderer, Buffer &_buffer) {
   vkDestroyBuffer(_renderer.Device, _buffer.Handle, nullptr);
   _buffer.Handle = VK_NULL_HANDLE;
@@ -893,6 +917,18 @@ Shader createShaderFromFile(const Renderer &_renderer,
 void destroyShader(const Renderer &_renderer, Shader &_shader) {
   vkDestroyShaderModule(_renderer.Device, _shader.Handle, nullptr);
   _shader = {};
+}
+
+void generateQuadVerticesAndIndices(std::vector<Vertex> *_outVertices,
+                                    std::vector<uint32_t> *_outIndices) {
+  _outVertices->clear();
+  *_outVertices = {{{-0.5f, -0.5f, 0}, {0, 0}, {0, 0, -1}},
+                   {{0.5f, -0.5f, 0}, {1, 0}, {0, 0, -1}},
+                   {{0.5f, 0.5f, 0}, {1, 1}, {0, 0, -1}},
+                   {{-0.5f, 0.5f, 0}, {0, 1}, {0, 0, -1}}};
+
+  _outIndices->clear();
+  *_outIndices = {0, 1, 2, 2, 3, 0};
 }
 
 } // namespace bb

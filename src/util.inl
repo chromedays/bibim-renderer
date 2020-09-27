@@ -24,4 +24,9 @@ template <typename... Args> void log(LogLevel level, Args... args) {
 template <typename T> uint32_t sizeBytes32(const T &_container) {
   return (uint32_t)(sizeof(typename T::value_type) * _container.size());
 }
+
+template <typename T> int32_t ssizeBytes32(const T &_container) {
+  return (int32_t)(sizeof(typename T::value_type) * _container.size());
+}
+
 } // namespace bb
