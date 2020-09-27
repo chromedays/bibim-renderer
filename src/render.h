@@ -54,10 +54,21 @@ SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
                           const SwapChain *_oldSwapChain = nullptr);
 void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
+struct alignas(16) Light {
+  Float3 PosOrDir;
+  int Type;
+  Float3 Color;
+  float Intensity;
+};
+
+#define MAX_NUM_LIGHTS 100
+
 struct UniformBlock {
   Mat4 ViewMat;
   Mat4 ProjMat;
   alignas(16) Float3 ViewPos;
+  int NumLights;
+  Light lights[MAX_NUM_LIGHTS];
 };
 
 struct InstanceBlock {

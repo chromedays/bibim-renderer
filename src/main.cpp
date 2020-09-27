@@ -34,7 +34,7 @@
 
 namespace bb {
 
-constexpr uint32_t numInstances = 300;
+constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
 struct PBRMaterial {
@@ -979,6 +979,17 @@ int main(int _argc, char **_argv) {
     uniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     uniformBlock.ViewPos = cam.Pos;
+    uniformBlock.NumLights = 2;
+    Light *light = &uniformBlock.lights[0];
+    light->PosOrDir = {-1, -1, 0};
+    light->Type = 2;
+    light->Color = {23.47f, 21.31f, 20.79f};
+    light->Intensity = 0.1f;
+    ++light;
+    light->PosOrDir = {0, 2, 0};
+    light->Type = 0;
+    light->Color = {1, 0, 0};
+    light->Intensity = 200;
 
     {
       void *data;

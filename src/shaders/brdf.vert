@@ -1,9 +1,22 @@
 #version 450
 
+#define MAX_NUM_LIGHTS 100
+#define NUM_MATERIALS 1
+
+struct Light
+{
+    vec3 posOrDir; // Pos for point and spot lights, Dir for directional lights
+    int type; // 0 = point light, 1 = spot light, 2 = directional light
+    vec3 color;
+    float intensity;
+};
+
 layout (binding = 0) uniform UniformBlock {
     mat4 viewMat;
     mat4 projMat;
     vec3 viewPos;
+    int numLights;
+    Light lights[MAX_NUM_LIGHTS];
 } ub;
 
 layout (location = 0) in vec3 aPosition;
