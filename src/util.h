@@ -2,7 +2,6 @@
 #include "external/fmt/format.h"
 #include <string>
 #include <chrono>
-#include <type_traits>
 #ifdef BB_WINDOWS
 #include <Windows.h>
 #endif
