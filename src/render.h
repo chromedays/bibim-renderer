@@ -54,9 +54,11 @@ SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
                           const SwapChain *_oldSwapChain = nullptr);
 void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
+enum class LightType : int { Point = 0, Spot, Directional };
+
 struct alignas(16) Light {
   Float3 Pos;
-  int Type;
+  LightType Type;
   Float3 Dir;
   float Intensity;
   Float3 Color;
