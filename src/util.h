@@ -2,6 +2,7 @@
 #include "external/fmt/format.h"
 #include <string>
 #include <chrono>
+#include <type_traits>
 #ifdef BB_WINDOWS
 #include <Windows.h>
 #endif
@@ -42,15 +43,20 @@ void printString(const char *_str);
 template <typename... Args> void printLine(Args... args);
 template <typename... Args> void log(LogLevel level, Args... args);
 
-template <typename T> uint32_t size_bytes32(const T &_container);
+template <typename T> uint32_t sizeBytes32(const T &_container);
 
 using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
 
 Time getCurrentTime();
 float getElapsedTimeInSeconds(Time _start, Time _end);
 
+bool endsWith(const std::string &_str, char _suffix);
 bool endsWith(const std::string &_str, const char *_suffix);
 bool endsWith(const std::string &_str, const std::string &_suffix);
+
+bool contains(const std::string &_str, char _subchar);
+bool contains(const std::string &_str, const char *_substr);
+bool contains(const std::string &_str, const std::string &_substr);
 
 } // namespace bb
 

@@ -23,16 +23,32 @@ float getElapsedTimeInSeconds(Time _start, Time _end) {
   return result;
 }
 
+bool endsWith(const std::string &_str, char _suffix) {
+  return (_str.length() >= 1) && (_str[_str.length() - 1] == _suffix);
+}
+
 bool endsWith(const std::string &_str, const char *_suffix) {
   size_t suffixLen = strlen(_suffix);
-  return (_str.size() >= suffixLen) &&
+  return (_str.length() >= suffixLen) &&
          (_str.compare(_str.length() - suffixLen, suffixLen, _suffix) == 0);
 }
 
 bool endsWith(const std::string &_str, const std::string &_suffix) {
-  return (_str.size() >= _suffix.length()) &&
+  return (_str.length() >= _suffix.length()) &&
          (_str.compare(_str.length() - _suffix.length(), _suffix.length(),
                        _suffix) == 0);
+}
+
+bool contains(const std::string &_str, char _subchar) {
+  return _str.find(_subchar) != std::string::npos;
+}
+
+bool contains(const std::string &_str, const char *_substr) {
+  return _str.find(_substr) != std::string::npos;
+}
+
+bool contains(const std::string &_str, const std::string &_substr) {
+  return _str.find(_substr) != std::string::npos;
 }
 
 } // namespace bb
