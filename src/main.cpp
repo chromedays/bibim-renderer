@@ -268,7 +268,7 @@ void initReloadableResources(
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
-  std::array<VkVertexInputAttributeDescription, 16> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 17> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -559,6 +559,7 @@ int main(int _argc, char **_argv) {
       v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
       // std::swap(v.Normal.Y, v.Normal.Z);
       // v.Normal.Z *= -1.f;
+      v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
       shaderBallVertices.push_back(v);
     }
   }
