@@ -619,7 +619,8 @@ int main(int _argc, char **_argv) {
 
   std::vector<PBRMaterial> pbrMaterials;
   pbrMaterials.push_back(createPBRMaterialFromFiles(
-      renderer, transientCmdPool, createAbsolutePath("pbr/branches_twisted")));
+      renderer, transientCmdPool,
+      createAbsolutePath("pbr/hardwood_brown_planks")));
 
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
 
@@ -971,7 +972,7 @@ int main(int _argc, char **_argv) {
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
     static float angle = 0;
-    angle += 30.f * dt;
+    // angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }
