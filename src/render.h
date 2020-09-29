@@ -133,4 +133,10 @@ Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
 
+void generatePlaneMesh(std::vector<Vertex> &_vertices,
+                       std::vector<uint32_t> &_indices);
+
+void generateQuadMesh(std::vector<Vertex> &_vertices,
+                      std::vector<uint32_t> &_indices);
+
 } // namespace bb

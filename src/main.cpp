@@ -77,6 +77,99 @@ void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
   destroyImage(_renderer, _material.AlbedoMap);
 }
 
+#if 0
+
+struct MaterialDemoScene {
+  Buffer MeshBuffer;
+  Buffer InstanceBuffer;
+  VkDeviceSize IndexBufferOffset;
+  int NumIndices;
+
+  struct Mesh {
+    VkDeviceSize VertexOffset;
+    VkDeviceSize IndexOffset;
+    uint32_t NumIndices;
+  };
+
+  Mesh PlaneMesh;
+  Mesh MaterialBallMesh;
+  Mesh SphereMesh;
+
+  VkDeviceSize PlaneInstanceOffset;
+  VkDeviceSize MaterialBallInstanceOffset;
+
+  std::vector<InstanceBlock> PlaneInstanceData;
+  std::vector<InstanceBlock> MaterialBallInstanceData;
+  UniformBlock UniformData;
+
+  VkDescriptorSet UniformDS[numFrames];
+  Buffer UniformBuffer;
+};
+
+MaterialDemoScene createMaterialDemoScene(const Renderer &_renderer) {
+
+  // MaterialDemoScene scene;
+  // createBuffer(_renderer, VkDeviceSize _size, VkBufferUsageFlags _usage,
+  // VkMemoryPropertyFlags _properties)
+}
+void destroyMaterialDemoScene(const Renderer &_renderer,
+                              MaterialDemoScene &_scene) {
+  destroyBuffer(_renderer, _scene.UniformBuffer);
+  destroyBuffer(_renderer, _scene.InstanceBuffer);
+  destroyBuffer(_renderer, _scene.MeshBuffer);
+  _scene = {};
+}
+
+void cmdDrawMaterialDemoScene(VkCommandBuffer _cmdBuffer,
+                              const MaterialDemoScene *_scene) {
+
+  VkBuffer buffers[] = {_scene.VertexBuffer.Handle,
+                        _scene.InstanceBuffer.Handle};
+
+  {
+    VkDeviceSize offsets[std::size(buffers)] = {
+        _scene.PlaneMesh.VertexOffset,
+        _scene.PlaneInstanceOffset,
+    };
+
+    vkCmdBindVertexBuffers(_cmdBuffer, 0, (uint32_t)std::size(buffers), buffers,
+                           offsets);
+    vkCmdBindIndexBuffer(_cmdBuffer, _scene.IndexBuffer.Handle,
+                         _scene.PlaneMesh.IndexOffset, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(_cmdBuffer, _scene.PlaneMesh.NumIndices,
+                     (uint32_t)_scene.PlaneInstanceData.size(), 0, 0, 0);
+  }
+
+  const MaterialDemoScene::Mesh *materialBallMesh = &(_scene.MaterialBallMesh);
+  {
+
+    VkDeviceSize offsets[std::size(buffers)] = {
+        materialBallMesh->VertexOffset,
+        _scene.MaterialBallInstanceOffset,
+    };
+
+    vkCmdBindVertexBuffers(_cmdBuffer, 0, (uint32_t)std::size(buffers), buffers,
+                           offsets);
+    vkCmdBindIndexBuffer(_cmdBuffer, _scene.IndexBuffer.Handle,
+                         materialBallMesh->IndexOffset, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(_cmdBuffer, materialBallMesh->NumIndices,
+                     (uint32_t)_scene.MaterialBallInstanceData.size(), 0, 0, 0);
+  }
+
+  /*
+  VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
+                   VkFramebuffer _swapChainFramebuffer,
+                   VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
+                   const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
+                   const Buffer &_indexBuffer, VkPipelineLayout _pipelineLayout,
+                   VkDescriptorSet _descriptorSet,
+                   const std::vector<uint32_t> &_indices,
+                   uint32_t _numInstances
+                   */
+}
+
+#endif
+
 struct Frame {
   VkCommandPool CmdPool;
   VkCommandBuffer CmdBuffer;
@@ -684,58 +777,6 @@ int main(int _argc, char **_argv) {
                           &renderPass, &graphicsPipeline,
                           &swapChainFramebuffers);
 
-  // clang-format off
-  std::vector<Vertex> quadVertices = {
-      {{-0.5f, -0.5f, 0}, {0, 0}},
-      {{0.5f, -0.5f, 0},  {1, 0}},
-      {{0.5f, 0.5f, 0},  {1, 1}},
-      {{-0.5f, 0.5f, 0}, {0, 1}},
-
-      {{-0.5f, -0.5f, -0.5f}, {0, 0}},
-      {{0.5f, -0.5f, -0.5f},  {1, 0}},
-      {{0.5f, 0.5f, -0.5f}, {1, 1}},
-      {{-0.5f, 0.5f, -0.5f},  {0, 1}}};
-
-  std::vector<uint32_t> quadIndices = {
-    4, 5, 6, 6, 7, 4,
-    0, 1, 2, 2, 3, 0,
-  };
-  // clang-format on
-
-  Buffer quadVertexBuffer = createBuffer(renderer, sizeBytes32(quadVertices),
-                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  Buffer quadIndexBuffer = createBuffer(renderer, sizeBytes32(quadIndices),
-                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  {
-    Buffer vertexStagingBuffer =
-        createStagingBuffer(renderer, quadVertexBuffer);
-
-    Buffer indexStagingBuffer = createStagingBuffer(renderer, quadIndexBuffer);
-    void *data;
-    vkMapMemory(renderer.Device, vertexStagingBuffer.Memory, 0,
-                vertexStagingBuffer.Size, 0, &data);
-    memcpy(data, quadVertices.data(), vertexStagingBuffer.Size);
-    vkUnmapMemory(renderer.Device, vertexStagingBuffer.Memory);
-    vkMapMemory(renderer.Device, indexStagingBuffer.Memory, 0,
-                indexStagingBuffer.Size, 0, &data);
-    memcpy(data, quadIndices.data(), indexStagingBuffer.Size);
-    vkUnmapMemory(renderer.Device, indexStagingBuffer.Memory);
-
-    copyBuffer(renderer, transientCmdPool, quadVertexBuffer,
-               vertexStagingBuffer, vertexStagingBuffer.Size);
-    copyBuffer(renderer, transientCmdPool, quadIndexBuffer, indexStagingBuffer,
-               indexStagingBuffer.Size);
-
-    destroyBuffer(renderer, vertexStagingBuffer);
-    destroyBuffer(renderer, indexStagingBuffer);
-  }
-
   Buffer shaderBallVertexBuffer =
       createBuffer(renderer, sizeBytes32(shaderBallVertices),
                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -988,7 +1029,7 @@ int main(int _argc, char **_argv) {
     light->Color = {23.47f, 21.31f, 20.79f};
     light->Intensity = 0.1f;
     ++light;
-    light->Pos = {0, 2, 0};
+    light->Pos = {-3, 10, 0};
     light->Type = LightType::Point;
     light->Color = {1, 0, 0};
     light->Intensity = 200;
@@ -1033,8 +1074,9 @@ int main(int _argc, char **_argv) {
 
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
-                                 Mat4::rotateY(angle) *
-                                 Mat4::scale({0.01f, 0.01f, 0.01f});
+                                 Mat4::rotateY(-90) * Mat4::rotateX(-90) /*  *
+                                 Mat4::scale({0.01f, 0.01f, 0.01f}) */
+          ;
       instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
     }
 
@@ -1109,8 +1151,6 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
-  destroyBuffer(renderer, quadIndexBuffer);
-  destroyBuffer(renderer, quadVertexBuffer);
 
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);

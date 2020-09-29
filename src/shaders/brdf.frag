@@ -45,7 +45,7 @@ void main() {
     float metallic = texture(sampler2D(uMetallicMap[vMaterialIndex], uSamplers[1]), vUV).r;
     float roughness = texture(sampler2D(uRoughnessMap[vMaterialIndex], uSamplers[1]), vUV).r;
     float ao = texture(sampler2D(uAOMap[vMaterialIndex], uSamplers[1]), vUV).r;
-    vec3 normal = vTBN * (texture(sampler2D(uNormalMap[vMaterialIndex], uSamplers[0]), vUV).xyz * 2 - 1);
+    vec3 normal = vTBN * (texture(sampler2D(uNormalMap[vMaterialIndex], uSamplers[1]), vUV).xyz * 2 - 1);
     //normal = vTBN * vec3(0, 0, 1);
     //normal = vTBN[2];
 
