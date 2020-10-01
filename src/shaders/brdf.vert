@@ -34,7 +34,8 @@ layout (location = 16) in int aMaterialIndex;
 
 layout (location = 0) out vec2 vUV;
 layout (location = 1) out vec3 vPosWorld;
-layout (location = 2) out flat mat3 vTBN;
+// (Tangent/Bitangent/Normal) matrix. Used to transform normal from model space to tangent space
+layout (location = 2) out flat mat3 vTBN; 
 layout (location = 5) out flat vec3 vAlbedo;
 layout (location = 6) out flat vec3 vMRA; // Metallic, Roughness, AO
 layout (location = 7) out flat int vMaterialIndex;
