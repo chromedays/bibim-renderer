@@ -512,8 +512,8 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 16> attributeDescs = {};
+std::array<VkVertexInputAttributeDescription, 17> Vertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 17> attributeDescs = {};
 
   int lastAttributeIndex = 0;
 
@@ -578,6 +578,7 @@ std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
   pushVecAttribute(0, 3, offsetof(Vertex, Pos));
   pushVecAttribute(0, 2, offsetof(Vertex, UV));
   pushVecAttribute(0, 3, offsetof(Vertex, Normal));
+  pushVecAttribute(0, 3, offsetof(Vertex, Tangent));
 
   auto pushMat4Attribute = [&](uint32_t _binding, uint32_t _offset) {
     for (int i = 0; i < 4; ++i) {

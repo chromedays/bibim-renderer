@@ -38,7 +38,7 @@ constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
 struct PBRMaterial {
-  static constexpr int ImageCount = 6;
+  static constexpr int NumImages = 6;
 
   Image AlbedoMap;
   Image MetallicMap;
@@ -130,7 +130,7 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorBufferInfo.range = sizeof(UniformBlock);
 
   std::vector<VkDescriptorImageInfo>
-      descriptorImageInfos[PBRMaterial::ImageCount];
+      descriptorImageInfos[PBRMaterial::NumImages];
   for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
        descriptorImageInfos) {
     descriptorImageInfo.reserve(_pbrMaterials.size());
@@ -154,7 +154,7 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
     descriptorImageInfos[5].push_back(materialDesc);
   }
 
-  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::ImageCount] = {};
+  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::NumImages] = {};
   descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   descriptorWrites[0].dstSet = result.DescriptorSet;
   descriptorWrites[0].dstBinding = 0;
@@ -162,7 +162,7 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   descriptorWrites[0].descriptorCount = 1;
   descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-  for (int i = 0; i < PBRMaterial::ImageCount; ++i) {
+  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
     VkWriteDescriptorSet &write = descriptorWrites[i + 1];
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = result.DescriptorSet;
@@ -268,7 +268,7 @@ void initReloadableResources(
 
   std::array<VkVertexInputBindingDescription, 2> bindingDescs =
       Vertex::getBindingDescs();
-  std::array<VkVertexInputAttributeDescription, 16> attributeDescs =
+  std::array<VkVertexInputAttributeDescription, 17> attributeDescs =
       Vertex::getAttributeDescs();
   VkPipelineVertexInputStateCreateInfo vertexInputState = {};
   vertexInputState.sType =
@@ -559,6 +559,7 @@ int main(int _argc, char **_argv) {
       v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
       // std::swap(v.Normal.Y, v.Normal.Z);
       // v.Normal.Z *= -1.f;
+      v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
       shaderBallVertices.push_back(v);
     }
   }
@@ -618,7 +619,8 @@ int main(int _argc, char **_argv) {
 
   std::vector<PBRMaterial> pbrMaterials;
   pbrMaterials.push_back(createPBRMaterialFromFiles(
-      renderer, transientCmdPool, createAbsolutePath("pbr/branches_twisted")));
+      renderer, transientCmdPool,
+      createAbsolutePath("pbr/hardwood_brown_planks")));
 
   VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
 
@@ -640,7 +642,7 @@ int main(int _argc, char **_argv) {
   descriptorSetLayoutBindings[1].pImmutableSamplers = samplers;
 
   // PBR Textures (Albedo, Metallic, Roughness, AO, Normal, Height)
-  for (int i = 0; i < PBRMaterial::ImageCount; ++i) {
+  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
     VkDescriptorSetLayoutBinding &binding = descriptorSetLayoutBindings[i + 2];
     binding.binding = i + 2;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -764,7 +766,7 @@ int main(int _argc, char **_argv) {
   descriptorPoolSizes[0].descriptorCount = numFrames;
   descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
   descriptorPoolSizes[1].descriptorCount =
-      numFrames * PBRMaterial::ImageCount * pbrMaterials.size();
+      numFrames * PBRMaterial::NumImages * pbrMaterials.size();
   descriptorPoolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLER;
   descriptorPoolSizes[2].descriptorCount = numFrames * 2;
   VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
@@ -970,7 +972,7 @@ int main(int _argc, char **_argv) {
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
     static float angle = 0;
-    angle += 30.f * dt;
+    // angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }

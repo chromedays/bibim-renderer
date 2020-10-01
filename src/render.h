@@ -90,9 +90,10 @@ struct Vertex {
   Float3 Pos;
   Float2 UV;
   Float3 Normal = {0, 0, -1};
+  Float3 Tangent = {0, -1, 0};
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 16> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 17> getAttributeDescs();
 };
 
 struct Buffer {

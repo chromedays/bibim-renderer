@@ -33,10 +33,10 @@ layout (binding = 7) uniform texture2D uHeightMap[NUM_MATERIALS];
 
 layout (location = 0) in vec2 vUV;
 layout (location = 1) in vec3 vPosWorld;
-layout (location = 2) in vec3 vNormalWorld;
-layout (location = 3) in flat vec3 vAlbedo;
-layout (location = 4) in flat vec3 vMRA; // Metallic, Roughness, AO
-layout (location = 5) in flat int vMaterialIndex;
+layout (location = 2) in mat3 vTBN;
+layout (location = 5) in flat vec3 vAlbedo;
+layout (location = 6) in flat vec3 vMRA; // Metallic, Roughness, AO
+layout (location = 7) in flat int vMaterialIndex;
 
 layout (location = 0) out vec4 outColor;
 
@@ -45,6 +45,9 @@ void main() {
     float metallic = texture(sampler2D(uMetallicMap[vMaterialIndex], uSamplers[1]), vUV).r;
     float roughness = texture(sampler2D(uRoughnessMap[vMaterialIndex], uSamplers[1]), vUV).r;
     float ao = texture(sampler2D(uAOMap[vMaterialIndex], uSamplers[1]), vUV).r;
+    vec3 normal = vTBN * (texture(sampler2D(uNormalMap[vMaterialIndex], uSamplers[0]), vUV).xyz * 2 - 1);
+    //normal = vTBN * vec3(0, 0, 1);
+    //normal = vTBN[2];
 
     vec3 Lo = vec3(0);
 
@@ -71,14 +74,14 @@ void main() {
         }
             
         vec3 V = normalize(ub.viewPos - vPosWorld);
-        vec3 N = normalize(vNormalWorld);
+        vec3 N = normalize(normal);
         vec3 H = normalize(L + V);
 
         float D = distributionGGX(N, H, roughness);
 
         vec3 F0 = vec3(0.04);
         F0 = mix(F0, albedo, metallic);
-        vec3 F = fresnelSchlick(N, V, F0);
+        vec3 F = fresnelSchlick(H, V, F0);
         float G = geometrySmith(N, V, L, roughness);
 
         vec3 radiance = att * light.color * light.intensity;
