@@ -89,11 +89,27 @@ struct InstanceBlock {
 struct Vertex {
   Float3 Pos;
   Float2 UV;
-  Float3 Normal = {0, 0, -1};
-  Float3 Tangent = {0, -1, 0};
+  Float3 Normal;
+  Float3 Tangent;
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
   static std::array<VkVertexInputAttributeDescription, 17> getAttributeDescs();
+};
+
+struct GizmoVertex {
+  Float3 Pos;
+  Float3 Color;
+  Float3 Normal;
+
+  static std::array<VkVertexInputBindingDescription, 1> getBindingDescs();
+  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs();
+};
+
+struct GizmoUniformBlock {
+  Mat4 ModelViewProjMat;
+  alignas(16) Float3 ViewPos;
+  alignas(16) Float3 LightColor;
+  alignas(16) Float3 LightDir;
 };
 
 struct Buffer {

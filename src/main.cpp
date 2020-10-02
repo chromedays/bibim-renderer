@@ -348,9 +348,12 @@ void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
     const SwapChain *_oldSwapChain, const Shader &_vertShader,
     const Shader &_fragShader, VkPipelineLayout _pipelineLayout,
-    SwapChain *_outSwapChain, VkRenderPass *_outRenderPass,
-    VkPipeline *_outGraphicsPipeline,
-    std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
+    const Shader &_gizmoVertShader, const Shader &_gizmoFragShader,
+    VkPipelineLayout _gizmoPipelineLayout, SwapChain *_outSwapChain,
+    VkRenderPass *_outRenderPass, VkPipeline *_outGraphicsPipeline,
+    std::vector<VkFramebuffer> *_outSwapChainFramebuffers,
+    VkRenderPass *_outGizmoRenderPass, VkPipeline *_outGizmoPipeline,
+    std::vector<VkFramebuffer> *_outGizmoFramebuffers) {
 
   SwapChain swapChain =
       createSwapChain(_renderer, _width, _height, _oldSwapChain);
@@ -562,12 +565,49 @@ void initReloadableResources(
   *_outSwapChainFramebuffers = std::move(swapChainFramebuffers);
   *_outRenderPass = renderPass;
   *_outGraphicsPipeline = graphicsPipeline;
+
+  {
+    BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,
+                                    nullptr, _outGizmoRenderPass));
+
+    shaderStages[0] = _gizmoVertShader.getStageInfo();
+    shaderStages[1] = _gizmoFragShader.getStageInfo();
+    auto vertexBindings = GizmoVertex::getBindingDescs();
+    auto vertexAttributes = GizmoVertex::getAttributeDescs();
+    vertexInputState.vertexBindingDescriptionCount = vertexBindings.size();
+    vertexInputState.pVertexBindingDescriptions = vertexBindings.data();
+    vertexInputState.vertexAttributeDescriptionCount = vertexAttributes.size();
+    vertexInputState.pVertexAttributeDescriptions = vertexAttributes.data();
+    pipelineCreateInfo.layout = _gizmoPipelineLayout;
+
+    BB_VK_ASSERT(vkCreateGraphicsPipelines(_renderer.Device, VK_NULL_HANDLE, 1,
+                                           &pipelineCreateInfo, nullptr,
+                                           _outGizmoPipeline));
+
+    for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
+      VkFramebufferCreateInfo fbCreateInfo = {};
+      fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+      fbCreateInfo.renderPass = *_outGizmoRenderPass;
+      VkImageView attachments[] = {swapChain.ColorImageViews[i],
+                                   swapChain.DepthImageView};
+      fbCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
+      fbCreateInfo.pAttachments = attachments;
+      fbCreateInfo.width = swapChain.Extent.width;
+      fbCreateInfo.height = swapChain.Extent.height;
+      fbCreateInfo.layers = 1;
+
+      BB_VK_ASSERT(vkCreateFramebuffer(_renderer.Device, &fbCreateInfo, nullptr,
+                                       &((*_outGizmoFramebuffers)[i])));
+    }
+  }
 }
 
 void cleanupReloadableResources(
     const Renderer &_renderer, SwapChain &_swapChain, VkRenderPass &_renderPass,
     VkPipeline &_graphicsPipeline,
-    std::vector<VkFramebuffer> &_swapChainFramebuffers) {
+    std::vector<VkFramebuffer> &_swapChainFramebuffers,
+    VkRenderPass &_gizmoRenderPass, VkPipeline &_gizmoPipeline,
+    std::vector<VkFramebuffer> &_gizmoFramebuffers) {
   for (VkFramebuffer fb : _swapChainFramebuffers) {
     vkDestroyFramebuffer(_renderer.Device, fb, nullptr);
   }
@@ -576,6 +616,16 @@ void cleanupReloadableResources(
   _graphicsPipeline = VK_NULL_HANDLE;
   vkDestroyRenderPass(_renderer.Device, _renderPass, nullptr);
   _renderPass = VK_NULL_HANDLE;
+
+  for (VkFramebuffer fb : _gizmoFramebuffers) {
+    vkDestroyFramebuffer(_renderer.Device, fb, nullptr);
+  }
+  _gizmoFramebuffers.clear();
+  vkDestroyPipeline(_renderer.Device, _gizmoPipeline, nullptr);
+  _gizmoPipeline = VK_NULL_HANDLE;
+  vkDestroyRenderPass(_renderer.Device, _gizmoRenderPass, nullptr);
+  _gizmoRenderPass = VK_NULL_HANDLE;
+
   destroySwapChain(_renderer, _swapChain);
 }
 
@@ -583,9 +633,15 @@ void cleanupReloadableResources(
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
                     const Shader &_vertShader, const Shader &_fragShader,
-                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
-                    VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
-                    std::vector<VkFramebuffer> &_swapChainFramebuffers) {
+                    VkPipelineLayout _pipelineLayout,
+                    const Shader &_gizmoVertShader,
+                    const Shader &_gizmoFragShader,
+                    VkPipelineLayout _gizmoPipelineLayout,
+                    SwapChain &_swapChain, VkRenderPass &_renderPass,
+                    VkPipeline &_graphicsPipeline,
+                    std::vector<VkFramebuffer> &_swapChainFramebuffers,
+                    VkRenderPass &_gizmoRenderPass, VkPipeline &_gizmoPipeline,
+                    std::vector<VkFramebuffer> &_gizmoFramebuffers) {
   int width = 0, height = 0;
 
   if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
@@ -597,12 +653,15 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
       _renderer.Device); // Ensure that device finished using swap chain.
 
   cleanupReloadableResources(_renderer, _swapChain, _renderPass,
-                             _graphicsPipeline, _swapChainFramebuffers);
+                             _graphicsPipeline, _swapChainFramebuffers,
+                             _gizmoRenderPass, _gizmoPipeline,
+                             _gizmoFramebuffers);
 
-  initReloadableResources(_renderer, width, height, nullptr, _vertShader,
-                          _fragShader, _pipelineLayout, &_swapChain,
-                          &_renderPass, &_graphicsPipeline,
-                          &_swapChainFramebuffers);
+  initReloadableResources(
+      _renderer, width, height, nullptr, _vertShader, _fragShader,
+      _pipelineLayout, _gizmoVertShader, _gizmoFragShader, _gizmoPipelineLayout,
+      &_swapChain, &_renderPass, &_graphicsPipeline, &_swapChainFramebuffers,
+      &_gizmoRenderPass, &_gizmoPipeline, &_gizmoFramebuffers);
 }
 
 } // namespace bb
@@ -627,6 +686,76 @@ int main(int _argc, char **_argv) {
   SDL_GetWindowWMInfo(window, &sysinfo);
 
   initResourceRoot();
+
+  // Load gizmo model
+
+  std::vector<GizmoVertex> gizmoVertices;
+  std::vector<uint32_t> gizmoIndices;
+  {
+    Assimp::Importer importer;
+    const aiScene *gizmoScene = importer.ReadFile(
+        createAbsolutePath("gizmo.obj"), aiProcess_Triangulate);
+
+    {
+      size_t numVertices = 0;
+      size_t numFaces = 0;
+
+      for (unsigned int meshIndex = 0; meshIndex < gizmoScene->mNumMeshes;
+           ++meshIndex) {
+        const aiMesh *mesh = gizmoScene->mMeshes[meshIndex];
+        numVertices += mesh->mNumVertices;
+        numFaces += mesh->mNumFaces;
+      }
+
+      gizmoVertices.reserve(numVertices);
+      gizmoIndices.reserve(numFaces * 3);
+    }
+
+    for (unsigned int meshIndex = 0; meshIndex < gizmoScene->mNumMeshes;
+         ++meshIndex) {
+      const aiMesh *mesh = gizmoScene->mMeshes[meshIndex];
+
+      aiMaterial *material = gizmoScene->mMaterials[mesh->mMaterialIndex];
+
+      aiMaterialProperty *diffuseProperty = nullptr;
+      for (unsigned int propertyIndex = 0;
+           propertyIndex < material->mNumProperties; ++propertyIndex) {
+        aiMaterialProperty *property = material->mProperties[propertyIndex];
+        if ((property->mType == aiPTI_Float) &&
+            (property->mDataLength >= (3 * sizeof(float))) &&
+            contains(property->mKey.data, "diffuse")) {
+          diffuseProperty = property;
+          break;
+        }
+      }
+      BB_ASSERT(diffuseProperty);
+
+      float *propertyFloats = (float *)diffuseProperty->mData;
+      Float3 color = {propertyFloats[0], propertyFloats[1], propertyFloats[2]};
+
+      uint32_t baseIndex = (uint32_t)gizmoVertices.size();
+
+      for (unsigned int vertexIndex = 0; vertexIndex < mesh->mNumVertices;
+           ++vertexIndex) {
+        GizmoVertex v = {};
+        v.Pos = aiVector3DToFloat3(mesh->mVertices[vertexIndex]);
+        v.Color = color;
+        v.Normal = aiVector3DToFloat3(mesh->mNormals[vertexIndex]);
+
+        gizmoVertices.push_back(v);
+      }
+
+      for (unsigned int faceIndex = 0; faceIndex < mesh->mNumFaces;
+           ++faceIndex) {
+        const aiFace &face = mesh->mFaces[faceIndex];
+        BB_ASSERT(face.mNumIndices == 3);
+
+        gizmoIndices.push_back(baseIndex + face.mIndices[0]);
+        gizmoIndices.push_back(baseIndex + face.mIndices[1]);
+        gizmoIndices.push_back(baseIndex + face.mIndices[2]);
+      }
+    }
+  }
 
   Assimp::Importer importer;
   const aiScene *shaderBallScene =
@@ -669,6 +798,13 @@ int main(int _argc, char **_argv) {
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.vert.spv")));
   Shader brdfFragShader = createShaderFromFile(
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.frag.spv")));
+
+  Shader gizmoVertShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "gizmo.vert.spv")));
+  Shader gizmoFragShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "gizmo.frag.spv")));
 
   VkSampler nearestSampler;
   VkSampler bilinearSampler;
@@ -768,14 +904,52 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreatePipelineLayout(
       renderer.Device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 
+  // DescriptorSetLayout and PipelineLayout for gizmo pipeline
+  VkDescriptorSetLayout gizmoDescriptorSetLayout;
+  VkPipelineLayout gizmoPipelineLayout;
+  {
+    descriptorSetLayoutBindings[0].binding = 0;
+    descriptorSetLayoutBindings[0].descriptorType =
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorSetLayoutBindings[0].descriptorCount = 1;
+    descriptorSetLayoutBindings[0].stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    descriptorSetLayoutCreateInfo = {};
+    descriptorSetLayoutCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorSetLayoutCreateInfo.bindingCount = 1;
+    descriptorSetLayoutCreateInfo.pBindings = descriptorSetLayoutBindings;
+
+    BB_VK_ASSERT(vkCreateDescriptorSetLayout(
+        renderer.Device, &descriptorSetLayoutCreateInfo, nullptr,
+        &gizmoDescriptorSetLayout));
+
+    pipelineLayoutCreateInfo = {};
+    pipelineLayoutCreateInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutCreateInfo.setLayoutCount = 1;
+    pipelineLayoutCreateInfo.pSetLayouts = &gizmoDescriptorSetLayout;
+
+    vkCreatePipelineLayout(renderer.Device, &pipelineLayoutCreateInfo, nullptr,
+                           &gizmoPipelineLayout);
+  }
+
   SwapChain swapChain;
+
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
-  initReloadableResources(renderer, width, height, nullptr, brdfVertShader,
-                          brdfFragShader, pipelineLayout, &swapChain,
-                          &renderPass, &graphicsPipeline,
-                          &swapChainFramebuffers);
+
+  VkRenderPass gizmoRenderPass;
+  VkPipeline gizmoPipeline;
+  std::vector<VkFramebuffer> gizmoFramebuffers;
+
+  initReloadableResources(
+      renderer, width, height, nullptr, brdfVertShader, brdfFragShader,
+      pipelineLayout, gizmoVertShader, gizmoFragShader, gizmoPipelineLayout,
+      &swapChain, &renderPass, &graphicsPipeline, &swapChainFramebuffers,
+      &gizmoRenderPass, &gizmoPipeline, &gizmoFramebuffers);
 
   Buffer shaderBallVertexBuffer =
       createBuffer(renderer, sizeBytes32(shaderBallVertices),
@@ -998,8 +1172,10 @@ int main(int _argc, char **_argv) {
           &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
-                     swapChainFramebuffers);
+                     pipelineLayout, gizmoVertShader, gizmoFragShader,
+                     gizmoPipelineLayout, swapChain, renderPass,
+                     graphicsPipeline, swapChainFramebuffers, gizmoRenderPass,
+                     gizmoPipeline, gizmoFramebuffers);
       continue;
     }
 
@@ -1130,8 +1306,10 @@ int main(int _argc, char **_argv) {
           &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
-                     swapChainFramebuffers);
+                     pipelineLayout, gizmoVertShader, gizmoFragShader,
+                     gizmoPipelineLayout, swapChain, renderPass,
+                     graphicsPipeline, swapChainFramebuffers, gizmoRenderPass,
+                     gizmoPipeline, gizmoFramebuffers);
     }
   }
 
@@ -1153,7 +1331,8 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, instanceBuffer);
 
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
-                             swapChainFramebuffers);
+                             swapChainFramebuffers, gizmoRenderPass,
+                             gizmoPipeline, gizmoFramebuffers);
 
   vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
   vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);

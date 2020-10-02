@@ -37,8 +37,7 @@ namespace bb {
 
 enum class LogLevel { Info, Warning, Error };
 
-void printString(const std::string &_str);
-void printString(const char *_str);
+void printString(std::string_view _str);
 template <typename... Args> void printLine(Args... args);
 template <typename... Args> void log(LogLevel level, Args... args);
 
@@ -49,13 +48,11 @@ using Time = std::chrono::time_point<std::chrono::high_resolution_clock>;
 Time getCurrentTime();
 float getElapsedTimeInSeconds(Time _start, Time _end);
 
-bool endsWith(const std::string &_str, char _suffix);
-bool endsWith(const std::string &_str, const char *_suffix);
-bool endsWith(const std::string &_str, const std::string &_suffix);
+bool endsWith(std::string_view _str, char _suffix);
+bool endsWith(std::string_view _str, std::string_view _suffix);
 
-bool contains(const std::string &_str, char _subchar);
-bool contains(const std::string &_str, const char *_substr);
-bool contains(const std::string &_str, const std::string &_substr);
+bool contains(std::string_view _str, char _subchar);
+bool contains(std::string_view _str, std::string_view _substr);
 
 } // namespace bb
 
