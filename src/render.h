@@ -94,6 +94,7 @@ struct Vertex {
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
   static std::array<VkVertexInputAttributeDescription, 17> getAttributeDescs();
+  static VkPipelineVertexInputStateCreateInfo getVertexInputState();
 };
 
 struct Buffer {
@@ -134,9 +135,15 @@ Shader createShaderFromFile(const Renderer &_renderer,
 void destroyShader(const Renderer &_renderer, Shader &_shader);
 
 struct PipelineParams {
-  Shader **Shaders;
+  const Shader **Shaders;
   int NumShaders;
-  VkPipelineVertexInputStateCreateInfo VertexInput;
+
+  struct {
+    VkVertexInputBindingDescription *Bindings;
+    int NumBindings;
+    VkVertexInputAttributeDescription *Attributes;
+    int NumAttributes;
+  } VertexInput;
 
   struct {
     VkPrimitiveTopology Topology;

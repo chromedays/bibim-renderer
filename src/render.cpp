@@ -904,7 +904,16 @@ VkPipeline createPipeline(const Renderer &_renderer,
     shaderStages.push_back(_params.Shaders[i]->getStageInfo());
   }
 
-  VkPipelineVertexInputStateCreateInfo vertexInputState = _params.VertexInput;
+  VkPipelineVertexInputStateCreateInfo vertexInputState = {};
+  vertexInputState.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+  vertexInputState.vertexBindingDescriptionCount =
+      (uint32_t)_params.VertexInput.NumBindings;
+  vertexInputState.pVertexBindingDescriptions = _params.VertexInput.Bindings;
+  vertexInputState.vertexAttributeDescriptionCount =
+      (uint32_t)_params.VertexInput.NumAttributes;
+  vertexInputState.pVertexAttributeDescriptions =
+      _params.VertexInput.Attributes;
 
   VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = {};
   inputAssemblyState.sType =
