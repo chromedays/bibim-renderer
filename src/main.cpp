@@ -971,8 +971,8 @@ int main(int _argc, char **_argv) {
 
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
-    static float angle = 0;
-    // angle += 30.f * dt;
+    static float angle = -90;
+    angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }
@@ -990,13 +990,13 @@ int main(int _argc, char **_argv) {
     ++light;
     light->Pos = {0, 2, 0};
     light->Type = LightType::Point;
-    light->Color = {1, 0, 0};
+    light->Color = {1, 0.7f, 0.7f};
     light->Intensity = 200;
     ++light;
     light->Pos = {4, 2, 0};
     light->Dir = {0, -1, 0};
     light->Type = LightType::Spot;
-    light->Color = {0, 1, 0};
+    light->Color = {0.7f, 1, 0.7f};
     light->Intensity = 200;
     light->InnerCutOff = degToRad(30);
     light->OuterCutOff = degToRad(25);
@@ -1033,7 +1033,7 @@ int main(int _argc, char **_argv) {
 
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
-                                 Mat4::rotateY(angle) *
+                                 Mat4::rotateY(angle) * Mat4::rotateX(-90) *
                                  Mat4::scale({0.01f, 0.01f, 0.01f});
       instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
     }
