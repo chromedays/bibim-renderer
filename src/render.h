@@ -133,4 +133,37 @@ Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
 
+struct PipelineParams {
+  Shader **Shaders;
+  int NumShaders;
+  VkPipelineVertexInputStateCreateInfo VertexInput;
+
+  struct {
+    VkPrimitiveTopology Topology;
+  } InputAssembly;
+
+  struct {
+    Float2 Offset;
+    Float2 Extent;
+    Int2 ScissorOffset;
+    Int2 ScissorExtent;
+  } Viewport;
+
+  struct {
+    VkPolygonMode PolygonMode;
+    VkCullModeFlags CullMode;
+  } Rasterizer;
+
+  struct {
+    bool DepthTestEnable;
+    bool DepthWriteEnable;
+  } DepthStencil;
+
+  VkPipelineLayout PipelineLayout;
+  VkRenderPass RenderPass;
+};
+
+VkPipeline createPipeline(const Renderer &_renderer,
+                          const PipelineParams &_params);
+
 } // namespace bb

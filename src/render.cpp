@@ -896,4 +896,128 @@ void destroyShader(const Renderer &_renderer, Shader &_shader) {
   _shader = {};
 }
 
+VkPipeline createPipeline(const Renderer &_renderer,
+                          const PipelineParams &_params) {
+  std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
+  shaderStages.reserve(_params.NumShaders);
+  for (int i = 0; i < _params.NumShaders; ++i) {
+    shaderStages.push_back(_params.Shaders[i]->getStageInfo());
+  }
+
+  VkPipelineVertexInputStateCreateInfo vertexInputState = _params.VertexInput;
+
+  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = {};
+  inputAssemblyState.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  inputAssemblyState.topology = _params.InputAssembly.Topology;
+  inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+
+  VkViewport viewport = {};
+  viewport.x = _params.Viewport.Offset.X;
+  viewport.y = _params.Viewport.Offset.Y;
+  viewport.width = _params.Viewport.Extent.X;
+  viewport.height = _params.Viewport.Extent.Y;
+  viewport.minDepth = 0.f;
+  viewport.maxDepth = 1.f;
+
+  VkRect2D scissor = {};
+  scissor.offset.x = _params.Viewport.ScissorOffset.X;
+  scissor.offset.y = _params.Viewport.ScissorOffset.Y;
+  scissor.extent.width = _params.Viewport.ScissorExtent.X;
+  scissor.extent.height = _params.Viewport.ScissorExtent.Y;
+
+  VkPipelineViewportStateCreateInfo viewportState = {};
+  viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  viewportState.viewportCount = 1;
+  viewportState.pViewports = &viewport;
+  viewportState.scissorCount = 1;
+  viewportState.pScissors = &scissor;
+
+  VkPipelineRasterizationStateCreateInfo rasterizationState = {};
+  rasterizationState.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+  rasterizationState.depthClampEnable = VK_FALSE;
+  rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+  rasterizationState.polygonMode = _params.Rasterizer.PolygonMode;
+  rasterizationState.lineWidth = 1.f;
+  rasterizationState.cullMode = _params.Rasterizer.CullMode;
+  rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
+  rasterizationState.depthBiasEnable = VK_FALSE;
+  rasterizationState.depthBiasConstantFactor = 0.f;
+  rasterizationState.depthBiasClamp = 0.f;
+  rasterizationState.depthBiasSlopeFactor = 0.f;
+
+  VkPipelineMultisampleStateCreateInfo multisampleState = {};
+  multisampleState.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+  multisampleState.sampleShadingEnable = VK_FALSE;
+  multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  multisampleState.minSampleShading = 1.f;
+  multisampleState.pSampleMask = nullptr;
+  multisampleState.alphaToCoverageEnable = VK_FALSE;
+  multisampleState.alphaToOneEnable = VK_FALSE;
+
+  VkPipelineDepthStencilStateCreateInfo depthStencilState = {};
+  depthStencilState.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+  depthStencilState.depthTestEnable =
+      _params.DepthStencil.DepthTestEnable ? VK_TRUE : VK_FALSE;
+  depthStencilState.depthWriteEnable =
+      _params.DepthStencil.DepthWriteEnable ? VK_TRUE : VK_FALSE;
+  depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+  depthStencilState.depthBoundsTestEnable = VK_FALSE;
+  depthStencilState.minDepthBounds = 1.f;
+  depthStencilState.maxDepthBounds = 0.f;
+  depthStencilState.stencilTestEnable = VK_FALSE;
+
+  VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {};
+  colorBlendAttachmentState.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  colorBlendAttachmentState.blendEnable = VK_FALSE;
+  colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+  colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+  colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
+  colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
+
+  VkPipelineColorBlendStateCreateInfo colorBlendState = {};
+  colorBlendState.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+  colorBlendState.logicOpEnable = VK_FALSE;
+  colorBlendState.logicOp = VK_LOGIC_OP_COPY;
+  colorBlendState.attachmentCount = 1;
+  colorBlendState.pAttachments = &colorBlendAttachmentState;
+  colorBlendState.blendConstants[0] = 0.f;
+  colorBlendState.blendConstants[1] = 0.f;
+  colorBlendState.blendConstants[2] = 0.f;
+  colorBlendState.blendConstants[3] = 0.f;
+
+  VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
+  pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pipelineCreateInfo.stageCount = (uint32_t)shaderStages.size();
+  pipelineCreateInfo.pStages = shaderStages.data();
+  pipelineCreateInfo.pVertexInputState = &vertexInputState;
+  pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
+  pipelineCreateInfo.pViewportState = &viewportState;
+  pipelineCreateInfo.pRasterizationState = &rasterizationState;
+  pipelineCreateInfo.pMultisampleState = &multisampleState;
+  pipelineCreateInfo.pDepthStencilState = &depthStencilState;
+  pipelineCreateInfo.pColorBlendState = &colorBlendState;
+  pipelineCreateInfo.pDynamicState = nullptr;
+  pipelineCreateInfo.layout = _params.PipelineLayout;
+  pipelineCreateInfo.renderPass = _params.RenderPass;
+  pipelineCreateInfo.subpass = 0;
+  pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+  pipelineCreateInfo.basePipelineIndex = -1;
+
+  VkPipeline pipeline;
+  BB_VK_ASSERT(vkCreateGraphicsPipelines(_renderer.Device, VK_NULL_HANDLE, 1,
+                                         &pipelineCreateInfo, nullptr,
+                                         &pipeline));
+
+  return pipeline;
+}
+
 } // namespace bb
