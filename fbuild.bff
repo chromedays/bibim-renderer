@@ -105,8 +105,8 @@ Settings
 .VSConfigs = {}
 
 .Shaders = {
-    'test.vert',
-    'test.frag',
+    'gBuffer.vert',
+    'gBuffer.frag',
     'brdf.vert',
     'brdf.frag',
 }

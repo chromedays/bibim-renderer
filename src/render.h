@@ -45,8 +45,8 @@ struct SwapChain {
   std::vector<VkImage> ColorImages;
   std::vector<VkImageView> ColorImageViews;
   VkImage DepthImage;
-  VkDeviceMemory DepthImageMemory;
   VkImageView DepthImageView;
+  VkDeviceMemory DepthImageMemory;
 };
 
 SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
@@ -68,10 +68,14 @@ struct alignas(16) Light {
 
 #define MAX_NUM_LIGHTS 100
 
-struct UniformBlock {
+struct GbufferUniformBlock {
   Mat4 ViewMat;
   Mat4 ProjMat;
   alignas(16) Float3 ViewPos;
+};
+
+struct BrdfUniformBlock
+{
   int NumLights;
   Light lights[MAX_NUM_LIGHTS];
 };
