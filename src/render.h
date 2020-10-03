@@ -173,4 +173,37 @@ struct PipelineParams {
 VkPipeline createPipeline(const Renderer &_renderer,
                           const PipelineParams &_params);
 
+struct PBRMaterial {
+  static constexpr int NumImages = 6;
+
+  Image AlbedoMap;
+  Image MetallicMap;
+  Image RoughnessMap;
+  Image AOMap;
+  Image NormalMap;
+  Image HeightMap;
+};
+
+PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
+                                       VkCommandPool _transientCmdPool,
+                                       const std::string &_rootPath);
+void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material);
+
+struct Frame {
+  VkCommandPool CmdPool;
+  VkCommandBuffer CmdBuffer;
+  VkDescriptorPool DescriptorPool;
+  VkDescriptorSet DescriptorSet;
+  Buffer UniformBuffer;
+  VkFence FrameAvailableFence;
+  VkSemaphore RenderFinishedSemaphore;
+  VkSemaphore ImagePresentedSemaphore;
+};
+
+Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
+                  VkDescriptorSetLayout _descriptorSetLayout,
+                  const std::vector<PBRMaterial> &_pbrMaterials);
+
+void destroyFrame(const Renderer &_renderer, Frame &_frame);
+
 } // namespace bb

@@ -1,4 +1,5 @@
 #include "render.h"
+#include "resource.h"
 #include "type_conversion.h"
 #include "external/SDL2/SDL_vulkan.h"
 #include "external/stb_image.h"
@@ -1027,6 +1028,148 @@ VkPipeline createPipeline(const Renderer &_renderer,
                                          &pipeline));
 
   return pipeline;
+}
+
+PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
+                                       VkCommandPool _transientCmdPool,
+                                       const std::string &_rootPath) {
+  // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
+  PBRMaterial result = {};
+  result.AlbedoMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         joinPaths(_rootPath, "albedo.png"));
+  result.MetallicMap = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "metallic.png"));
+  result.RoughnessMap = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "roughness.png"));
+  result.AOMap = createImageFromFile(_renderer, _transientCmdPool,
+                                     joinPaths(_rootPath, "ao.png"));
+  result.NormalMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         joinPaths(_rootPath, "normal.png"));
+  result.HeightMap = createImageFromFile(_renderer, _transientCmdPool,
+                                         joinPaths(_rootPath, "height.png"));
+  return result;
+}
+
+void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
+  destroyImage(_renderer, _material.HeightMap);
+  destroyImage(_renderer, _material.NormalMap);
+  destroyImage(_renderer, _material.AOMap);
+  destroyImage(_renderer, _material.RoughnessMap);
+  destroyImage(_renderer, _material.MetallicMap);
+  destroyImage(_renderer, _material.AlbedoMap);
+}
+
+Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
+                  VkDescriptorSetLayout _descriptorSetLayout,
+                  const std::vector<PBRMaterial> &_pbrMaterials) {
+  Frame result = {};
+
+  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdPoolCreateInfo.queueFamilyIndex = _renderer.QueueFamilyIndex;
+  cmdPoolCreateInfo.flags = 0;
+
+  BB_VK_ASSERT(vkCreateCommandPool(_renderer.Device, &cmdPoolCreateInfo,
+                                   nullptr, &result.CmdPool));
+
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandBufferCount = 1;
+  cmdBufferAllocInfo.commandPool = result.CmdPool;
+  BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
+                                        &result.CmdBuffer));
+
+  result.UniformBuffer = createBuffer(_renderer, sizeof(UniformBlock),
+                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  result.DescriptorPool = _descriptorPool;
+
+  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  descriptorSetAllocInfo.descriptorPool = _descriptorPool;
+  descriptorSetAllocInfo.descriptorSetCount = 1;
+  descriptorSetAllocInfo.pSetLayouts = &_descriptorSetLayout;
+  BB_VK_ASSERT(vkAllocateDescriptorSets(
+      _renderer.Device, &descriptorSetAllocInfo, &result.DescriptorSet));
+
+  VkDescriptorBufferInfo descriptorBufferInfo = {};
+  descriptorBufferInfo.buffer = result.UniformBuffer.Handle;
+  descriptorBufferInfo.offset = 0;
+  descriptorBufferInfo.range = sizeof(UniformBlock);
+
+  std::vector<VkDescriptorImageInfo>
+      descriptorImageInfos[PBRMaterial::NumImages];
+  for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
+       descriptorImageInfos) {
+    descriptorImageInfo.reserve(_pbrMaterials.size());
+  }
+
+  for (const PBRMaterial &material : _pbrMaterials) {
+    VkDescriptorImageInfo materialDesc = {};
+    materialDesc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    materialDesc.imageView = material.AlbedoMap.View;
+    descriptorImageInfos[0].push_back(materialDesc);
+    materialDesc.imageView = material.MetallicMap.View;
+    descriptorImageInfos[1].push_back(materialDesc);
+    materialDesc.imageView = material.RoughnessMap.View;
+    descriptorImageInfos[2].push_back(materialDesc);
+    materialDesc.imageView = material.AOMap.View;
+    descriptorImageInfos[3].push_back(materialDesc);
+    materialDesc.imageView = material.NormalMap.View;
+    descriptorImageInfos[4].push_back(materialDesc);
+    materialDesc.imageView = material.HeightMap.View;
+    descriptorImageInfos[5].push_back(materialDesc);
+  }
+
+  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::NumImages] = {};
+  descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrites[0].dstSet = result.DescriptorSet;
+  descriptorWrites[0].dstBinding = 0;
+  descriptorWrites[0].dstArrayElement = 0;
+  descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorWrites[0].descriptorCount = 1;
+  descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
+  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
+    VkWriteDescriptorSet &write = descriptorWrites[i + 1];
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = result.DescriptorSet;
+    write.dstBinding = i + 2;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    write.descriptorCount = (uint32_t)_pbrMaterials.size();
+    write.pImageInfo = descriptorImageInfos[i].data();
+  }
+  vkUpdateDescriptorSets(_renderer.Device,
+                         (uint32_t)std::size(descriptorWrites),
+                         descriptorWrites, 0, nullptr);
+
+  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
+                                 nullptr, &result.RenderFinishedSemaphore));
+  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
+                                 nullptr, &result.ImagePresentedSemaphore));
+
+  VkFenceCreateInfo fenceCreateInfo = {};
+  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+  BB_VK_ASSERT(vkCreateFence(_renderer.Device, &fenceCreateInfo, nullptr,
+                             &result.FrameAvailableFence));
+
+  return result;
+}
+
+void destroyFrame(const Renderer &_renderer, Frame &_frame) {
+  vkDestroySemaphore(_renderer.Device, _frame.ImagePresentedSemaphore, nullptr);
+  vkDestroySemaphore(_renderer.Device, _frame.RenderFinishedSemaphore, nullptr);
+  vkDestroyFence(_renderer.Device, _frame.FrameAvailableFence, nullptr);
+  destroyBuffer(_renderer, _frame.UniformBuffer);
+  vkDestroyCommandPool(_renderer.Device, _frame.CmdPool, nullptr);
+  _frame = {};
 }
 
 } // namespace bb
