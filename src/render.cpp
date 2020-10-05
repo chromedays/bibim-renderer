@@ -1185,7 +1185,7 @@ Frame createFrame(const Renderer &_renderer,
                   const StandardPipelineLayout &_standardPipelineLayout,
                   VkDescriptorPool _descriptorPool,
                   const std::vector<PBRMaterial> &_pbrMaterials) {
-  Frame result = {};
+  Frame frame = {};
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1193,15 +1193,15 @@ Frame createFrame(const Renderer &_renderer,
   cmdPoolCreateInfo.flags = 0;
 
   BB_VK_ASSERT(vkCreateCommandPool(_renderer.Device, &cmdPoolCreateInfo,
-                                   nullptr, &result.CmdPool));
+                                   nullptr, &frame.CmdPool));
 
   VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
   cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
   cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   cmdBufferAllocInfo.commandBufferCount = 1;
-  cmdBufferAllocInfo.commandPool = result.CmdPool;
+  cmdBufferAllocInfo.commandPool = frame.CmdPool;
   BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
-                                        &result.CmdBuffer));
+                                        &frame.CmdBuffer));
 
   // Allocate descriptor sets
   {
@@ -1216,7 +1216,7 @@ Frame createFrame(const Renderer &_renderer,
              .DescriptorSetLayouts[DescriptorFrequency::PerFrame]
              .Handle;
     BB_VK_ASSERT(vkAllocateDescriptorSets(
-        _renderer.Device, &descriptorSetAllocInfo, &result.FrameDescriptorSet));
+        _renderer.Device, &descriptorSetAllocInfo, &frame.FrameDescriptorSet));
 
     descriptorSetAllocInfo.descriptorSetCount = 1;
     descriptorSetAllocInfo.pSetLayouts =
@@ -1224,25 +1224,25 @@ Frame createFrame(const Renderer &_renderer,
              .DescriptorSetLayouts[DescriptorFrequency::PerView]
              .Handle;
     BB_VK_ASSERT(vkAllocateDescriptorSets(
-        _renderer.Device, &descriptorSetAllocInfo, &result.ViewDescriptorSet));
+        _renderer.Device, &descriptorSetAllocInfo, &frame.ViewDescriptorSet));
 
-    result.MaterialDescriptorSets.resize(_pbrMaterials.size());
+    frame.MaterialDescriptorSets.resize(_pbrMaterials.size());
     descriptorSetAllocInfo.descriptorSetCount = _pbrMaterials.size();
     descriptorSetAllocInfo.pSetLayouts =
         &_standardPipelineLayout
              .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
              .Handle;
-    BB_VK_ASSERT(
-        vkAllocateDescriptorSets(_renderer.Device, &descriptorSetAllocInfo,
-                                 result.MaterialDescriptorSets.data()));
+    BB_VK_ASSERT(vkAllocateDescriptorSets(_renderer.Device,
+                                          &descriptorSetAllocInfo,
+                                          frame.MaterialDescriptorSets.data()));
   }
 
-  result.FrameUniformBuffer = createBuffer(
+  frame.FrameUniformBuffer = createBuffer(
       _renderer, sizeof(FrameUniformBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  result.ViewUniformBuffer = createBuffer(
+  frame.ViewUniformBuffer = createBuffer(
       _renderer, sizeof(ViewUniformBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -1255,26 +1255,26 @@ Frame createFrame(const Renderer &_renderer,
     writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 
     // FrameData
-    writeInfo.dstSet = result.FrameDescriptorSet;
+    writeInfo.dstSet = frame.FrameDescriptorSet;
     writeInfo.dstBinding = 0;
     writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     writeInfo.descriptorCount = 1;
     VkDescriptorBufferInfo frameUniformBufferInfo = {};
-    frameUniformBufferInfo.buffer = result.FrameUniformBuffer.Handle;
+    frameUniformBufferInfo.buffer = frame.FrameUniformBuffer.Handle;
     frameUniformBufferInfo.offset = 0;
-    frameUniformBufferInfo.range = result.FrameUniformBuffer.Size;
+    frameUniformBufferInfo.range = frame.FrameUniformBuffer.Size;
     writeInfo.pBufferInfo = &frameUniformBufferInfo;
     writeInfos.push_back(writeInfo);
 
     // ViewData
-    writeInfo.dstSet = result.ViewDescriptorSet;
+    writeInfo.dstSet = frame.ViewDescriptorSet;
     writeInfo.dstBinding = 0;
     writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     writeInfo.descriptorCount = 1;
     VkDescriptorBufferInfo viewUniformBufferInfo = {};
-    viewUniformBufferInfo.buffer = result.ViewUniformBuffer.Handle;
+    viewUniformBufferInfo.buffer = frame.ViewUniformBuffer.Handle;
     viewUniformBufferInfo.offset = 0;
-    viewUniformBufferInfo.range = result.ViewUniformBuffer.Size;
+    viewUniformBufferInfo.range = frame.ViewUniformBuffer.Size;
     writeInfo.pBufferInfo = &viewUniformBufferInfo;
     writeInfos.push_back(writeInfo);
 
@@ -1297,7 +1297,7 @@ Frame createFrame(const Renderer &_renderer,
 
     int materialIndex = 0;
     for (const auto &materialImagesInfo : materialImagesInfos) {
-      writeInfo.dstSet = result.MaterialDescriptorSets[materialIndex++];
+      writeInfo.dstSet = frame.MaterialDescriptorSets[materialIndex++];
       writeInfo.dstBinding = 0;
       writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
       writeInfo.descriptorCount = PBRMaterial::NumImages;
@@ -1312,17 +1312,17 @@ Frame createFrame(const Renderer &_renderer,
   VkSemaphoreCreateInfo semaphoreCreateInfo = {};
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
   BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &result.RenderFinishedSemaphore));
+                                 nullptr, &frame.RenderFinishedSemaphore));
   BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &result.ImagePresentedSemaphore));
+                                 nullptr, &frame.ImagePresentedSemaphore));
 
   VkFenceCreateInfo fenceCreateInfo = {};
   fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
   BB_VK_ASSERT(vkCreateFence(_renderer.Device, &fenceCreateInfo, nullptr,
-                             &result.FrameAvailableFence));
+                             &frame.FrameAvailableFence));
 
-  return result;
+  return frame;
 }
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame) {
