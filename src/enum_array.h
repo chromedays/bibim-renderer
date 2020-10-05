@@ -15,6 +15,16 @@ template <typename E, typename T> struct EnumArray {
 
   T *end() { return Elems + (size_t)(E::COUNT); }
 
+  const T *begin() const { return Elems; }
+
+  const T *end() const { return Elems + (size_t)(E::COUNT); }
+
+  size_t size() const { return (size_t)(E::COUNT); }
+
+  T *data() { return Elems; }
+
+  const T *data() const { return Elems; }
+
   static_assert(std::is_enum_v<E>);
   static_assert((int64_t)(E::COUNT) > 0);
 };

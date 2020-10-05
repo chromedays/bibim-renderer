@@ -513,8 +513,8 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 17> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 17> attributeDescs = {};
+std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 16> attributeDescs = {};
 
   int lastAttributeIndex = 0;
 
@@ -599,7 +599,6 @@ std::array<VkVertexInputAttributeDescription, 17> Vertex::getAttributeDescs() {
   pushVecAttribute(1, 1, offsetof(InstanceBlock, Metallic));
   pushVecAttribute(1, 1, offsetof(InstanceBlock, Roughness));
   pushVecAttribute(1, 1, offsetof(InstanceBlock, AO));
-  pushIntAttribute(1, 1, offsetof(InstanceBlock, MaterialIndex));
 
   BB_ASSERT(lastAttributeIndex == attributeDescs.size());
 
@@ -1035,32 +1034,156 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
                                        const std::string &_rootPath) {
   // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
   PBRMaterial result = {};
-  result.AlbedoMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         joinPaths(_rootPath, "albedo.png"));
-  result.MetallicMap = createImageFromFile(
+  result.Maps[PBRMapType::Albedo] = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "albedo.png"));
+  result.Maps[PBRMapType::Metallic] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "metallic.png"));
-  result.RoughnessMap = createImageFromFile(
+  result.Maps[PBRMapType::Roughness] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "roughness.png"));
-  result.AOMap = createImageFromFile(_renderer, _transientCmdPool,
-                                     joinPaths(_rootPath, "ao.png"));
-  result.NormalMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         joinPaths(_rootPath, "normal.png"));
-  result.HeightMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         joinPaths(_rootPath, "height.png"));
+  result.Maps[PBRMapType::AO] = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "ao.png"));
+  result.Maps[PBRMapType::Normal] = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "normal.png"));
+  result.Maps[PBRMapType::Height] = createImageFromFile(
+      _renderer, _transientCmdPool, joinPaths(_rootPath, "height.png"));
   return result;
 }
 
 void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
-  destroyImage(_renderer, _material.HeightMap);
-  destroyImage(_renderer, _material.NormalMap);
-  destroyImage(_renderer, _material.AOMap);
-  destroyImage(_renderer, _material.RoughnessMap);
-  destroyImage(_renderer, _material.MetallicMap);
-  destroyImage(_renderer, _material.AlbedoMap);
+  for (Image &image : _material.Maps) {
+    destroyImage(_renderer, image);
+  }
+  _material = {};
 }
 
-Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
-                  VkDescriptorSetLayout _descriptorSetLayout,
+StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
+  StandardPipelineLayout layout = {};
+
+  VkSamplerCreateInfo samplerCreateInfo = {};
+  samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
+  samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
+  samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerCreateInfo.anisotropyEnable = VK_TRUE;
+  samplerCreateInfo.maxAnisotropy = 16.f;
+  samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+  samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerCreateInfo.compareEnable = VK_FALSE;
+  samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  samplerCreateInfo.mipLodBias = 0.f;
+  samplerCreateInfo.minLod = 0.f;
+  samplerCreateInfo.maxLod = 0.f;
+
+  BB_VK_ASSERT(
+      vkCreateSampler(_renderer.Device, &samplerCreateInfo, nullptr,
+                      &layout.ImmutableSamplers[SamplerType::Nearest]));
+
+  samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+  samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+  samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+  BB_VK_ASSERT(vkCreateSampler(_renderer.Device, &samplerCreateInfo, nullptr,
+                               &layout.ImmutableSamplers[SamplerType::Linear]));
+
+  VkDescriptorSetLayoutBinding bindings[16] = {};
+  for (size_t i = 0; i < std::size(bindings); ++i) {
+    bindings[i].binding = (uint32_t)i;
+    bindings[i].stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+  descriptorSetLayoutCreateInfo.sType =
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  descriptorSetLayoutCreateInfo.pBindings = bindings;
+
+  // Create descriptor set layouts with the predefined metadata
+  {
+    EnumArray<DescriptorFrequency,
+              std::unordered_map<VkDescriptorType, uint32_t>>
+        meta = {{
+            // PerFrame
+            {
+                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+                {VK_DESCRIPTOR_TYPE_SAMPLER,
+                 (uint32_t)layout.ImmutableSamplers.size()},
+            },
+            // PerView
+            {
+
+                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+            },
+            // PerMaterial
+            {
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                 (uint32_t)PBRMaterial::NumImages},
+            },
+            // PerDraw
+            {},
+        }};
+
+    for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
+         frequency < DescriptorFrequency::COUNT;
+         frequency = (DescriptorFrequency)((int)frequency + 1)) {
+      uint32_t numBindings = 0;
+      for (auto [descriptorType, numDescriptors] : meta[frequency]) {
+        VkDescriptorSetLayoutBinding &binding = bindings[numBindings++];
+        binding.descriptorType = descriptorType;
+        binding.descriptorCount = numDescriptors;
+        if ((frequency == DescriptorFrequency::PerFrame) &&
+            (descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER)) {
+          binding.pImmutableSamplers = layout.ImmutableSamplers.data();
+        }
+      }
+
+      descriptorSetLayoutCreateInfo.bindingCount = numBindings;
+
+      BB_VK_ASSERT(vkCreateDescriptorSetLayout(
+          _renderer.Device, &descriptorSetLayoutCreateInfo, nullptr,
+          &layout.DescriptorSetLayouts[frequency].Handle));
+      layout.DescriptorSetLayouts[frequency].NumDescriptorsTable =
+          std::move(meta[frequency]);
+    }
+  }
+
+  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+  pipelineLayoutCreateInfo.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+  descriptorSetLayouts.reserve(layout.DescriptorSetLayouts.size());
+  for (const DescriptorSetLayout &descriptorSetLayout :
+       layout.DescriptorSetLayouts) {
+    descriptorSetLayouts.push_back(descriptorSetLayout.Handle);
+  }
+  pipelineLayoutCreateInfo.setLayoutCount =
+      (uint32_t)descriptorSetLayouts.size();
+  pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts.data();
+  vkCreatePipelineLayout(_renderer.Device, &pipelineLayoutCreateInfo, nullptr,
+                         &layout.Handle);
+
+  return layout;
+}
+
+void destroyStandardPipelineLayout(const Renderer &_renderer,
+                                   StandardPipelineLayout &_layout) {
+  vkDestroyPipelineLayout(_renderer.Device, _layout.Handle, nullptr);
+  for (const DescriptorSetLayout &descriptorSetLayout :
+       _layout.DescriptorSetLayouts) {
+    vkDestroyDescriptorSetLayout(_renderer.Device, descriptorSetLayout.Handle,
+                                 nullptr);
+  }
+  for (VkSampler sampler : _layout.ImmutableSamplers) {
+    vkDestroySampler(_renderer.Device, sampler, nullptr);
+  }
+  _layout = {};
+}
+
+Frame createFrame(const Renderer &_renderer,
+                  const StandardPipelineLayout &_standardPipelineLayout,
+                  VkDescriptorPool _descriptorPool,
                   const std::vector<PBRMaterial> &_pbrMaterials) {
   Frame result = {};
 
@@ -1080,72 +1203,111 @@ Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
   BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
                                         &result.CmdBuffer));
 
-  result.UniformBuffer = createBuffer(_renderer, sizeof(UniformBlock),
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  // Allocate descriptor sets
+  {
+    VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+    descriptorSetAllocInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocInfo.descriptorPool = _descriptorPool;
 
-  result.DescriptorPool = _descriptorPool;
+    descriptorSetAllocInfo.descriptorSetCount = 1;
+    descriptorSetAllocInfo.pSetLayouts =
+        &_standardPipelineLayout
+             .DescriptorSetLayouts[DescriptorFrequency::PerFrame]
+             .Handle;
+    BB_VK_ASSERT(vkAllocateDescriptorSets(
+        _renderer.Device, &descriptorSetAllocInfo, &result.FrameDescriptorSet));
 
-  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
-  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  descriptorSetAllocInfo.descriptorPool = _descriptorPool;
-  descriptorSetAllocInfo.descriptorSetCount = 1;
-  descriptorSetAllocInfo.pSetLayouts = &_descriptorSetLayout;
-  BB_VK_ASSERT(vkAllocateDescriptorSets(
-      _renderer.Device, &descriptorSetAllocInfo, &result.DescriptorSet));
+    descriptorSetAllocInfo.descriptorSetCount = 1;
+    descriptorSetAllocInfo.pSetLayouts =
+        &_standardPipelineLayout
+             .DescriptorSetLayouts[DescriptorFrequency::PerView]
+             .Handle;
+    BB_VK_ASSERT(vkAllocateDescriptorSets(
+        _renderer.Device, &descriptorSetAllocInfo, &result.ViewDescriptorSet));
 
-  VkDescriptorBufferInfo descriptorBufferInfo = {};
-  descriptorBufferInfo.buffer = result.UniformBuffer.Handle;
-  descriptorBufferInfo.offset = 0;
-  descriptorBufferInfo.range = sizeof(UniformBlock);
-
-  std::vector<VkDescriptorImageInfo>
-      descriptorImageInfos[PBRMaterial::NumImages];
-  for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
-       descriptorImageInfos) {
-    descriptorImageInfo.reserve(_pbrMaterials.size());
+    result.MaterialDescriptorSets.resize(_pbrMaterials.size());
+    descriptorSetAllocInfo.descriptorSetCount = _pbrMaterials.size();
+    descriptorSetAllocInfo.pSetLayouts =
+        &_standardPipelineLayout
+             .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
+             .Handle;
+    BB_VK_ASSERT(
+        vkAllocateDescriptorSets(_renderer.Device, &descriptorSetAllocInfo,
+                                 result.MaterialDescriptorSets.data()));
   }
 
-  for (const PBRMaterial &material : _pbrMaterials) {
-    VkDescriptorImageInfo materialDesc = {};
-    materialDesc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  result.FrameUniformBuffer = createBuffer(
+      _renderer, sizeof(FrameUniformBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    materialDesc.imageView = material.AlbedoMap.View;
-    descriptorImageInfos[0].push_back(materialDesc);
-    materialDesc.imageView = material.MetallicMap.View;
-    descriptorImageInfos[1].push_back(materialDesc);
-    materialDesc.imageView = material.RoughnessMap.View;
-    descriptorImageInfos[2].push_back(materialDesc);
-    materialDesc.imageView = material.AOMap.View;
-    descriptorImageInfos[3].push_back(materialDesc);
-    materialDesc.imageView = material.NormalMap.View;
-    descriptorImageInfos[4].push_back(materialDesc);
-    materialDesc.imageView = material.HeightMap.View;
-    descriptorImageInfos[5].push_back(materialDesc);
-  }
+  result.ViewUniformBuffer = createBuffer(
+      _renderer, sizeof(ViewUniformBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::NumImages] = {};
-  descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  descriptorWrites[0].dstSet = result.DescriptorSet;
-  descriptorWrites[0].dstBinding = 0;
-  descriptorWrites[0].dstArrayElement = 0;
-  descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  descriptorWrites[0].descriptorCount = 1;
-  descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
-    VkWriteDescriptorSet &write = descriptorWrites[i + 1];
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = result.DescriptorSet;
-    write.dstBinding = i + 2;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    write.descriptorCount = (uint32_t)_pbrMaterials.size();
-    write.pImageInfo = descriptorImageInfos[i].data();
+  // Link descriptor sets to actual resources
+  {
+
+    std::vector<VkWriteDescriptorSet> writeInfos;
+    VkWriteDescriptorSet writeInfo = {};
+    writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+
+    // FrameData
+    writeInfo.dstSet = result.FrameDescriptorSet;
+    writeInfo.dstBinding = 0;
+    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writeInfo.descriptorCount = 1;
+    VkDescriptorBufferInfo frameUniformBufferInfo = {};
+    frameUniformBufferInfo.buffer = result.FrameUniformBuffer.Handle;
+    frameUniformBufferInfo.offset = 0;
+    frameUniformBufferInfo.range = result.FrameUniformBuffer.Size;
+    writeInfo.pBufferInfo = &frameUniformBufferInfo;
+    writeInfos.push_back(writeInfo);
+
+    // ViewData
+    writeInfo.dstSet = result.ViewDescriptorSet;
+    writeInfo.dstBinding = 0;
+    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writeInfo.descriptorCount = 1;
+    VkDescriptorBufferInfo viewUniformBufferInfo = {};
+    viewUniformBufferInfo.buffer = result.ViewUniformBuffer.Handle;
+    viewUniformBufferInfo.offset = 0;
+    viewUniformBufferInfo.range = result.ViewUniformBuffer.Size;
+    writeInfo.pBufferInfo = &viewUniformBufferInfo;
+    writeInfos.push_back(writeInfo);
+
+    // uMaterialTextures
+    std::vector<std::array<VkDescriptorImageInfo, PBRMaterial::NumImages>>
+        materialImagesInfos;
+    materialImagesInfos.reserve(_pbrMaterials.size());
+    for (const PBRMaterial &material : _pbrMaterials) {
+      std::array<VkDescriptorImageInfo, PBRMaterial::NumImages> imageInfos;
+
+      int i = 0;
+      for (const Image &image : material.Maps) {
+        VkDescriptorImageInfo &imageInfo = imageInfos[i++];
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = image.View;
+      }
+
+      materialImagesInfos.push_back(imageInfos);
+    }
+
+    int materialIndex = 0;
+    for (const auto &materialImagesInfo : materialImagesInfos) {
+      writeInfo.dstSet = result.MaterialDescriptorSets[materialIndex++];
+      writeInfo.dstBinding = 0;
+      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      writeInfo.descriptorCount = PBRMaterial::NumImages;
+      writeInfo.pImageInfo = materialImagesInfo.data();
+      writeInfos.push_back(writeInfo);
+    }
+
+    vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(),
+                           writeInfos.data(), 0, nullptr);
   }
-  vkUpdateDescriptorSets(_renderer.Device,
-                         (uint32_t)std::size(descriptorWrites),
-                         descriptorWrites, 0, nullptr);
 
   VkSemaphoreCreateInfo semaphoreCreateInfo = {};
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1167,7 +1329,8 @@ void destroyFrame(const Renderer &_renderer, Frame &_frame) {
   vkDestroySemaphore(_renderer.Device, _frame.ImagePresentedSemaphore, nullptr);
   vkDestroySemaphore(_renderer.Device, _frame.RenderFinishedSemaphore, nullptr);
   vkDestroyFence(_renderer.Device, _frame.FrameAvailableFence, nullptr);
-  destroyBuffer(_renderer, _frame.UniformBuffer);
+  destroyBuffer(_renderer, _frame.ViewUniformBuffer);
+  destroyBuffer(_renderer, _frame.FrameUniformBuffer);
   vkDestroyCommandPool(_renderer.Device, _frame.CmdPool, nullptr);
   _frame = {};
 }

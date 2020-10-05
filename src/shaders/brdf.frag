@@ -1,58 +1,27 @@
 #version 450
 
 #include "brdf.glsl"
-
-#define MAX_NUM_LIGHTS 100
-#define NUM_MATERIALS 1
-
-struct Light {
-    vec3 pos;
-    int type; // 0 = point light, 1 = spot light, 2 = directional light
-    vec3 dir;
-    float intensity;
-    vec3 color;
-    float innerCutOff;
-    float outerCutOff;
-};
-
-layout (binding = 0) uniform UniformBlock {
-    mat4 viewMat;
-    mat4 projMat;
-    vec3 viewPos;
-    int numLights;
-    Light lights[MAX_NUM_LIGHTS];
-} ub;
-
-layout (binding = 1) uniform sampler uSamplers[2]; // 0 - Nearest, 1 - Bilinear
-layout (binding = 2) uniform texture2D uAlbedoMap[NUM_MATERIALS];
-layout (binding = 3) uniform texture2D uMetallicMap[NUM_MATERIALS];
-layout (binding = 4) uniform texture2D uRoughnessMap[NUM_MATERIALS];
-layout (binding = 5) uniform texture2D uAOMap[NUM_MATERIALS];
-layout (binding = 6) uniform texture2D uNormalMap[NUM_MATERIALS];
-layout (binding = 7) uniform texture2D uHeightMap[NUM_MATERIALS];
+#include "standard_sets.glsl"
 
 layout (location = 0) in vec2 vUV;
 layout (location = 1) in vec3 vPosWorld;
 layout (location = 2) in mat3 vTBN;
 layout (location = 5) in flat vec3 vAlbedo;
 layout (location = 6) in flat vec3 vMRA; // Metallic, Roughness, AO
-layout (location = 7) in flat int vMaterialIndex;
 
 layout (location = 0) out vec4 outColor;
 
 void main() {
-    vec3 albedo = texture(sampler2D(uAlbedoMap[vMaterialIndex], uSamplers[1]), vUV).rgb;
-    float metallic = texture(sampler2D(uMetallicMap[vMaterialIndex], uSamplers[1]), vUV).r;
-    float roughness = texture(sampler2D(uRoughnessMap[vMaterialIndex], uSamplers[1]), vUV).r;
-    float ao = texture(sampler2D(uAOMap[vMaterialIndex], uSamplers[1]), vUV).r;
-    vec3 normal = vTBN * (texture(sampler2D(uNormalMap[vMaterialIndex], uSamplers[0]), vUV).xyz * 2 - 1);
-    //normal = vTBN * vec3(0, 0, 1);
-    //normal = vTBN[2];
+    vec3 albedo = texture(sampler2D(uMaterialTextures[TEX_ALBEDO], uSamplers[SMP_LINEAR]), vUV).rgb;
+    float metallic = texture(sampler2D(uMaterialTextures[TEX_METALLIC], uSamplers[SMP_LINEAR]), vUV).r;
+    float roughness = texture(sampler2D(uMaterialTextures[TEX_ROUGHNESS], uSamplers[SMP_LINEAR]), vUV).r;
+    float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
+    vec3 normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
 
     vec3 Lo = vec3(0);
 
-    for (int i = 0; i < ub.numLights; ++i) {
-        Light light = ub.lights[i];
+    for (int i = 0; i < uNumLights; ++i) {
+        Light light = uLights[i];
         vec3 L;
         float att;
         if (light.type == 0) {
@@ -73,7 +42,7 @@ void main() {
             att = 1;
         }
             
-        vec3 V = normalize(ub.viewPos - vPosWorld);
+        vec3 V = normalize(uViewPos - vPosWorld);
         vec3 N = normalize(normal);
         vec3 H = normalize(L + V);
 
