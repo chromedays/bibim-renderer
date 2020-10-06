@@ -37,177 +37,13 @@ namespace bb {
 constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
-struct PBRMaterial {
-  static constexpr int NumImages = 6;
-
-  Image AlbedoMap;
-  Image MetallicMap;
-  Image RoughnessMap;
-  Image AOMap;
-  Image NormalMap;
-  Image HeightMap;
-};
-
-PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
-                                       VkCommandPool _transientCmdPool,
-                                       const std::string &_rootPath) {
-  // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
-  PBRMaterial result = {};
-  result.AlbedoMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         joinPaths(_rootPath, "albedo.png"));
-  result.MetallicMap = createImageFromFile(
-      _renderer, _transientCmdPool, joinPaths(_rootPath, "metallic.png"));
-  result.RoughnessMap = createImageFromFile(
-      _renderer, _transientCmdPool, joinPaths(_rootPath, "roughness.png"));
-  result.AOMap = createImageFromFile(_renderer, _transientCmdPool,
-                                     joinPaths(_rootPath, "ao.png"));
-  result.NormalMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         joinPaths(_rootPath, "normal.png"));
-  result.HeightMap = createImageFromFile(_renderer, _transientCmdPool,
-                                         joinPaths(_rootPath, "height.png"));
-  return result;
-}
-
-void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
-  destroyImage(_renderer, _material.HeightMap);
-  destroyImage(_renderer, _material.NormalMap);
-  destroyImage(_renderer, _material.AOMap);
-  destroyImage(_renderer, _material.RoughnessMap);
-  destroyImage(_renderer, _material.MetallicMap);
-  destroyImage(_renderer, _material.AlbedoMap);
-}
-
-struct Frame {
-  VkCommandPool CmdPool;
-  VkCommandBuffer CmdBuffer;
-  VkDescriptorPool DescriptorPool;
-  VkDescriptorSet DescriptorSet;
-  Buffer UniformBuffer;
-  VkFence FrameAvailableFence;
-  VkSemaphore RenderFinishedSemaphore;
-  VkSemaphore ImagePresentedSemaphore;
-};
-
-Frame createFrame(const Renderer &_renderer, VkDescriptorPool _descriptorPool,
-                  VkDescriptorSetLayout _descriptorSetLayout,
-                  const std::vector<PBRMaterial> &_pbrMaterials) {
-  Frame result = {};
-
-  VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
-  cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdPoolCreateInfo.queueFamilyIndex = _renderer.QueueFamilyIndex;
-  cmdPoolCreateInfo.flags = 0;
-
-  BB_VK_ASSERT(vkCreateCommandPool(_renderer.Device, &cmdPoolCreateInfo,
-                                   nullptr, &result.CmdPool));
-
-  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  cmdBufferAllocInfo.commandBufferCount = 1;
-  cmdBufferAllocInfo.commandPool = result.CmdPool;
-  BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
-                                        &result.CmdBuffer));
-
-  result.UniformBuffer = createBuffer(_renderer, sizeof(UniformBlock),
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-  result.DescriptorPool = _descriptorPool;
-
-  VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
-  descriptorSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  descriptorSetAllocInfo.descriptorPool = _descriptorPool;
-  descriptorSetAllocInfo.descriptorSetCount = 1;
-  descriptorSetAllocInfo.pSetLayouts = &_descriptorSetLayout;
-  BB_VK_ASSERT(vkAllocateDescriptorSets(
-      _renderer.Device, &descriptorSetAllocInfo, &result.DescriptorSet));
-
-  VkDescriptorBufferInfo descriptorBufferInfo = {};
-  descriptorBufferInfo.buffer = result.UniformBuffer.Handle;
-  descriptorBufferInfo.offset = 0;
-  descriptorBufferInfo.range = sizeof(UniformBlock);
-
-  std::vector<VkDescriptorImageInfo>
-      descriptorImageInfos[PBRMaterial::NumImages];
-  for (std::vector<VkDescriptorImageInfo> &descriptorImageInfo :
-       descriptorImageInfos) {
-    descriptorImageInfo.reserve(_pbrMaterials.size());
-  }
-
-  for (const PBRMaterial &material : _pbrMaterials) {
-    VkDescriptorImageInfo materialDesc = {};
-    materialDesc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    materialDesc.imageView = material.AlbedoMap.View;
-    descriptorImageInfos[0].push_back(materialDesc);
-    materialDesc.imageView = material.MetallicMap.View;
-    descriptorImageInfos[1].push_back(materialDesc);
-    materialDesc.imageView = material.RoughnessMap.View;
-    descriptorImageInfos[2].push_back(materialDesc);
-    materialDesc.imageView = material.AOMap.View;
-    descriptorImageInfos[3].push_back(materialDesc);
-    materialDesc.imageView = material.NormalMap.View;
-    descriptorImageInfos[4].push_back(materialDesc);
-    materialDesc.imageView = material.HeightMap.View;
-    descriptorImageInfos[5].push_back(materialDesc);
-  }
-
-  VkWriteDescriptorSet descriptorWrites[1 + PBRMaterial::NumImages] = {};
-  descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  descriptorWrites[0].dstSet = result.DescriptorSet;
-  descriptorWrites[0].dstBinding = 0;
-  descriptorWrites[0].dstArrayElement = 0;
-  descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  descriptorWrites[0].descriptorCount = 1;
-  descriptorWrites[0].pBufferInfo = &descriptorBufferInfo;
-  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
-    VkWriteDescriptorSet &write = descriptorWrites[i + 1];
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = result.DescriptorSet;
-    write.dstBinding = i + 2;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    write.descriptorCount = (uint32_t)_pbrMaterials.size();
-    write.pImageInfo = descriptorImageInfos[i].data();
-  }
-  vkUpdateDescriptorSets(_renderer.Device,
-                         (uint32_t)std::size(descriptorWrites),
-                         descriptorWrites, 0, nullptr);
-
-  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &result.RenderFinishedSemaphore));
-  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &result.ImagePresentedSemaphore));
-
-  VkFenceCreateInfo fenceCreateInfo = {};
-  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-  BB_VK_ASSERT(vkCreateFence(_renderer.Device, &fenceCreateInfo, nullptr,
-                             &result.FrameAvailableFence));
-
-  return result;
-}
-
-void destroyFrame(const Renderer &_renderer, Frame &_frame) {
-  vkDestroySemaphore(_renderer.Device, _frame.ImagePresentedSemaphore, nullptr);
-  vkDestroySemaphore(_renderer.Device, _frame.RenderFinishedSemaphore, nullptr);
-  vkDestroyFence(_renderer.Device, _frame.FrameAvailableFence, nullptr);
-  destroyBuffer(_renderer, _frame.UniformBuffer);
-  vkDestroyCommandPool(_renderer.Device, _frame.CmdPool, nullptr);
-  _frame = {};
-}
-
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
                    const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
-                   const Buffer &_indexBuffer, VkPipelineLayout _pipelineLayout,
-                   VkDescriptorSet _descriptorSet,
-                   const std::vector<uint32_t> &_indices,
+                   const Buffer &_indexBuffer,
+                   const StandardPipelineLayout &_standardPipelineLayout,
+                   const Frame &_frame, const std::vector<uint32_t> &_indices,
                    uint32_t _numInstances) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
@@ -238,8 +74,18 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
   vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
+
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          _pipelineLayout, 0, 1, &_descriptorSet, 0, nullptr);
+                          _standardPipelineLayout.Handle, 0, 1,
+                          &_frame.FrameDescriptorSet, 0, nullptr);
+
+  vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          _standardPipelineLayout.Handle, 1, 1,
+                          &_frame.ViewDescriptorSet, 0, nullptr);
+
+  vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          _standardPipelineLayout.Handle, 2, 1,
+                          &_frame.MaterialDescriptorSets[0], 0, nullptr);
 
   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
                    0);
@@ -254,117 +100,14 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
     const SwapChain *_oldSwapChain, const Shader &_vertShader,
-    const Shader &_fragShader, VkPipelineLayout _pipelineLayout,
+    const Shader &_fragShader,
+    const StandardPipelineLayout &_standardPipelineLayout,
     SwapChain *_outSwapChain, VkRenderPass *_outRenderPass,
     VkPipeline *_outGraphicsPipeline,
     std::vector<VkFramebuffer> *_outSwapChainFramebuffers) {
 
   SwapChain swapChain =
       createSwapChain(_renderer, _width, _height, _oldSwapChain);
-
-  VkPipelineShaderStageCreateInfo shaderStages[2] = {};
-  shaderStages[0] = _vertShader.getStageInfo();
-  shaderStages[1] = _fragShader.getStageInfo();
-
-  std::array<VkVertexInputBindingDescription, 2> bindingDescs =
-      Vertex::getBindingDescs();
-  std::array<VkVertexInputAttributeDescription, 17> attributeDescs =
-      Vertex::getAttributeDescs();
-  VkPipelineVertexInputStateCreateInfo vertexInputState = {};
-  vertexInputState.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertexInputState.vertexBindingDescriptionCount =
-      (uint32_t)bindingDescs.size();
-  vertexInputState.pVertexBindingDescriptions = bindingDescs.data();
-  vertexInputState.vertexAttributeDescriptionCount =
-      (uint32_t)attributeDescs.size();
-  vertexInputState.pVertexAttributeDescriptions = attributeDescs.data();
-
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = {};
-  inputAssemblyState.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  inputAssemblyState.primitiveRestartEnable = VK_FALSE;
-
-  VkViewport viewport = {};
-  viewport.x = 0.f;
-  viewport.y = 0.f;
-  viewport.width = (float)swapChain.Extent.width;
-  viewport.height = (float)swapChain.Extent.height;
-  viewport.minDepth = 0.f;
-  viewport.maxDepth = 1.f;
-
-  VkRect2D scissor = {};
-  scissor.offset = {0, 0};
-  scissor.extent = swapChain.Extent;
-
-  VkPipelineViewportStateCreateInfo viewportState = {};
-  viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-  viewportState.viewportCount = 1;
-  viewportState.pViewports = &viewport;
-  viewportState.scissorCount = 1;
-  viewportState.pScissors = &scissor;
-
-  VkPipelineRasterizationStateCreateInfo rasterizationState = {};
-  rasterizationState.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-  rasterizationState.depthClampEnable = VK_FALSE;
-  rasterizationState.rasterizerDiscardEnable = VK_FALSE;
-  rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-  rasterizationState.lineWidth = 1.f;
-  rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
-  rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
-  rasterizationState.depthBiasEnable = VK_FALSE;
-  rasterizationState.depthBiasConstantFactor = 0.f;
-  rasterizationState.depthBiasClamp = 0.f;
-  rasterizationState.depthBiasSlopeFactor = 0.f;
-
-  VkPipelineMultisampleStateCreateInfo multisampleState = {};
-  multisampleState.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-  multisampleState.sampleShadingEnable = VK_FALSE;
-  multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-  multisampleState.minSampleShading = 1.f;
-  multisampleState.pSampleMask = nullptr;
-  multisampleState.alphaToCoverageEnable = VK_FALSE;
-  multisampleState.alphaToOneEnable = VK_FALSE;
-
-  VkPipelineDepthStencilStateCreateInfo depthStencilState = {};
-  depthStencilState.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-  depthStencilState.depthTestEnable = VK_TRUE;
-  depthStencilState.depthWriteEnable = VK_TRUE;
-  depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
-  depthStencilState.depthBoundsTestEnable = VK_FALSE;
-  depthStencilState.minDepthBounds = 1.f;
-  depthStencilState.maxDepthBounds = 0.f;
-  depthStencilState.stencilTestEnable = VK_FALSE;
-  // depthStencilState.front = {};
-  // depthStencilState.back = {};
-
-  VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {};
-  colorBlendAttachmentState.colorWriteMask =
-      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  colorBlendAttachmentState.blendEnable = VK_FALSE;
-  colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-  colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-  colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
-  colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-  colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-  colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
-
-  VkPipelineColorBlendStateCreateInfo colorBlendState = {};
-  colorBlendState.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-  colorBlendState.logicOpEnable = VK_FALSE;
-  colorBlendState.logicOp = VK_LOGIC_OP_COPY;
-  colorBlendState.attachmentCount = 1;
-  colorBlendState.pAttachments = &colorBlendAttachmentState;
-  colorBlendState.blendConstants[0] = 0.f;
-  colorBlendState.blendConstants[1] = 0.f;
-  colorBlendState.blendConstants[2] = 0.f;
-  colorBlendState.blendConstants[3] = 0.f;
 
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = swapChain.ColorFormat;
@@ -425,29 +168,6 @@ void initReloadableResources(
   BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,
                                   nullptr, &renderPass));
 
-  VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
-  pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipelineCreateInfo.stageCount = 2;
-  pipelineCreateInfo.pStages = shaderStages;
-  pipelineCreateInfo.pVertexInputState = &vertexInputState;
-  pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
-  pipelineCreateInfo.pViewportState = &viewportState;
-  pipelineCreateInfo.pRasterizationState = &rasterizationState;
-  pipelineCreateInfo.pMultisampleState = &multisampleState;
-  pipelineCreateInfo.pDepthStencilState = &depthStencilState;
-  pipelineCreateInfo.pColorBlendState = &colorBlendState;
-  pipelineCreateInfo.pDynamicState = nullptr;
-  pipelineCreateInfo.layout = _pipelineLayout;
-  pipelineCreateInfo.renderPass = renderPass;
-  pipelineCreateInfo.subpass = 0;
-  pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
-  pipelineCreateInfo.basePipelineIndex = -1;
-
-  VkPipeline graphicsPipeline;
-  BB_VK_ASSERT(vkCreateGraphicsPipelines(_renderer.Device, VK_NULL_HANDLE, 1,
-                                         &pipelineCreateInfo, nullptr,
-                                         &graphicsPipeline));
-
   std::vector<VkFramebuffer> swapChainFramebuffers(swapChain.NumColorImages);
   for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
     VkFramebufferCreateInfo fbCreateInfo = {};
@@ -465,10 +185,36 @@ void initReloadableResources(
                                      &swapChainFramebuffers[i]));
   }
 
+  const Shader *shaders[] = {&_vertShader, &_fragShader};
+  PipelineParams pipelineParams = {};
+  pipelineParams.Shaders = shaders;
+  pipelineParams.NumShaders = std::size(shaders);
+
+  auto bindingDescs = Vertex::getBindingDescs();
+  auto attributeDescs = Vertex::getAttributeDescs();
+  pipelineParams.VertexInput.Bindings = bindingDescs.data();
+  pipelineParams.VertexInput.NumBindings = bindingDescs.size();
+  pipelineParams.VertexInput.Attributes = attributeDescs.data();
+  pipelineParams.VertexInput.NumAttributes = attributeDescs.size();
+
+  pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  pipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                    (float)swapChain.Extent.height};
+  pipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                           (int)swapChain.Extent.height};
+
+  pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+  pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+
+  pipelineParams.DepthStencil.DepthTestEnable = true;
+  pipelineParams.DepthStencil.DepthWriteEnable = true;
+  pipelineParams.PipelineLayout = _standardPipelineLayout.Handle;
+  pipelineParams.RenderPass = renderPass;
+  *_outGraphicsPipeline = createPipeline(_renderer, pipelineParams);
+
   *_outSwapChain = std::move(swapChain);
   *_outSwapChainFramebuffers = std::move(swapChainFramebuffers);
   *_outRenderPass = renderPass;
-  *_outGraphicsPipeline = graphicsPipeline;
 }
 
 void cleanupReloadableResources(
@@ -490,8 +236,9 @@ void cleanupReloadableResources(
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
                     const Shader &_vertShader, const Shader &_fragShader,
-                    VkPipelineLayout _pipelineLayout, SwapChain &_swapChain,
-                    VkRenderPass &_renderPass, VkPipeline &_graphicsPipeline,
+                    const StandardPipelineLayout &_standardPipelineLayout,
+                    SwapChain &_swapChain, VkRenderPass &_renderPass,
+                    VkPipeline &_graphicsPipeline,
                     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
   int width = 0, height = 0;
 
@@ -507,7 +254,7 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
                              _graphicsPipeline, _swapChainFramebuffers);
 
   initReloadableResources(_renderer, width, height, nullptr, _vertShader,
-                          _fragShader, _pipelineLayout, &_swapChain,
+                          _fragShader, _standardPipelineLayout, &_swapChain,
                           &_renderPass, &_graphicsPipeline,
                           &_swapChainFramebuffers);
 }
@@ -577,38 +324,6 @@ int main(int _argc, char **_argv) {
   Shader brdfFragShader = createShaderFromFile(
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.frag.spv")));
 
-  VkSampler nearestSampler;
-  VkSampler bilinearSampler;
-  {
-    VkSamplerCreateInfo samplerCreateInfo = {};
-    samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
-    samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
-    samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCreateInfo.anisotropyEnable = VK_TRUE;
-    samplerCreateInfo.maxAnisotropy = 16.f;
-    samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
-    samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
-    samplerCreateInfo.compareEnable = VK_FALSE;
-    samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerCreateInfo.mipLodBias = 0.f;
-    samplerCreateInfo.minLod = 0.f;
-    samplerCreateInfo.maxLod = 0.f;
-
-    BB_VK_ASSERT(vkCreateSampler(renderer.Device, &samplerCreateInfo, nullptr,
-                                 &nearestSampler));
-
-    samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-    samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-    BB_VK_ASSERT(vkCreateSampler(renderer.Device, &samplerCreateInfo, nullptr,
-                                 &bilinearSampler));
-  }
-
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
@@ -622,65 +337,57 @@ int main(int _argc, char **_argv) {
       renderer, transientCmdPool,
       createAbsolutePath("pbr/hardwood_brown_planks")));
 
-  VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[8] = {};
+  StandardPipelineLayout standardPipelineLayout =
+      createStandardPipelineLayout(renderer);
 
-  // Uniform Block
-  descriptorSetLayoutBindings[0].binding = 0;
-  descriptorSetLayoutBindings[0].descriptorType =
-      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  descriptorSetLayoutBindings[0].descriptorCount = 1;
-  descriptorSetLayoutBindings[0].stageFlags =
-      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  // Create a descriptor pool corresponding to the standard pipeline layout
+  VkDescriptorPool descriptorPool;
+  {
+    std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
 
-  // Immutable Samplers (Nearest and Bilinear)
-  VkSampler samplers[2] = {nearestSampler, bilinearSampler};
-  descriptorSetLayoutBindings[1].binding = 1;
-  descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-  descriptorSetLayoutBindings[1].descriptorCount =
-      (uint32_t)std::size(samplers);
-  descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  descriptorSetLayoutBindings[1].pImmutableSamplers = samplers;
+    for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
+         frequency < DescriptorFrequency::COUNT;
+         frequency = (DescriptorFrequency)((int)frequency + 1)) {
+      const DescriptorSetLayout &descriptorSetLayout =
+          standardPipelineLayout.DescriptorSetLayouts[frequency];
 
-  // PBR Textures (Albedo, Metallic, Roughness, AO, Normal, Height)
-  for (int i = 0; i < PBRMaterial::NumImages; ++i) {
-    VkDescriptorSetLayoutBinding &binding = descriptorSetLayoutBindings[i + 2];
-    binding.binding = i + 2;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    binding.descriptorCount = (uint32_t)pbrMaterials.size();
-    binding.stageFlags =
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+      uint32_t numDescriptorSets = numFrames;
+      if (frequency == DescriptorFrequency::PerMaterial) {
+        numDescriptorSets *= pbrMaterials.size();
+      }
+
+      for (auto [type, numDescriptors] :
+           descriptorSetLayout.NumDescriptorsTable) {
+        numDescriptorsTable[type] += numDescriptors * numDescriptorSets;
+      }
+    }
+
+    std::vector<VkDescriptorPoolSize> poolSizes;
+    poolSizes.reserve(numDescriptorsTable.size());
+    for (auto [type, num] : numDescriptorsTable) {
+      VkDescriptorPoolSize poolSize = {};
+      poolSize.type = type;
+      poolSize.descriptorCount = num;
+      poolSizes.push_back(poolSize);
+    }
+
+    VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+    descriptorPoolCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolCreateInfo.poolSizeCount = (uint32_t)poolSizes.size();
+    descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
+    descriptorPoolCreateInfo.maxSets = (uint32_t)(
+        standardPipelineLayout.DescriptorSetLayouts.size() * numFrames);
+    BB_VK_ASSERT(vkCreateDescriptorPool(
+        renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
   }
-
-  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-  descriptorSetLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  descriptorSetLayoutCreateInfo.bindingCount =
-      (uint32_t)std::size(descriptorSetLayoutBindings);
-  descriptorSetLayoutCreateInfo.pBindings = descriptorSetLayoutBindings;
-
-  VkDescriptorSetLayout descriptorSetLayout;
-  BB_VK_ASSERT(vkCreateDescriptorSetLayout(renderer.Device,
-                                           &descriptorSetLayoutCreateInfo,
-                                           nullptr, &descriptorSetLayout));
-
-  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
-  pipelineLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutCreateInfo.setLayoutCount = 1;
-  pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
-  pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
-  pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
-
-  VkPipelineLayout pipelineLayout;
-  BB_VK_ASSERT(vkCreatePipelineLayout(
-      renderer.Device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 
   SwapChain swapChain;
   VkRenderPass renderPass;
   VkPipeline graphicsPipeline;
   std::vector<VkFramebuffer> swapChainFramebuffers;
   initReloadableResources(renderer, width, height, nullptr, brdfVertShader,
-                          brdfFragShader, pipelineLayout, &swapChain,
+                          brdfFragShader, standardPipelineLayout, &swapChain,
                           &renderPass, &graphicsPipeline,
                           &swapChainFramebuffers);
 
@@ -761,26 +468,6 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
   }
 
-  VkDescriptorPoolSize descriptorPoolSizes[3] = {};
-  descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  descriptorPoolSizes[0].descriptorCount = numFrames;
-  descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-  descriptorPoolSizes[1].descriptorCount =
-      numFrames * PBRMaterial::NumImages * pbrMaterials.size();
-  descriptorPoolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLER;
-  descriptorPoolSizes[2].descriptorCount = numFrames * 2;
-  VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
-  descriptorPoolCreateInfo.sType =
-      VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  descriptorPoolCreateInfo.poolSizeCount =
-      (uint32_t)std::size(descriptorPoolSizes);
-  descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-  descriptorPoolCreateInfo.maxSets = numFrames;
-
-  VkDescriptorPool descriptorPool;
-  BB_VK_ASSERT(vkCreateDescriptorPool(
-      renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
-
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
   {
@@ -809,8 +496,8 @@ int main(int _argc, char **_argv) {
 
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
-    frames.push_back(createFrame(renderer, descriptorPool, descriptorSetLayout,
-                                 pbrMaterials));
+    frames.push_back(createFrame(renderer, standardPipelineLayout,
+                                 descriptorPool, pbrMaterials));
   }
 
   uint32_t currentFrameIndex = 0;
@@ -957,8 +644,8 @@ int main(int _argc, char **_argv) {
           &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
-                     swapChainFramebuffers);
+                     standardPipelineLayout, swapChain, renderPass,
+                     graphicsPipeline, swapChainFramebuffers);
       continue;
     }
 
@@ -971,18 +658,15 @@ int main(int _argc, char **_argv) {
 
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
-    static float angle = 0;
-    // angle += 30.f * dt;
+    static float angle = -90;
+    angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }
-    UniformBlock uniformBlock = {};
-    uniformBlock.ViewMat = cam.getViewMatrix();
-    uniformBlock.ProjMat =
-        Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
-    uniformBlock.ViewPos = cam.Pos;
-    uniformBlock.NumLights = 3;
-    Light *light = &uniformBlock.lights[0];
+
+    FrameUniformBlock frameUniformBlock = {};
+    frameUniformBlock.NumLights = 3;
+    Light *light = &frameUniformBlock.Lights[0];
     light->Dir = {-1, -1, 0};
     light->Type = LightType::Directional;
     light->Color = {23.47f, 21.31f, 20.79f};
@@ -1003,10 +687,24 @@ int main(int _argc, char **_argv) {
 
     {
       void *data;
-      vkMapMemory(renderer.Device, currentFrame.UniformBuffer.Memory, 0,
-                  sizeof(UniformBlock), 0, &data);
-      memcpy(data, &uniformBlock, sizeof(UniformBlock));
-      vkUnmapMemory(renderer.Device, currentFrame.UniformBuffer.Memory);
+      vkMapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory, 0,
+                  sizeof(FrameUniformBlock), 0, &data);
+      memcpy(data, &frameUniformBlock, sizeof(FrameUniformBlock));
+      vkUnmapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory);
+    }
+
+    ViewUniformBlock viewUniformBlock = {};
+    viewUniformBlock.ViewMat = cam.getViewMatrix();
+    viewUniformBlock.ProjMat =
+        Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
+    viewUniformBlock.ViewPos = cam.Pos;
+
+    {
+      void *data;
+      vkMapMemory(renderer.Device, currentFrame.ViewUniformBuffer.Memory, 0,
+                  sizeof(ViewUniformBlock), 0, &data);
+      memcpy(data, &viewUniformBlock, sizeof(ViewUniformBlock));
+      vkUnmapMemory(renderer.Device, currentFrame.ViewUniformBuffer.Memory);
     }
 
     static int selectedInstanceIndex = -1;
@@ -1033,7 +731,7 @@ int main(int _argc, char **_argv) {
 
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
-                                 Mat4::rotateY(angle) *
+                                 Mat4::rotateY(angle) * Mat4::rotateX(-90) *
                                  Mat4::scale({0.01f, 0.01f, 0.01f});
       instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
     }
@@ -1053,8 +751,8 @@ int main(int _argc, char **_argv) {
     recordCommand(currentFrame.CmdBuffer, renderPass,
                   currentSwapChainFramebuffer, swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, pipelineLayout,
-                  currentFrame.DescriptorSet, shaderBallIndices, numInstances);
+                  shaderBallIndexBuffer, standardPipelineLayout, currentFrame,
+                  shaderBallIndices, numInstances);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1088,8 +786,8 @@ int main(int _argc, char **_argv) {
           &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
-                     pipelineLayout, swapChain, renderPass, graphicsPipeline,
-                     swapChainFramebuffers);
+                     standardPipelineLayout, swapChain, renderPass,
+                     graphicsPipeline, swapChainFramebuffers);
     }
   }
 
@@ -1115,15 +813,12 @@ int main(int _argc, char **_argv) {
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);
 
-  vkDestroyPipelineLayout(renderer.Device, pipelineLayout, nullptr);
-  vkDestroyDescriptorSetLayout(renderer.Device, descriptorSetLayout, nullptr);
+  destroyStandardPipelineLayout(renderer, standardPipelineLayout);
 
   for (PBRMaterial &material : pbrMaterials) {
     destroyPBRMaterial(renderer, material);
   }
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
-  vkDestroySampler(renderer.Device, bilinearSampler, nullptr);
-  vkDestroySampler(renderer.Device, nearestSampler, nullptr);
 
   destroyShader(renderer, brdfVertShader);
   destroyShader(renderer, brdfFragShader);

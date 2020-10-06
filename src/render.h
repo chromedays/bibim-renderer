@@ -1,5 +1,6 @@
 #pragma once
 #include "vector_math.h"
+#include "enum_array.h"
 #include "external/volk.h"
 #include "external/SDL2/SDL.h"
 #include <array>
@@ -56,26 +57,6 @@ void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
 enum class LightType : int { Point = 0, Spot, Directional };
 
-struct alignas(16) Light {
-  Float3 Pos;
-  LightType Type;
-  Float3 Dir;
-  float Intensity;
-  Float3 Color;
-  float InnerCutOff;
-  float OuterCutOff;
-};
-
-#define MAX_NUM_LIGHTS 100
-
-struct UniformBlock {
-  Mat4 ViewMat;
-  Mat4 ProjMat;
-  alignas(16) Float3 ViewPos;
-  int NumLights;
-  Light lights[MAX_NUM_LIGHTS];
-};
-
 struct InstanceBlock {
   Mat4 ModelMat;
   Mat4 InvModelMat;
@@ -83,7 +64,6 @@ struct InstanceBlock {
   float Metallic;
   float Roughness = 0.5f;
   float AO = 1;
-  int MaterialIndex;
 };
 
 struct Vertex {
@@ -93,7 +73,8 @@ struct Vertex {
   Float3 Tangent = {0, -1, 0};
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 17> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 16> getAttributeDescs();
+  static VkPipelineVertexInputStateCreateInfo getVertexInputState();
 };
 
 struct Buffer {
@@ -132,5 +113,133 @@ struct Shader {
 Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
+
+struct PipelineParams {
+  const Shader **Shaders;
+  int NumShaders;
+
+  struct {
+    VkVertexInputBindingDescription *Bindings;
+    int NumBindings;
+    VkVertexInputAttributeDescription *Attributes;
+    int NumAttributes;
+  } VertexInput;
+
+  struct {
+    VkPrimitiveTopology Topology;
+  } InputAssembly;
+
+  struct {
+    Float2 Offset;
+    Float2 Extent;
+    Int2 ScissorOffset;
+    Int2 ScissorExtent;
+  } Viewport;
+
+  struct {
+    VkPolygonMode PolygonMode;
+    VkCullModeFlags CullMode;
+  } Rasterizer;
+
+  struct {
+    bool DepthTestEnable;
+    bool DepthWriteEnable;
+  } DepthStencil;
+
+  VkPipelineLayout PipelineLayout;
+  VkRenderPass RenderPass;
+};
+
+VkPipeline createPipeline(const Renderer &_renderer,
+                          const PipelineParams &_params);
+
+enum class PBRMapType {
+  Albedo,
+  Metallic,
+  Roughness,
+  AO,
+  Normal,
+  Height,
+  COUNT
+};
+
+struct PBRMaterial {
+  static constexpr int NumImages = (int)PBRMapType::COUNT;
+  EnumArray<PBRMapType, Image> Maps;
+};
+
+PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
+                                       VkCommandPool _transientCmdPool,
+                                       const std::string &_rootPath);
+void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material);
+
+enum class DescriptorFrequency {
+  PerFrame,
+  PerView,
+  PerMaterial,
+  PerDraw,
+  COUNT
+};
+
+enum class SamplerType { Nearest, Linear, COUNT };
+
+struct DescriptorSetLayout {
+  VkDescriptorSetLayout Handle;
+  std::unordered_map<VkDescriptorType, uint32_t> NumDescriptorsTable;
+};
+
+struct StandardPipelineLayout {
+  EnumArray<SamplerType, VkSampler> ImmutableSamplers;
+  EnumArray<DescriptorFrequency, DescriptorSetLayout> DescriptorSetLayouts;
+  VkPipelineLayout Handle;
+};
+
+StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer);
+void destroyStandardPipelineLayout(const Renderer &_renderer,
+                                   StandardPipelineLayout &_layout);
+
+struct alignas(16) Light {
+  Float3 Pos;
+  LightType Type;
+  Float3 Dir;
+  float Intensity;
+  Float3 Color;
+  float InnerCutOff;
+  float OuterCutOff;
+};
+
+#define MAX_NUM_LIGHTS 100
+struct FrameUniformBlock {
+  int NumLights;
+  Light Lights[MAX_NUM_LIGHTS];
+};
+
+struct ViewUniformBlock {
+  Mat4 ViewMat;
+  Mat4 ProjMat;
+  Float3 ViewPos;
+};
+
+struct Frame {
+  VkCommandPool CmdPool;
+  VkCommandBuffer CmdBuffer;
+  VkDescriptorSet FrameDescriptorSet;
+  VkDescriptorSet ViewDescriptorSet;
+  std::vector<VkDescriptorSet> MaterialDescriptorSets;
+
+  Buffer FrameUniformBuffer;
+  Buffer ViewUniformBuffer;
+
+  VkFence FrameAvailableFence;
+  VkSemaphore RenderFinishedSemaphore;
+  VkSemaphore ImagePresentedSemaphore;
+};
+
+Frame createFrame(const Renderer &_renderer,
+                  const StandardPipelineLayout &_standardPipelineLayout,
+                  VkDescriptorPool _descriptorPool,
+                  const std::vector<PBRMaterial> &_pbrMaterials);
+
+void destroyFrame(const Renderer &_renderer, Frame &_frame);
 
 } // namespace bb
