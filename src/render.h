@@ -77,6 +77,14 @@ struct Vertex {
   static VkPipelineVertexInputStateCreateInfo getVertexInputState();
 };
 
+struct GizmoVertex {
+  Float3 Pos;
+  Float3 Color;
+
+  static std::array<VkVertexInputBindingDescription, 1> getBindingDescs();
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescs();
+};
+
 struct Buffer {
   VkBuffer Handle;
   VkDeviceMemory Memory;
@@ -87,6 +95,10 @@ Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
                     VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties);
 Buffer createStagingBuffer(const Renderer &_renderer, const Buffer &_orgBuffer);
+Buffer createDeviceLocalBufferFromMemory(const Renderer &_renderer,
+                                         VkCommandPool _cmdPool,
+                                         VkBufferUsageFlags _usage,
+                                         VkDeviceSize _size, void *_data);
 
 void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
 void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
