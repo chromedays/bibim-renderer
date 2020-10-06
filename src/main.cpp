@@ -42,8 +42,10 @@ struct {
   Shader VertShader;
   Shader FragShader;
   Buffer VertexBuffer;
+  Buffer IndexBuffer;
+  uint32_t numIndices;
 
-  Int2 viewportExtent = {100, 100};
+  int viewportExtent = 100;
 } gGizmo;
 
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
@@ -105,9 +107,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   clearDepth.clearValue.depthStencil = {0.f, 0};
   VkClearRect clearDepthRegion = {};
   clearDepthRegion.rect.offset = {
-      (int32_t)(_swapChainExtent.width - gGizmo.viewportExtent.X), 0};
-  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.viewportExtent.X,
-                                  (uint32_t)gGizmo.viewportExtent.Y};
+      (int32_t)(_swapChainExtent.width - gGizmo.viewportExtent), 0};
+  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.viewportExtent,
+                                  (uint32_t)gGizmo.viewportExtent};
   clearDepthRegion.layerCount = 1;
   clearDepthRegion.baseArrayLayer = 0;
   vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
@@ -116,7 +118,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gGizmo.VertexBuffer.Handle,
                          &offset);
-  vkCmdDraw(_cmdBuffer, 6, 1, 0, 0);
+  vkCmdBindIndexBuffer(_cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(_cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
 
@@ -261,19 +265,19 @@ void initReloadableResources(
     pipelineParams.VertexInput.Attributes = attributes.data();
     pipelineParams.VertexInput.NumAttributes = attributes.size();
 
-    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     pipelineParams.Viewport.Offset = {
-        (float)swapChain.Extent.width - gGizmo.viewportExtent.X,
+        (float)swapChain.Extent.width - gGizmo.viewportExtent,
         0,
     };
-    pipelineParams.Viewport.Extent = {(float)gGizmo.viewportExtent.X,
-                                      (float)gGizmo.viewportExtent.Y};
+    pipelineParams.Viewport.Extent = {(float)gGizmo.viewportExtent,
+                                      (float)gGizmo.viewportExtent};
     pipelineParams.Viewport.ScissorOffset = {
         (int)pipelineParams.Viewport.Offset.X,
         (int)pipelineParams.Viewport.Offset.Y,
     };
-    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.viewportExtent.X,
-                                             (int)gGizmo.viewportExtent.Y};
+    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.viewportExtent,
+                                             (int)gGizmo.viewportExtent};
 
     pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
     pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
@@ -388,6 +392,75 @@ int main(int _argc, char **_argv) {
   shaderBallIndices.resize(shaderBallVertices.size());
   std::iota(shaderBallIndices.begin(), shaderBallIndices.end(), 0);
 
+  // Load gizmo model
+  std::vector<GizmoVertex> gizmoVertices;
+  std::vector<uint32_t> gizmoIndices;
+  {
+    Assimp::Importer importer;
+    const aiScene *gizmoScene = importer.ReadFile(
+        createAbsolutePath("gizmo.obj"), aiProcess_Triangulate);
+
+    {
+      size_t numVertices = 0;
+      size_t numFaces = 0;
+
+      for (unsigned int meshIndex = 0; meshIndex < gizmoScene->mNumMeshes;
+           ++meshIndex) {
+        const aiMesh *mesh = gizmoScene->mMeshes[meshIndex];
+        numVertices += mesh->mNumVertices;
+        numFaces += mesh->mNumFaces;
+      }
+
+      gizmoVertices.reserve(numVertices);
+      gizmoIndices.reserve(numFaces * 3);
+    }
+
+    for (unsigned int meshIndex = 0; meshIndex < gizmoScene->mNumMeshes;
+         ++meshIndex) {
+      const aiMesh *mesh = gizmoScene->mMeshes[meshIndex];
+
+      aiMaterial *material = gizmoScene->mMaterials[mesh->mMaterialIndex];
+
+      aiMaterialProperty *diffuseProperty = nullptr;
+      for (unsigned int propertyIndex = 0;
+           propertyIndex < material->mNumProperties; ++propertyIndex) {
+        aiMaterialProperty *property = material->mProperties[propertyIndex];
+        if ((property->mType == aiPTI_Float) &&
+            (property->mDataLength >= (3 * sizeof(float))) &&
+            contains(property->mKey.data, "diffuse")) {
+          diffuseProperty = property;
+          break;
+        }
+      }
+      BB_ASSERT(diffuseProperty);
+
+      float *propertyFloats = (float *)diffuseProperty->mData;
+      Float3 color = {propertyFloats[0], propertyFloats[1], propertyFloats[2]};
+
+      uint32_t baseIndex = (uint32_t)gizmoVertices.size();
+
+      for (unsigned int vertexIndex = 0; vertexIndex < mesh->mNumVertices;
+           ++vertexIndex) {
+        GizmoVertex v = {};
+        v.Pos = aiVector3DToFloat3(mesh->mVertices[vertexIndex]);
+        v.Color = color;
+        v.Normal = aiVector3DToFloat3(mesh->mNormals[vertexIndex]);
+
+        gizmoVertices.push_back(v);
+      }
+
+      for (unsigned int faceIndex = 0; faceIndex < mesh->mNumFaces;
+           ++faceIndex) {
+        const aiFace &face = mesh->mFaces[faceIndex];
+        BB_ASSERT(face.mNumIndices == 3);
+
+        gizmoIndices.push_back(baseIndex + face.mIndices[0]);
+        gizmoIndices.push_back(baseIndex + face.mIndices[1]);
+        gizmoIndices.push_back(baseIndex + face.mIndices[2]);
+      }
+    }
+  }
+
   Renderer renderer = createRenderer(window);
 
   std::string shaderRootPath = "../src/shaders";
@@ -479,21 +552,13 @@ int main(int _argc, char **_argv) {
       renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       sizeBytes32(shaderBallIndices), shaderBallIndices.data());
 
-  // clang-format off
-  float gizmoColorSaturation = 0.05f;
-  std::vector<GizmoVertex> gizmoVertices = {
-    {{0, 0, 0}, {1, gizmoColorSaturation, gizmoColorSaturation}},
-    {{1, 0, 0}, {1, gizmoColorSaturation, gizmoColorSaturation}},
-    {{0, 0, 0}, {gizmoColorSaturation, 1, gizmoColorSaturation}},
-    {{0, 1, 0}, {gizmoColorSaturation, 1, gizmoColorSaturation}},
-    {{0, 0, 0}, {gizmoColorSaturation, gizmoColorSaturation, 1}},
-    {{0, 0, 1}, {gizmoColorSaturation, gizmoColorSaturation, 1}},
-  };
-  // clang-format on
-
   gGizmo.VertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       sizeBytes32(gizmoVertices), gizmoVertices.data());
+  gGizmo.IndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(gizmoIndices), gizmoIndices.data());
+  gGizmo.numIndices = gizmoIndices.size();
 
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
@@ -831,6 +896,7 @@ int main(int _argc, char **_argv) {
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
+  destroyBuffer(renderer, gGizmo.IndexBuffer);
   destroyBuffer(renderer, gGizmo.VertexBuffer);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);

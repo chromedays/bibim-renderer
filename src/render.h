@@ -80,9 +80,10 @@ struct Vertex {
 struct GizmoVertex {
   Float3 Pos;
   Float3 Color;
+  Float3 Normal;
 
   static std::array<VkVertexInputBindingDescription, 1> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs();
 };
 
 struct Buffer {

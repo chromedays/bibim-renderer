@@ -615,9 +615,9 @@ std::array<VkVertexInputBindingDescription, 1> GizmoVertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 2>
+std::array<VkVertexInputAttributeDescription, 3>
 GizmoVertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 2> attributeDescs = {};
+  std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
 
   attributeDescs[0].binding = 0;
   attributeDescs[0].location = 0;
@@ -628,6 +628,11 @@ GizmoVertex::getAttributeDescs() {
   attributeDescs[1].location = 1;
   attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
   attributeDescs[1].offset = offsetof(GizmoVertex, Color);
+
+  attributeDescs[2].binding = 0;
+  attributeDescs[2].location = 2;
+  attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescs[2].offset = offsetof(GizmoVertex, Normal);
 
   return attributeDescs;
 }
