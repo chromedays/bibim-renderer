@@ -35,4 +35,4 @@ layout (set = SET_MATERIAL, binding = 0) uniform texture2D uMaterialTextures[6];
 #define TEX_ROUGHNESS 2
 #define TEX_AO        3
 #define TEX_NORMAL    4
-#define TEX_HEIGHT    5 
+#define TEX_HEIGHT    5

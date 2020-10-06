@@ -605,6 +605,38 @@ std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
   return attributeDescs;
 }
 
+std::array<VkVertexInputBindingDescription, 1> GizmoVertex::getBindingDescs() {
+  std::array<VkVertexInputBindingDescription, 1> bindingDescs = {};
+
+  bindingDescs[0].binding = 0;
+  bindingDescs[0].stride = sizeof(GizmoVertex);
+  bindingDescs[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  return bindingDescs;
+}
+
+std::array<VkVertexInputAttributeDescription, 3>
+GizmoVertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
+
+  attributeDescs[0].binding = 0;
+  attributeDescs[0].location = 0;
+  attributeDescs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescs[0].offset = offsetof(GizmoVertex, Pos);
+
+  attributeDescs[1].binding = 0;
+  attributeDescs[1].location = 1;
+  attributeDescs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescs[1].offset = offsetof(GizmoVertex, Color);
+
+  attributeDescs[2].binding = 0;
+  attributeDescs[2].location = 2;
+  attributeDescs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescs[2].offset = offsetof(GizmoVertex, Normal);
+
+  return attributeDescs;
+}
+
 Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
                     VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties) {
@@ -646,6 +678,27 @@ Buffer createStagingBuffer(const Renderer &_renderer,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   return result;
+}
+
+Buffer createDeviceLocalBufferFromMemory(const Renderer &_renderer,
+                                         VkCommandPool _cmdPool,
+                                         VkBufferUsageFlags _usage,
+                                         VkDeviceSize _size, void *_data) {
+  VkBufferUsageFlags usage = _usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  Buffer buffer = createBuffer(_renderer, _size, usage,
+                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  Buffer stagingBuffer = createStagingBuffer(_renderer, buffer);
+  void *dst;
+  vkMapMemory(_renderer.Device, stagingBuffer.Memory, 0, stagingBuffer.Size, 0,
+              &dst);
+  memcpy(dst, _data, _size);
+  vkUnmapMemory(_renderer.Device, stagingBuffer.Memory);
+
+  copyBuffer(_renderer, _cmdPool, buffer, stagingBuffer, _size);
+
+  destroyBuffer(_renderer, stagingBuffer);
+
+  return buffer;
 }
 
 void destroyBuffer(const Renderer &_renderer, Buffer &_buffer) {

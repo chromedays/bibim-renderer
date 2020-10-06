@@ -37,6 +37,17 @@ namespace bb {
 constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
+struct {
+  VkPipeline Pipeline;
+  Shader VertShader;
+  Shader FragShader;
+  Buffer VertexBuffer;
+  Buffer IndexBuffer;
+  uint32_t numIndices;
+
+  int viewportExtent = 100;
+} gGizmo;
+
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
@@ -67,6 +78,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   renderPassInfo.pClearValues = clearValues;
 
   vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
   vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _graphicsPipeline);
   VkDeviceSize offset = 0;
@@ -89,6 +101,26 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
                    0);
+
+  VkClearAttachment clearDepth = {};
+  clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  clearDepth.clearValue.depthStencil = {0.f, 0};
+  VkClearRect clearDepthRegion = {};
+  clearDepthRegion.rect.offset = {
+      (int32_t)(_swapChainExtent.width - gGizmo.viewportExtent), 0};
+  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.viewportExtent,
+                                  (uint32_t)gGizmo.viewportExtent};
+  clearDepthRegion.layerCount = 1;
+  clearDepthRegion.baseArrayLayer = 0;
+  vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
+  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    gGizmo.Pipeline);
+
+  vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gGizmo.VertexBuffer.Handle,
+                         &offset);
+  vkCmdBindIndexBuffer(_cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(_cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
 
@@ -185,42 +217,87 @@ void initReloadableResources(
                                      &swapChainFramebuffers[i]));
   }
 
-  const Shader *shaders[] = {&_vertShader, &_fragShader};
-  PipelineParams pipelineParams = {};
-  pipelineParams.Shaders = shaders;
-  pipelineParams.NumShaders = std::size(shaders);
+  // PBR Forward Pipeline
+  {
+    const Shader *shaders[] = {&_vertShader, &_fragShader};
+    PipelineParams pipelineParams = {};
+    pipelineParams.Shaders = shaders;
+    pipelineParams.NumShaders = std::size(shaders);
 
-  auto bindingDescs = Vertex::getBindingDescs();
-  auto attributeDescs = Vertex::getAttributeDescs();
-  pipelineParams.VertexInput.Bindings = bindingDescs.data();
-  pipelineParams.VertexInput.NumBindings = bindingDescs.size();
-  pipelineParams.VertexInput.Attributes = attributeDescs.data();
-  pipelineParams.VertexInput.NumAttributes = attributeDescs.size();
+    auto bindingDescs = Vertex::getBindingDescs();
+    auto attributeDescs = Vertex::getAttributeDescs();
+    pipelineParams.VertexInput.Bindings = bindingDescs.data();
+    pipelineParams.VertexInput.NumBindings = bindingDescs.size();
+    pipelineParams.VertexInput.Attributes = attributeDescs.data();
+    pipelineParams.VertexInput.NumAttributes = attributeDescs.size();
 
-  pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  pipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
-                                    (float)swapChain.Extent.height};
-  pipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
-                                           (int)swapChain.Extent.height};
+    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                      (float)swapChain.Extent.height};
+    pipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                             (int)swapChain.Extent.height};
 
-  pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
-  pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+    pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+    pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
 
-  pipelineParams.DepthStencil.DepthTestEnable = true;
-  pipelineParams.DepthStencil.DepthWriteEnable = true;
-  pipelineParams.PipelineLayout = _standardPipelineLayout.Handle;
-  pipelineParams.RenderPass = renderPass;
-  *_outGraphicsPipeline = createPipeline(_renderer, pipelineParams);
+    pipelineParams.DepthStencil.DepthTestEnable = true;
+    pipelineParams.DepthStencil.DepthWriteEnable = true;
+    pipelineParams.PipelineLayout = _standardPipelineLayout.Handle;
+    pipelineParams.RenderPass = renderPass;
+    *_outGraphicsPipeline = createPipeline(_renderer, pipelineParams);
+  }
 
   *_outSwapChain = std::move(swapChain);
   *_outSwapChainFramebuffers = std::move(swapChainFramebuffers);
   *_outRenderPass = renderPass;
+
+  // Gizmo Pipeline
+  {
+    const Shader *shaders[] = {&gGizmo.VertShader, &gGizmo.FragShader};
+    PipelineParams pipelineParams = {};
+    pipelineParams.Shaders = shaders;
+    pipelineParams.NumShaders = std::size(shaders);
+
+    auto bindings = GizmoVertex::getBindingDescs();
+    auto attributes = GizmoVertex::getAttributeDescs();
+    pipelineParams.VertexInput.Bindings = bindings.data();
+    pipelineParams.VertexInput.NumBindings = bindings.size();
+    pipelineParams.VertexInput.Attributes = attributes.data();
+    pipelineParams.VertexInput.NumAttributes = attributes.size();
+
+    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineParams.Viewport.Offset = {
+        (float)swapChain.Extent.width - gGizmo.viewportExtent,
+        0,
+    };
+    pipelineParams.Viewport.Extent = {(float)gGizmo.viewportExtent,
+                                      (float)gGizmo.viewportExtent};
+    pipelineParams.Viewport.ScissorOffset = {
+        (int)pipelineParams.Viewport.Offset.X,
+        (int)pipelineParams.Viewport.Offset.Y,
+    };
+    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.viewportExtent,
+                                             (int)gGizmo.viewportExtent};
+
+    pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+    pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+
+    pipelineParams.DepthStencil.DepthTestEnable = true;
+    pipelineParams.DepthStencil.DepthWriteEnable = true;
+    pipelineParams.PipelineLayout = _standardPipelineLayout.Handle;
+    pipelineParams.RenderPass = renderPass;
+
+    gGizmo.Pipeline = createPipeline(_renderer, pipelineParams);
+  }
 }
 
 void cleanupReloadableResources(
     const Renderer &_renderer, SwapChain &_swapChain, VkRenderPass &_renderPass,
     VkPipeline &_graphicsPipeline,
     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
+  vkDestroyPipeline(_renderer.Device, gGizmo.Pipeline, nullptr);
+  gGizmo.Pipeline = VK_NULL_HANDLE;
+
   for (VkFramebuffer fb : _swapChainFramebuffers) {
     vkDestroyFramebuffer(_renderer.Device, fb, nullptr);
   }
@@ -315,6 +392,75 @@ int main(int _argc, char **_argv) {
   shaderBallIndices.resize(shaderBallVertices.size());
   std::iota(shaderBallIndices.begin(), shaderBallIndices.end(), 0);
 
+  // Load gizmo model
+  std::vector<GizmoVertex> gizmoVertices;
+  std::vector<uint32_t> gizmoIndices;
+  {
+    Assimp::Importer importer;
+    const aiScene *gizmoScene = importer.ReadFile(
+        createAbsolutePath("gizmo.obj"), aiProcess_Triangulate);
+
+    {
+      size_t numVertices = 0;
+      size_t numFaces = 0;
+
+      for (unsigned int meshIndex = 0; meshIndex < gizmoScene->mNumMeshes;
+           ++meshIndex) {
+        const aiMesh *mesh = gizmoScene->mMeshes[meshIndex];
+        numVertices += mesh->mNumVertices;
+        numFaces += mesh->mNumFaces;
+      }
+
+      gizmoVertices.reserve(numVertices);
+      gizmoIndices.reserve(numFaces * 3);
+    }
+
+    for (unsigned int meshIndex = 0; meshIndex < gizmoScene->mNumMeshes;
+         ++meshIndex) {
+      const aiMesh *mesh = gizmoScene->mMeshes[meshIndex];
+
+      aiMaterial *material = gizmoScene->mMaterials[mesh->mMaterialIndex];
+
+      aiMaterialProperty *diffuseProperty = nullptr;
+      for (unsigned int propertyIndex = 0;
+           propertyIndex < material->mNumProperties; ++propertyIndex) {
+        aiMaterialProperty *property = material->mProperties[propertyIndex];
+        if ((property->mType == aiPTI_Float) &&
+            (property->mDataLength >= (3 * sizeof(float))) &&
+            contains(property->mKey.data, "diffuse")) {
+          diffuseProperty = property;
+          break;
+        }
+      }
+      BB_ASSERT(diffuseProperty);
+
+      float *propertyFloats = (float *)diffuseProperty->mData;
+      Float3 color = {propertyFloats[0], propertyFloats[1], propertyFloats[2]};
+
+      uint32_t baseIndex = (uint32_t)gizmoVertices.size();
+
+      for (unsigned int vertexIndex = 0; vertexIndex < mesh->mNumVertices;
+           ++vertexIndex) {
+        GizmoVertex v = {};
+        v.Pos = aiVector3DToFloat3(mesh->mVertices[vertexIndex]);
+        v.Color = color;
+        v.Normal = aiVector3DToFloat3(mesh->mNormals[vertexIndex]);
+
+        gizmoVertices.push_back(v);
+      }
+
+      for (unsigned int faceIndex = 0; faceIndex < mesh->mNumFaces;
+           ++faceIndex) {
+        const aiFace &face = mesh->mFaces[faceIndex];
+        BB_ASSERT(face.mNumIndices == 3);
+
+        gizmoIndices.push_back(baseIndex + face.mIndices[0]);
+        gizmoIndices.push_back(baseIndex + face.mIndices[1]);
+        gizmoIndices.push_back(baseIndex + face.mIndices[2]);
+      }
+    }
+  }
+
   Renderer renderer = createRenderer(window);
 
   std::string shaderRootPath = "../src/shaders";
@@ -323,6 +469,13 @@ int main(int _argc, char **_argv) {
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.vert.spv")));
   Shader brdfFragShader = createShaderFromFile(
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.frag.spv")));
+
+  gGizmo.VertShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "gizmo.vert.spv")));
+  gGizmo.FragShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "gizmo.frag.spv")));
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -391,82 +544,21 @@ int main(int _argc, char **_argv) {
                           &renderPass, &graphicsPipeline,
                           &swapChainFramebuffers);
 
-  // clang-format off
-  std::vector<Vertex> quadVertices = {
-      {{-0.5f, -0.5f, 0}, {0, 0}},
-      {{0.5f, -0.5f, 0},  {1, 0}},
-      {{0.5f, 0.5f, 0},  {1, 1}},
-      {{-0.5f, 0.5f, 0}, {0, 1}},
+  Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      sizeBytes32(shaderBallVertices), shaderBallVertices.data());
 
-      {{-0.5f, -0.5f, -0.5f}, {0, 0}},
-      {{0.5f, -0.5f, -0.5f},  {1, 0}},
-      {{0.5f, 0.5f, -0.5f}, {1, 1}},
-      {{-0.5f, 0.5f, -0.5f},  {0, 1}}};
+  Buffer shaderBallIndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(shaderBallIndices), shaderBallIndices.data());
 
-  std::vector<uint32_t> quadIndices = {
-    4, 5, 6, 6, 7, 4,
-    0, 1, 2, 2, 3, 0,
-  };
-  // clang-format on
-
-  Buffer quadVertexBuffer = createBuffer(renderer, sizeBytes32(quadVertices),
-                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  Buffer quadIndexBuffer = createBuffer(renderer, sizeBytes32(quadIndices),
-                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  {
-    Buffer vertexStagingBuffer =
-        createStagingBuffer(renderer, quadVertexBuffer);
-
-    Buffer indexStagingBuffer = createStagingBuffer(renderer, quadIndexBuffer);
-    void *data;
-    vkMapMemory(renderer.Device, vertexStagingBuffer.Memory, 0,
-                vertexStagingBuffer.Size, 0, &data);
-    memcpy(data, quadVertices.data(), vertexStagingBuffer.Size);
-    vkUnmapMemory(renderer.Device, vertexStagingBuffer.Memory);
-    vkMapMemory(renderer.Device, indexStagingBuffer.Memory, 0,
-                indexStagingBuffer.Size, 0, &data);
-    memcpy(data, quadIndices.data(), indexStagingBuffer.Size);
-    vkUnmapMemory(renderer.Device, indexStagingBuffer.Memory);
-
-    copyBuffer(renderer, transientCmdPool, quadVertexBuffer,
-               vertexStagingBuffer, vertexStagingBuffer.Size);
-    copyBuffer(renderer, transientCmdPool, quadIndexBuffer, indexStagingBuffer,
-               indexStagingBuffer.Size);
-
-    destroyBuffer(renderer, vertexStagingBuffer);
-    destroyBuffer(renderer, indexStagingBuffer);
-  }
-
-  Buffer shaderBallVertexBuffer =
-      createBuffer(renderer, sizeBytes32(shaderBallVertices),
-                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  {
-    void *data;
-    vkMapMemory(renderer.Device, shaderBallVertexBuffer.Memory, 0,
-                shaderBallVertexBuffer.Size, 0, &data);
-    memcpy(data, shaderBallVertices.data(), shaderBallVertexBuffer.Size);
-    vkUnmapMemory(renderer.Device, shaderBallVertexBuffer.Memory);
-  }
-  Buffer shaderBallIndexBuffer =
-      createBuffer(renderer, sizeBytes32(shaderBallIndices),
-                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  {
-    void *data;
-    vkMapMemory(renderer.Device, shaderBallIndexBuffer.Memory, 0,
-                shaderBallIndexBuffer.Size, 0, &data);
-    memcpy(data, shaderBallIndices.data(), shaderBallIndexBuffer.Size);
-    vkUnmapMemory(renderer.Device, shaderBallIndexBuffer.Memory);
-  }
+  gGizmo.VertexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      sizeBytes32(gizmoVertices), gizmoVertices.data());
+  gGizmo.IndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(gizmoIndices), gizmoIndices.data());
+  gGizmo.numIndices = gizmoIndices.size();
 
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
@@ -804,11 +896,11 @@ int main(int _argc, char **_argv) {
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
+  destroyBuffer(renderer, gGizmo.IndexBuffer);
+  destroyBuffer(renderer, gGizmo.VertexBuffer);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
-  destroyBuffer(renderer, quadIndexBuffer);
-  destroyBuffer(renderer, quadVertexBuffer);
 
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);
@@ -820,6 +912,8 @@ int main(int _argc, char **_argv) {
   }
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
+  destroyShader(renderer, gGizmo.VertShader);
+  destroyShader(renderer, gGizmo.FragShader);
   destroyShader(renderer, brdfVertShader);
   destroyShader(renderer, brdfFragShader);
   destroyRenderer(renderer);
