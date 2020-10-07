@@ -1388,4 +1388,54 @@ void destroyFrame(const Renderer &_renderer, Frame &_frame) {
   _frame = {};
 }
 
+template <size_t NumVertices, size_t NumIndices>
+void appendMesh(std::vector<Vertex> &_dstVertices,
+                std::vector<uint32_t> &_dstIndices,
+                const Vertex (&_srcVertices)[NumVertices],
+                const uint32_t (&_srcIndices)[NumIndices]) {
+  uint32_t baseIndex = (uint32_t)_dstIndices.size();
+
+  _dstVertices.insert(_dstVertices.end(), std::begin(_srcVertices),
+                      std::end(_srcVertices));
+
+  uint32_t srcIndices[NumIndices];
+  for (size_t i = 0; i < NumIndices; ++i) {
+    srcIndices[i] = _srcIndices[i] + baseIndex;
+  }
+
+  _dstIndices.insert(_dstIndices.end(), std::begin(srcIndices),
+                     std::end(srcIndices));
+}
+
+void generatePlaneMesh(std::vector<Vertex> &_vertices,
+                       std::vector<uint32_t> &_indices) {
+  // clang-format off
+  Vertex newVertices[] = {
+    {{-0.5f, 0, -0.5f}, {0, 0}, {0, 1, 0}, {1, 0, 0}},
+    {{-0.5f, 0,  0.5f}, {0, 1}, {0, 1, 0}, {1, 0, 0}},
+    {{ 0.5f, 0,  0.5f}, {1, 1}, {0, 1, 0}, {1, 0, 0}},
+    {{ 0.5f, 0, -0.5f}, {1, 0}, {0, 1, 0}, {1, 0, 0}},
+  };
+  // clang-format on
+
+  uint32_t newIndices[] = {0, 1, 2, 2, 3, 0};
+
+  appendMesh(_vertices, _indices, newVertices, newIndices);
+}
+
+void generateQuadMesh(std::vector<Vertex> &_vertices,
+                      std::vector<uint32_t> &_indices) {
+  // clang-format off
+  Vertex newVertices[] = {
+      {{-0.5f, -0.5f, 0}, {0, 0}, {0, 0, -1}, {1, 0, 0}},
+      {{-0.5f,  0.5f, 0}, {0, 1}, {0, 0, -1}, {1, 0, 0}},
+      {{ 0.5f,  0.5f, 0}, {1, 1}, {0, 0, -1}, {1, 0, 0}},
+      {{ 0.5f, -0.5f, 0}, {1, 0}, {0, 0, -1}, {1, 0, 0}}};
+  // clang-format on
+
+  uint32_t newIndices[] = {0, 1, 2, 2, 3, 0};
+
+  appendMesh(_vertices, _indices, newVertices, newIndices);
+}
+
 } // namespace bb

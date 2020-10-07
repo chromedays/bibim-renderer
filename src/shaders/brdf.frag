@@ -16,7 +16,7 @@ void main() {
     float metallic = texture(sampler2D(uMaterialTextures[TEX_METALLIC], uSamplers[SMP_LINEAR]), vUV).r;
     float roughness = texture(sampler2D(uMaterialTextures[TEX_ROUGHNESS], uSamplers[SMP_LINEAR]), vUV).r;
     float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
-    vec3 normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+    vec3 normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
 
     vec3 Lo = vec3(0);
 

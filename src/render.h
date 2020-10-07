@@ -255,4 +255,9 @@ Frame createFrame(const Renderer &_renderer,
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
 
+void generatePlaneMesh(std::vector<Vertex> &_vertices,
+                       std::vector<uint32_t> &_indices);
+void generateQuadMesh(std::vector<Vertex> &_vertices,
+                      std::vector<uint32_t> &_indices);
+
 } // namespace bb

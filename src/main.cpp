@@ -48,6 +48,24 @@ struct {
   int viewportExtent = 100;
 } gGizmo;
 
+struct {
+  VkPipeline Pipeline;
+  Shader VertShader;
+  Shader FragShader;
+  Buffer DirLightVolumeVertexBuffer;
+  uint32_t NumDirLightVolumeVertices;
+  Buffer PointLightVolumeVertexBuffer;
+  uint32_t NumPointLightVolumeVertices;
+  Buffer SpotLightVolumeVertexBuffer;
+  uint32_t NumSpotLightVolumeVertices;
+  Buffer InstanceBuffer;
+} gLightSources;
+
+Buffer gPlaneInstanceBuffer;
+Buffer gPlaneVertexBuffer;
+Buffer gPlaneIndexBuffer;
+uint32_t gNumPlaneIndices;
+
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
@@ -101,6 +119,13 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
                    0);
+
+  vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gPlaneVertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &gPlaneInstanceBuffer.Handle,
+                         &offset);
+  vkCmdBindIndexBuffer(_cmdBuffer, gPlaneIndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(_cmdBuffer, gNumPlaneIndices, 1, 0, 0, 0);
 
   VkClearAttachment clearDepth = {};
   clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -544,6 +569,34 @@ int main(int _argc, char **_argv) {
                           &renderPass, &graphicsPipeline,
                           &swapChainFramebuffers);
 
+  std::vector<Vertex> planeVertices;
+  std::vector<uint32_t> planeIndices;
+  generatePlaneMesh(planeVertices, planeIndices);
+  gPlaneVertexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      sizeBytes32(planeVertices), planeVertices.data());
+  gPlaneIndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(planeIndices), planeIndices.data());
+  gNumPlaneIndices = planeIndices.size();
+
+  InstanceBlock planeInstanceData = {};
+  planeInstanceData.ModelMat =
+      Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
+  planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
+
+  gPlaneInstanceBuffer = createBuffer(renderer, sizeof(planeInstanceData),
+                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+  {
+    void *dst;
+    vkMapMemory(renderer.Device, gPlaneInstanceBuffer.Memory, 0,
+                gPlaneInstanceBuffer.Size, 0, &dst);
+    memcpy(dst, &planeInstanceData, sizeof(planeInstanceData));
+    vkUnmapMemory(renderer.Device, gPlaneInstanceBuffer.Memory);
+  }
+
   Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       sizeBytes32(shaderBallVertices), shaderBallVertices.data());
@@ -646,8 +699,7 @@ int main(int _argc, char **_argv) {
   std::vector<InstanceBlock> instanceData(numInstances);
 
   Buffer instanceBuffer = createBuffer(renderer, sizeBytes32(instanceData),
-                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
@@ -901,6 +953,9 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
+  destroyBuffer(renderer, gPlaneIndexBuffer);
+  destroyBuffer(renderer, gPlaneVertexBuffer);
+  destroyBuffer(renderer, gPlaneInstanceBuffer);
 
   cleanupReloadableResources(renderer, swapChain, renderPass, graphicsPipeline,
                              swapChainFramebuffers);
