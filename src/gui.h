@@ -10,7 +10,5 @@ template <typename... Args> void guiTextFmt(Args... _args) {
 }
 
 void guiColorPicker3(const std::string &_label, Float3 &_color);
-void guiMaterialPicker(const std::string &_label,
-                       InstanceBlock &_instanceBlock);
 
 } // namespace bb

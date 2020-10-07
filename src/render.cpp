@@ -513,8 +513,8 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 16> attributeDescs = {};
+std::array<VkVertexInputAttributeDescription, 12> Vertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 12> attributeDescs = {};
 
   int lastAttributeIndex = 0;
 
@@ -595,10 +595,6 @@ std::array<VkVertexInputAttributeDescription, 16> Vertex::getAttributeDescs() {
 
   pushMat4Attribute(1, offsetof(InstanceBlock, ModelMat));
   pushMat4Attribute(1, offsetof(InstanceBlock, InvModelMat));
-  pushVecAttribute(1, 3, offsetof(InstanceBlock, Albedo));
-  pushVecAttribute(1, 1, offsetof(InstanceBlock, Metallic));
-  pushVecAttribute(1, 1, offsetof(InstanceBlock, Roughness));
-  pushVecAttribute(1, 1, offsetof(InstanceBlock, AO));
 
   BB_ASSERT(lastAttributeIndex == attributeDescs.size());
 

@@ -863,16 +863,6 @@ int main(int _argc, char **_argv) {
     }
     ImGui::End();
 
-    if (ImGui::Begin("Material")) {
-      if (selectedInstanceIndex >= 0) {
-        InstanceBlock &currentInstance = instanceData[selectedInstanceIndex];
-
-        guiMaterialPicker(fmt::format("Instance {}", selectedInstanceIndex),
-                          currentInstance);
-      }
-    }
-    ImGui::End();
-
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
                                  Mat4::rotateY(angle) * Mat4::rotateX(-90) *

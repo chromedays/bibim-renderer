@@ -60,10 +60,6 @@ enum class LightType : int { Point = 0, Spot, Directional };
 struct InstanceBlock {
   Mat4 ModelMat;
   Mat4 InvModelMat;
-  alignas(16) Float3 Albedo = {1, 1, 1};
-  float Metallic;
-  float Roughness = 0.5f;
-  float AO = 1;
 };
 
 struct Vertex {
@@ -73,7 +69,7 @@ struct Vertex {
   Float3 Tangent = {0, -1, 0};
 
   static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 16> getAttributeDescs();
+  static std::array<VkVertexInputAttributeDescription, 12> getAttributeDescs();
   static VkPipelineVertexInputStateCreateInfo getVertexInputState();
 };
 

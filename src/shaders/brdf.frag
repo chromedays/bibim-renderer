@@ -6,8 +6,6 @@
 layout (location = 0) in vec2 vUV;
 layout (location = 1) in vec3 vPosWorld;
 layout (location = 2) in mat3 vTBN;
-layout (location = 5) in flat vec3 vAlbedo;
-layout (location = 6) in flat vec3 vMRA; // Metallic, Roughness, AO
 
 layout (location = 0) out vec4 outColor;
 
