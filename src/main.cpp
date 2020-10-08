@@ -376,7 +376,7 @@ void cleanupReloadableResources(
 
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
-void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
+void onWindowResize(SDL_Window *_window, Renderer &_renderer,
                     const Shader &_vertShader, const Shader &_fragShader,
                     const StandardPipelineLayout &_standardPipelineLayout,
                     SwapChain &_swapChain, VkRenderPass &_renderPass,
@@ -388,10 +388,15 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
     SDL_WaitEvent(nullptr);
 
   SDL_GetWindowSize(_window, &width, &height);
+  if (width == 0 || height == 0)
+    return;
 
   vkDeviceWaitIdle(
       _renderer.Device); // Ensure that device finished using swap chain.
 
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+      _renderer.PhysicalDevice, _renderer.Surface,
+      &_renderer.SwapChainSupportDetails.Capabilities);
   cleanupReloadableResources(_renderer, _swapChain, _renderPass,
                              _graphicsPipeline, _swapChainFramebuffers);
 
@@ -854,10 +859,6 @@ int main(int _argc, char **_argv) {
                               VK_NULL_HANDLE, &currentSwapChainImageIndex);
 
     if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
-      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-          renderer.PhysicalDevice, renderer.Surface,
-          &renderer.SwapChainSupportDetails.Capabilities);
-
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
                      standardPipelineLayout, swapChain, renderPass,
                      graphicsPipeline, swapChainFramebuffers);
@@ -990,10 +991,6 @@ int main(int _argc, char **_argv) {
         vkQueuePresentKHR(renderer.Queue, &presentInfo);
     if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         queuePresentResult == VK_SUBOPTIMAL_KHR) {
-      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-          renderer.PhysicalDevice, renderer.Surface,
-          &renderer.SwapChainSupportDetails.Capabilities);
-
       onWindowResize(window, renderer, brdfVertShader, brdfFragShader,
                      standardPipelineLayout, swapChain, renderPass,
                      graphicsPipeline, swapChainFramebuffers);
