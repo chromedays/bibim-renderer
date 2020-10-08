@@ -1,20 +1,37 @@
 #version 450
 
+#include "debug_common.glsl"
 #include "brdf.glsl"
 #include "standard_sets.glsl"
 
 layout (location = 0) in vec2 vUV;
 layout (location = 1) in vec3 vPosWorld;
-layout (location = 2) in mat3 vTBN;
+layout (location = 2) in vec3 vNormalWorld;
+layout (location = 3) in vec3 vTangentWorld;
 
 layout (location = 0) out vec4 outColor;
 
 void main() {
+    mat3 TBN;
+    {
+        vec3 N = normalize(vNormalWorld);
+        #if 0
+        vec3 B = normalize(cross(vTangentWorld, vNormalWorld));
+        vec3 T = normalize(cross(N, B));
+        #endif
+        #if 1
+        vec3 B = normalize(cross(vNormalWorld, vTangentWorld));
+        vec3 T = normalize(cross(B, N));
+        #endif
+        TBN = mat3(T, B, N);
+    }
+
     vec3 albedo = texture(sampler2D(uMaterialTextures[TEX_ALBEDO], uSamplers[SMP_LINEAR]), vUV).rgb;
     float metallic = texture(sampler2D(uMaterialTextures[TEX_METALLIC], uSamplers[SMP_LINEAR]), vUV).r;
     float roughness = texture(sampler2D(uMaterialTextures[TEX_ROUGHNESS], uSamplers[SMP_LINEAR]), vUV).r;
     float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
-    vec3 normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
+    vec3 normal = TBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
+    //vec3 normal = TBN[2];
 
     vec3 Lo = vec3(0);
 
@@ -63,6 +80,11 @@ void main() {
 
     vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 color = ambient + Lo;
-
+    
+    //color = TBN[0];
+    //color = vec3(dot(TBN[0], TBN[2]));
+    //color = transpose(TBN) * normal;
+    //color = vec3(vUV.xy, 0);
     outColor = vec4(color, 1);
+
 }

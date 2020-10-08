@@ -43,9 +43,9 @@ struct {
   Shader FragShader;
   Buffer VertexBuffer;
   Buffer IndexBuffer;
-  uint32_t numIndices;
+  uint32_t NumIndices;
 
-  int viewportExtent = 100;
+  int ViewportExtent = 100;
 } gGizmo;
 
 struct {
@@ -72,7 +72,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
                    const Buffer &_indexBuffer,
                    const StandardPipelineLayout &_standardPipelineLayout,
-                   const Frame &_frame, const std::vector<uint32_t> &_indices,
+                   const Frame &_frame, uint32_t _numIndices,
                    uint32_t _numInstances) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
@@ -117,8 +117,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                           _standardPipelineLayout.Handle, 2, 1,
                           &_frame.MaterialDescriptorSets[0], 0, nullptr);
 
-  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
-                   0);
+  vkCmdDrawIndexed(_cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
 
   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gPlaneVertexBuffer.Handle, &offset);
   vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &gPlaneInstanceBuffer.Handle,
@@ -132,9 +131,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   clearDepth.clearValue.depthStencil = {0.f, 0};
   VkClearRect clearDepthRegion = {};
   clearDepthRegion.rect.offset = {
-      (int32_t)(_swapChainExtent.width - gGizmo.viewportExtent), 0};
-  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.viewportExtent,
-                                  (uint32_t)gGizmo.viewportExtent};
+      (int32_t)(_swapChainExtent.width - gGizmo.ViewportExtent), 0};
+  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.ViewportExtent,
+                                  (uint32_t)gGizmo.ViewportExtent};
   clearDepthRegion.layerCount = 1;
   clearDepthRegion.baseArrayLayer = 0;
   vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
@@ -145,7 +144,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                          &offset);
   vkCmdBindIndexBuffer(_cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
-  vkCmdDrawIndexed(_cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
+  vkCmdDrawIndexed(_cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
 
@@ -292,17 +291,17 @@ void initReloadableResources(
 
     pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     pipelineParams.Viewport.Offset = {
-        (float)swapChain.Extent.width - gGizmo.viewportExtent,
+        (float)swapChain.Extent.width - gGizmo.ViewportExtent,
         0,
     };
-    pipelineParams.Viewport.Extent = {(float)gGizmo.viewportExtent,
-                                      (float)gGizmo.viewportExtent};
+    pipelineParams.Viewport.Extent = {(float)gGizmo.ViewportExtent,
+                                      (float)gGizmo.ViewportExtent};
     pipelineParams.Viewport.ScissorOffset = {
         (int)pipelineParams.Viewport.Offset.X,
         (int)pipelineParams.Viewport.Offset.Y,
     };
-    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.viewportExtent,
-                                             (int)gGizmo.viewportExtent};
+    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.ViewportExtent,
+                                             (int)gGizmo.ViewportExtent};
 
     pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
     pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
@@ -597,6 +596,10 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, gPlaneInstanceBuffer.Memory);
   }
 
+  std::vector<Vertex> sphereVertices;
+  std::vector<uint32_t> sphereIndices;
+  generateUVSphereMesh(sphereVertices, sphereIndices, 1, 64, 128);
+
   Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       sizeBytes32(shaderBallVertices), shaderBallVertices.data());
@@ -611,7 +614,7 @@ int main(int _argc, char **_argv) {
   gGizmo.IndexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       sizeBytes32(gizmoIndices), gizmoIndices.data());
-  gGizmo.numIndices = gizmoIndices.size();
+  gGizmo.NumIndices = gizmoIndices.size();
 
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
@@ -803,7 +806,7 @@ int main(int _argc, char **_argv) {
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
     static float angle = -90;
-    angle += 30.f * dt;
+    // angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }
@@ -864,9 +867,12 @@ int main(int _argc, char **_argv) {
     ImGui::End();
 
     for (int i = 0; i < instanceData.size(); i++) {
-      instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
-                                 Mat4::rotateY(angle) * Mat4::rotateX(-90) *
-                                 Mat4::scale({0.01f, 0.01f, 0.01f});
+      instanceData[i].ModelMat =
+          Mat4::translate({(float)(i * 2), -1, 2}) * Mat4::rotateY(angle)
+#if 1
+          * Mat4::rotateX(-90) * Mat4::scale({0.01f, 0.01f, 0.01f})
+#endif
+          ;
       instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
     }
 
@@ -886,7 +892,7 @@ int main(int _argc, char **_argv) {
                   currentSwapChainFramebuffer, swapChain.Extent,
                   graphicsPipeline, shaderBallVertexBuffer, instanceBuffer,
                   shaderBallIndexBuffer, standardPipelineLayout, currentFrame,
-                  shaderBallIndices, numInstances);
+                  shaderBallIndices.size(), numInstances);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

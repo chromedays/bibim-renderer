@@ -1384,23 +1384,19 @@ void destroyFrame(const Renderer &_renderer, Frame &_frame) {
   _frame = {};
 }
 
-template <size_t NumVertices, size_t NumIndices>
+template <typename VertexContainer, typename IndexContainer>
 void appendMesh(std::vector<Vertex> &_dstVertices,
                 std::vector<uint32_t> &_dstIndices,
-                const Vertex (&_srcVertices)[NumVertices],
-                const uint32_t (&_srcIndices)[NumIndices]) {
+                const VertexContainer &_srcVertices,
+                const IndexContainer &_srcIndices) {
   uint32_t baseIndex = (uint32_t)_dstIndices.size();
 
   _dstVertices.insert(_dstVertices.end(), std::begin(_srcVertices),
                       std::end(_srcVertices));
 
-  uint32_t srcIndices[NumIndices];
-  for (size_t i = 0; i < NumIndices; ++i) {
-    srcIndices[i] = _srcIndices[i] + baseIndex;
+  for (uint32_t index : _srcIndices) {
+    _dstIndices.push_back(index + baseIndex);
   }
-
-  _dstIndices.insert(_dstIndices.end(), std::begin(srcIndices),
-                     std::end(srcIndices));
 }
 
 void generatePlaneMesh(std::vector<Vertex> &_vertices,
@@ -1430,6 +1426,97 @@ void generateQuadMesh(std::vector<Vertex> &_vertices,
   // clang-format on
 
   uint32_t newIndices[] = {0, 1, 2, 2, 3, 0};
+
+  appendMesh(_vertices, _indices, newVertices, newIndices);
+}
+
+void generateUVSphereMesh(std::vector<Vertex> &_vertices,
+                          std::vector<uint32_t> &_indices, float _radius,
+                          int _horizontalDivision, int _verticalDivision) {
+  BB_ASSERT((_horizontalDivision >= 3) && (_verticalDivision >= 2));
+
+  Float3 top = {0, _radius, 0};
+  Float3 bottom = {0, -_radius, 0};
+
+  std::vector<Vertex> newVertices;
+  newVertices.reserve((_horizontalDivision + 1) * (_verticalDivision + 1));
+  std::vector<uint32_t> newIndices;
+  newIndices.reserve(6 * _horizontalDivision * (_verticalDivision - 1));
+
+  std::vector<Float3> tangents(_horizontalDivision);
+  for (int i = 0; i < _horizontalDivision; ++i) {
+    float rad = twoPi32 * ((float)i / (float)_horizontalDivision);
+    tangents[i] = Float3{-sinf(rad), 0, cosf(rad)}.normalize();
+  }
+
+  std::vector<Float3> topTangents(_horizontalDivision);
+  for (int i = 0; i < _horizontalDivision; ++i) {
+    float rad = twoPi32 * (((float)i + 0.5f) / (float)_horizontalDivision);
+    topTangents[i] = Float3{-sinf(rad), 0, cosf(rad)}.normalize();
+  }
+
+  std::vector<Float3> bottomTangents(_horizontalDivision);
+  for (int i = 0; i < _horizontalDivision; ++i) {
+    float rad = twoPi32 * (((float)i + 0.5f) / (float)_horizontalDivision);
+    bottomTangents[i] = Float3{-sinf(rad), 0, cosf(rad)}.normalize();
+  }
+
+  for (int v = 0; v <= _verticalDivision; ++v) {
+    float theta = -halfPi32 + pi32 * ((float)v / (float)_verticalDivision);
+    for (int h = 0; h <= _horizontalDivision; ++h) {
+      float phi = twoPi32 * ((float)h / (float)_horizontalDivision);
+
+      Vertex vertex = {};
+      vertex.Pos = sphericalToCartesian({_radius, theta, phi});
+      vertex.Normal = vertex.Pos.normalize();
+      vertex.UV.X = (float)h / (float)_horizontalDivision;
+      vertex.UV.Y = (float)v / (float)_verticalDivision;
+      if (v == 0) {
+        vertex.Tangent = bottomTangents[h % _horizontalDivision];
+      } else if (v == _verticalDivision) {
+        vertex.Tangent = topTangents[h % _horizontalDivision];
+      } else {
+        vertex.Tangent = tangents[h % _horizontalDivision];
+      }
+
+      newVertices.push_back(vertex);
+    }
+  }
+
+  for (int v = 0; v < _verticalDivision; ++v) {
+    for (int h = 0; h < _horizontalDivision; ++h) {
+      int baseIndex = (_horizontalDivision + 1) * v + h;
+      if (v < _verticalDivision - 1) {
+        newIndices.push_back(baseIndex);
+        newIndices.push_back(baseIndex + _horizontalDivision + 1);
+        newIndices.push_back(baseIndex + _horizontalDivision + 2);
+      }
+      if (v > 0) {
+        newIndices.push_back(baseIndex + _horizontalDivision + 2);
+        newIndices.push_back(baseIndex + 1);
+        newIndices.push_back(baseIndex);
+      }
+    }
+  }
+
+  for (size_t i = 0; i < newIndices.size(); i += 3) {
+    Vertex &v0 = newVertices[newIndices[i]];
+    Vertex &v1 = newVertices[newIndices[i + 1]];
+    Vertex &v2 = newVertices[newIndices[i + 2]];
+
+    Float3 e0 = v2.Pos - v0.Pos;
+    Float3 e1 = v1.Pos - v0.Pos;
+    Float2 duv0 = v2.UV - v0.UV;
+    Float2 duv1 = v1.UV - v0.UV;
+    float f = 1.0f / (duv0.X * duv1.Y - duv1.X * duv0.Y);
+
+    Float3 tangent = {f * (duv1.Y * e0.X - duv0.Y * e1.X),
+                      f * (duv1.Y * e0.Y - duv0.Y * e1.Y),
+                      f * (duv1.Y * e0.Z - duv0.Y * e1.Z)};
+    v0.Tangent = tangent;
+    v1.Tangent = tangent;
+    v2.Tangent = tangent;
+  }
 
   appendMesh(_vertices, _indices, newVertices, newIndices);
 }

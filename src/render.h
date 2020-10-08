@@ -256,4 +256,11 @@ void generatePlaneMesh(std::vector<Vertex> &_vertices,
 void generateQuadMesh(std::vector<Vertex> &_vertices,
                       std::vector<uint32_t> &_indices);
 
+// The tangent vector of UV Sphere will be broken at the top and the bottom
+// side, because of how UV Sphere is constructed.
+void generateUVSphereMesh(std::vector<Vertex> &_vertices,
+                          std::vector<uint32_t> &_indices, float _radius = 1.f,
+                          int _horizontalDivision = 16,
+                          int _verticalDivision = 16);
+
 } // namespace bb

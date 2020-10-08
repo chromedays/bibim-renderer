@@ -2,15 +2,15 @@
 
 namespace bb {
 
-int compareFloats(float a, float b) {
-  float diff = a - b;
+int compareFloats(float _a, float _b) {
+  float diff = _a - _b;
   if (diff < 0) {
     diff = -diff;
   }
 
   if (diff <= epsilon32) {
     return 0;
-  } else if (a > b) {
+  } else if (_a > _b) {
     return -1;
   } else {
     return 1;
@@ -244,16 +244,16 @@ Mat4 Mat4::lookAt(const Float3 &_eye, const Float3 &_target,
   // clang-format on
 }
 
-Mat4 Mat4::perspective(float _fovDegrees, float aspectRatio, float _nearZ,
+Mat4 Mat4::perspective(float _fovDegrees, float _aspectRatio, float _nearZ,
                        float _farZ) {
   float d = 1.f / tan(degToRad(_fovDegrees) * 0.5f);
   float fSubN = _farZ - _nearZ;
   // clang-format off
     Mat4 result = {{
-      {d / aspectRatio, 0, 0,                    0},
-      {0,               -d, 0,                    0},
-      {0,               0, -_nearZ / fSubN,       1},
-      {0,               0, _nearZ * _farZ / fSubN, 0},
+      {d / _aspectRatio, 0, 0,                      0},
+      {0,               -d, 0,                      0},
+      {0,                0, -_nearZ / fSubN,        1},
+      {0,                0, _nearZ * _farZ / fSubN, 0},
     }};
   // clang-format on
   return result;
@@ -271,14 +271,24 @@ Mat4 operator*(const Mat4 &_a, const Mat4 &_b) {
   return result;
 }
 
-Mat4 operator/(const Mat4 &_a, float b) {
+Mat4 operator/(const Mat4 &_a, float _b) {
   Mat4 result = _a;
   for (int c = 0; c < 4; ++c) {
     for (int r = 0; r < 4; ++r) {
-      result.M[c][r] /= b;
+      result.M[c][r] /= _b;
     }
   }
   return result;
+}
+
+Float3 sphericalToCartesian(const SphericalFloat3 &_spherical) {
+  float cosTheta = cosf(_spherical.theta);
+
+  Float3 cartesian = {_spherical.r * cosTheta * cosf(_spherical.phi),
+                      _spherical.r * sinf(_spherical.theta),
+                      _spherical.r * cosTheta * sinf(_spherical.phi)};
+
+  return cartesian;
 }
 
 } // namespace bb
