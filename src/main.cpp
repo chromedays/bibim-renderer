@@ -52,13 +52,11 @@ struct {
   VkPipeline Pipeline;
   Shader VertShader;
   Shader FragShader;
-  Buffer DirLightVolumeVertexBuffer;
-  uint32_t NumDirLightVolumeVertices;
-  Buffer PointLightVolumeVertexBuffer;
-  uint32_t NumPointLightVolumeVertices;
-  Buffer SpotLightVolumeVertexBuffer;
-  uint32_t NumSpotLightVolumeVertices;
+  Buffer VertexBuffer;
+  Buffer IndexBuffer;
+  uint32_t NumIndices;
   Buffer InstanceBuffer;
+  uint32_t NumLights;
 } gLightSources;
 
 Buffer gPlaneInstanceBuffer;
@@ -125,6 +123,15 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
   vkCmdBindIndexBuffer(_cmdBuffer, gPlaneIndexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
   vkCmdDrawIndexed(_cmdBuffer, gNumPlaneIndices, 1, 0, 0, 0);
+
+  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    gLightSources.Pipeline);
+  vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gLightSources.VertexBuffer.Handle,
+                         &offset);
+  vkCmdBindIndexBuffer(_cmdBuffer, gLightSources.IndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(_cmdBuffer, gLightSources.NumIndices,
+                   gLightSources.NumLights, 0, 0, 0);
 
   VkClearAttachment clearDepth = {};
   clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -313,12 +320,46 @@ void initReloadableResources(
 
     gGizmo.Pipeline = createPipeline(_renderer, pipelineParams);
   }
+
+  // Light Sources Pipeline
+  {
+    PipelineParams pipelineParams = {};
+    const Shader *shaders[] = {&gLightSources.VertShader,
+                               &gLightSources.FragShader};
+    pipelineParams.Shaders = shaders;
+    pipelineParams.NumShaders = std::size(shaders);
+
+    auto bindings = LightSourceVertex::getBindingDescs();
+    auto attributes = LightSourceVertex::getAttributeDescs();
+    pipelineParams.VertexInput.Bindings = bindings.data();
+    pipelineParams.VertexInput.NumBindings = bindings.size();
+    pipelineParams.VertexInput.Attributes = attributes.data();
+    pipelineParams.VertexInput.NumAttributes = attributes.size();
+
+    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                      (float)swapChain.Extent.height};
+    pipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                             (int)swapChain.Extent.height};
+
+    pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+    pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+
+    pipelineParams.DepthStencil.DepthTestEnable = true;
+    pipelineParams.DepthStencil.DepthWriteEnable = true;
+    pipelineParams.PipelineLayout = _standardPipelineLayout.Handle;
+    pipelineParams.RenderPass = renderPass;
+
+    gLightSources.Pipeline = createPipeline(_renderer, pipelineParams);
+  }
 }
 
 void cleanupReloadableResources(
     const Renderer &_renderer, SwapChain &_swapChain, VkRenderPass &_renderPass,
     VkPipeline &_graphicsPipeline,
     std::vector<VkFramebuffer> &_swapChainFramebuffers) {
+  vkDestroyPipeline(_renderer.Device, gLightSources.Pipeline, nullptr);
+  gLightSources.Pipeline = VK_NULL_HANDLE;
   vkDestroyPipeline(_renderer.Device, gGizmo.Pipeline, nullptr);
   gGizmo.Pipeline = VK_NULL_HANDLE;
 
@@ -501,6 +542,13 @@ int main(int _argc, char **_argv) {
       renderer,
       createAbsolutePath(joinPaths(shaderRootPath, "gizmo.frag.spv")));
 
+  gLightSources.VertShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "light.vert.spv")));
+  gLightSources.FragShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "light.frag.spv")));
+
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
   cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   cmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
@@ -596,9 +644,29 @@ int main(int _argc, char **_argv) {
     vkUnmapMemory(renderer.Device, gPlaneInstanceBuffer.Memory);
   }
 
-  std::vector<Vertex> sphereVertices;
-  std::vector<uint32_t> sphereIndices;
-  generateUVSphereMesh(sphereVertices, sphereIndices, 1, 64, 128);
+  std::vector<LightSourceVertex> lightSourceVertices;
+  std::vector<uint32_t> lightSourceIndices;
+  {
+    std::vector<Vertex> sphereVertices;
+    generateUVSphereMesh(sphereVertices, lightSourceIndices, 0.1f, 16, 16);
+    lightSourceVertices.reserve(sphereVertices.size());
+    for (const Vertex &v : sphereVertices) {
+      lightSourceVertices.push_back({v.Pos});
+    }
+  }
+
+  gLightSources.VertexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      sizeBytes32(lightSourceVertices), lightSourceVertices.data());
+  gLightSources.IndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(lightSourceIndices), lightSourceIndices.data());
+  gLightSources.NumIndices = lightSourceIndices.size();
+
+  gLightSources.InstanceBuffer = createBuffer(
+      renderer, sizeof(int) * MAX_NUM_LIGHTS, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
   Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -813,11 +881,12 @@ int main(int _argc, char **_argv) {
 
     FrameUniformBlock frameUniformBlock = {};
     frameUniformBlock.NumLights = 3;
+    gLightSources.NumLights = frameUniformBlock.NumLights;
     Light *light = &frameUniformBlock.Lights[0];
     light->Dir = {-1, -1, 0};
     light->Type = LightType::Directional;
-    light->Color = {23.47f, 21.31f, 20.79f};
-    light->Intensity = 0.1f;
+    light->Color = {0.2347f, 0.2131f, 0.2079f};
+    light->Intensity = 10.f;
     ++light;
     light->Pos = {0, 2, 0};
     light->Type = LightType::Point;
@@ -826,7 +895,7 @@ int main(int _argc, char **_argv) {
     ++light;
     light->Pos = {4, 2, 0};
     light->Dir = {0, -1, 0};
-    light->Type = LightType::Spot;
+    light->Type = LightType::Point;
     light->Color = {0, 1, 0};
     light->Intensity = 200;
     light->InnerCutOff = degToRad(30);
@@ -944,6 +1013,9 @@ int main(int _argc, char **_argv) {
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
+  destroyBuffer(renderer, gLightSources.InstanceBuffer);
+  destroyBuffer(renderer, gLightSources.IndexBuffer);
+  destroyBuffer(renderer, gLightSources.VertexBuffer);
   destroyBuffer(renderer, gGizmo.IndexBuffer);
   destroyBuffer(renderer, gGizmo.VertexBuffer);
   destroyBuffer(renderer, shaderBallIndexBuffer);
@@ -963,6 +1035,8 @@ int main(int _argc, char **_argv) {
   }
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
+  destroyShader(renderer, gLightSources.VertShader);
+  destroyShader(renderer, gLightSources.FragShader);
   destroyShader(renderer, gGizmo.VertShader);
   destroyShader(renderer, gGizmo.FragShader);
   destroyShader(renderer, brdfVertShader);

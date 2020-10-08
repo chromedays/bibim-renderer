@@ -109,6 +109,8 @@ Settings
     'brdf.frag',
     'gizmo.vert',
     'gizmo.frag',
+    'light.vert',
+    'light.frag',
 }
 
 ForEach (.Shader in .Shaders)

@@ -633,6 +633,36 @@ GizmoVertex::getAttributeDescs() {
   return attributeDescs;
 }
 
+std::array<VkVertexInputBindingDescription, 2>
+LightSourceVertex::getBindingDescs() {
+  std::array<VkVertexInputBindingDescription, 2> bindings = {};
+  bindings[0].binding = 0;
+  bindings[0].stride = sizeof(LightSourceVertex);
+  bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  bindings[1].binding = 1;
+  bindings[1].stride = sizeof(int);
+  bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+  return bindings;
+}
+
+std::array<VkVertexInputAttributeDescription, 2>
+LightSourceVertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 2> attributes = {};
+  attributes[0].binding = 0;
+  attributes[0].location = 0;
+  attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributes[0].offset = offsetof(LightSourceVertex, Pos);
+
+  attributes[1].binding = 1;
+  attributes[1].location = 1;
+  attributes[1].format = VK_FORMAT_R32_SINT;
+  attributes[1].offset = 0;
+
+  return attributes;
+}
+
 Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
                     VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties) {

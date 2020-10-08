@@ -82,6 +82,13 @@ struct GizmoVertex {
   static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs();
 };
 
+struct LightSourceVertex {
+  Float3 Pos;
+
+  static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescs();
+};
+
 struct Buffer {
   VkBuffer Handle;
   VkDeviceMemory Memory;
