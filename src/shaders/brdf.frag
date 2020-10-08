@@ -18,8 +18,7 @@ void main() {
         #if 0
         vec3 B = normalize(cross(vTangentWorld, vNormalWorld));
         vec3 T = normalize(cross(N, B));
-        #endif
-        #if 1
+        #else
         vec3 B = normalize(cross(vNormalWorld, vTangentWorld));
         vec3 T = normalize(cross(B, N));
         #endif
@@ -30,8 +29,12 @@ void main() {
     float metallic = texture(sampler2D(uMaterialTextures[TEX_METALLIC], uSamplers[SMP_LINEAR]), vUV).r;
     float roughness = texture(sampler2D(uMaterialTextures[TEX_ROUGHNESS], uSamplers[SMP_LINEAR]), vUV).r;
     float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
-    vec3 normal = TBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
-    //vec3 normal = TBN[2];
+    vec3 normal;
+    if (uEnableNormalMap != 0) {
+        normal = transpose(TBN) * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
+    } else {
+        normal = TBN[2];
+    }
 
     vec3 Lo = vec3(0);
 
@@ -65,7 +68,7 @@ void main() {
 
         vec3 F0 = vec3(0.04);
         F0 = mix(F0, albedo, metallic);
-        vec3 F = fresnelSchlick(H, V, F0);
+        vec3 F = fresnelSchlick(N, V, F0);
         float G = geometrySmith(N, V, L, roughness);
 
         vec3 radiance = att * light.color * light.intensity;
@@ -85,6 +88,7 @@ void main() {
     //color = vec3(dot(TBN[0], TBN[2]));
     //color = transpose(TBN) * normal;
     //color = vec3(vUV.xy, 0);
-    outColor = vec4(color, 1);
-
+    //color = TBN[2];
+    //outColor = vec4(colorizeNormal(normal), 1);
+    outColor = vec4(color , 1);
 }

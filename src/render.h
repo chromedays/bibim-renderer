@@ -234,6 +234,7 @@ struct ViewUniformBlock {
   Mat4 ViewMat;
   Mat4 ProjMat;
   Float3 ViewPos;
+  int EnableNormalMap;
 };
 
 struct Frame {

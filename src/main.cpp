@@ -910,11 +910,18 @@ int main(int _argc, char **_argv) {
       vkUnmapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory);
     }
 
+    static bool enableNormalMap;
+    if (ImGui::Begin("Settings")) {
+      ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
+    }
+    ImGui::End();
+
     ViewUniformBlock viewUniformBlock = {};
     viewUniformBlock.ViewMat = cam.getViewMatrix();
     viewUniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     viewUniformBlock.ViewPos = cam.Pos;
+    viewUniformBlock.EnableNormalMap = enableNormalMap;
 
     {
       void *data;

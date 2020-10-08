@@ -27,6 +27,7 @@ layout (set = SET_VIEW, binding = 0) uniform ViewData {
     mat4 uViewMat;
     mat4 uProjMat;
     vec3 uViewPos;
+    int uEnableNormalMap;
 };
 
 layout (set = SET_MATERIAL, binding = 0) uniform texture2D uMaterialTextures[6];
