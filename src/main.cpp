@@ -113,7 +113,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _standardPipelineLayout.Handle, 2, 1,
-                          &_frame.MaterialDescriptorSets[0], 0, nullptr);
+                          &_frame.MaterialDescriptorSets[1], 0, nullptr);
 
   vkCmdDrawIndexed(_cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
 
@@ -562,10 +562,7 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &cmdPoolCreateInfo, nullptr,
                                    &transientCmdPool));
 
-  std::vector<PBRMaterial> pbrMaterials;
-  pbrMaterials.push_back(createPBRMaterialFromFiles(
-      renderer, transientCmdPool,
-      createAbsolutePath("pbr/hardwood_brown_planks")));
+  PBRMaterialSet materialSet = createPBRMaterialSet(renderer, transientCmdPool);
 
   StandardPipelineLayout standardPipelineLayout =
       createStandardPipelineLayout(renderer);
@@ -583,7 +580,7 @@ int main(int _argc, char **_argv) {
 
       uint32_t numDescriptorSets = numFrames;
       if (frequency == DescriptorFrequency::PerMaterial) {
-        numDescriptorSets *= pbrMaterials.size();
+        numDescriptorSets *= materialSet.Materials.size();
       }
 
       for (auto [type, numDescriptors] :
@@ -606,8 +603,8 @@ int main(int _argc, char **_argv) {
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptorPoolCreateInfo.poolSizeCount = (uint32_t)poolSizes.size();
     descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
-    descriptorPoolCreateInfo.maxSets = (uint32_t)(
-        standardPipelineLayout.DescriptorSetLayouts.size() * numFrames);
+    descriptorPoolCreateInfo.maxSets =
+        numFrames * (2 + materialSet.Materials.size() + 1);
     BB_VK_ASSERT(vkCreateDescriptorPool(
         renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
   }
@@ -718,7 +715,7 @@ int main(int _argc, char **_argv) {
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
     frames.push_back(createFrame(renderer, standardPipelineLayout,
-                                 descriptorPool, pbrMaterials));
+                                 descriptorPool, materialSet));
   }
 
   uint32_t currentFrameIndex = 0;
@@ -1034,9 +1031,8 @@ int main(int _argc, char **_argv) {
 
   destroyStandardPipelineLayout(renderer, standardPipelineLayout);
 
-  for (PBRMaterial &material : pbrMaterials) {
-    destroyPBRMaterial(renderer, material);
-  }
+  destroyPBRMaterialSet(renderer, materialSet);
+
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
   destroyShader(renderer, gLightSources.VertShader);

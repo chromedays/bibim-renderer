@@ -1135,6 +1135,56 @@ void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
   _material = {};
 }
 
+PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
+                                    VkCommandPool _cmdPool) {
+  PBRMaterialSet materialSet = {};
+
+  {
+    WIN32_FIND_DATA fileFindData;
+    std::string pbrRoot = createAbsolutePath("pbr/*");
+    HANDLE findHandle = FindFirstFileA(pbrRoot.c_str(), &fileFindData);
+
+    do {
+      if ((strcmp(fileFindData.cFileName, ".") != 0) &&
+          (strcmp(fileFindData.cFileName, "..") != 0) &&
+          (fileFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        PBRMaterial material = createPBRMaterialFromFiles(
+            _renderer, _cmdPool,
+            createAbsolutePath(joinPaths("pbr", fileFindData.cFileName)));
+
+        if (strcmp(fileFindData.cFileName, "default") == 0) {
+          materialSet.DefaultMaterial = std::move(material);
+        } else {
+          materialSet.Materials.push_back(std::move(material));
+        }
+      }
+    } while (FindNextFileA(findHandle, &fileFindData));
+    FindClose(findHandle);
+  }
+
+  return materialSet;
+}
+
+void destroyPBRMaterialSet(const Renderer &_renderer,
+                           PBRMaterialSet &_materialSet) {
+  destroyPBRMaterial(_renderer, _materialSet.DefaultMaterial);
+  for (PBRMaterial &material : _materialSet.Materials) {
+    destroyPBRMaterial(_renderer, material);
+  }
+
+  _materialSet = {};
+}
+
+Image getPBRMapOrDefault(const PBRMaterialSet &_materialSet, int _materialIndex,
+                         PBRMapType _mapType) {
+  const Image *map = &_materialSet.Materials[_materialIndex].Maps[_mapType];
+  if (map->Handle == VK_NULL_HANDLE) {
+    map = &_materialSet.DefaultMaterial.Maps[_mapType];
+  }
+
+  return *map;
+}
+
 StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
   StandardPipelineLayout layout = {};
 
@@ -1263,7 +1313,7 @@ void destroyStandardPipelineLayout(const Renderer &_renderer,
 Frame createFrame(const Renderer &_renderer,
                   const StandardPipelineLayout &_standardPipelineLayout,
                   VkDescriptorPool _descriptorPool,
-                  const std::vector<PBRMaterial> &_pbrMaterials) {
+                  const PBRMaterialSet &_materialSet) {
   Frame frame = {};
 
   VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
@@ -1305,12 +1355,15 @@ Frame createFrame(const Renderer &_renderer,
     BB_VK_ASSERT(vkAllocateDescriptorSets(
         _renderer.Device, &descriptorSetAllocInfo, &frame.ViewDescriptorSet));
 
-    frame.MaterialDescriptorSets.resize(_pbrMaterials.size());
-    descriptorSetAllocInfo.descriptorSetCount = _pbrMaterials.size();
-    descriptorSetAllocInfo.pSetLayouts =
-        &_standardPipelineLayout
-             .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
-             .Handle;
+    std::vector<VkDescriptorSetLayout> materialDescriptorSetLayouts(
+        _materialSet.Materials.size(),
+        _standardPipelineLayout
+            .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
+            .Handle);
+    frame.MaterialDescriptorSets.resize(_materialSet.Materials.size());
+    descriptorSetAllocInfo.descriptorSetCount =
+        materialDescriptorSetLayouts.size();
+    descriptorSetAllocInfo.pSetLayouts = materialDescriptorSetLayouts.data();
     BB_VK_ASSERT(vkAllocateDescriptorSets(_renderer.Device,
                                           &descriptorSetAllocInfo,
                                           frame.MaterialDescriptorSets.data()));
@@ -1358,18 +1411,35 @@ Frame createFrame(const Renderer &_renderer,
     writeInfos.push_back(writeInfo);
 
     // uMaterialTextures
-    std::vector<std::array<VkDescriptorImageInfo, PBRMaterial::NumImages>>
+    std::vector<EnumArray<PBRMapType, VkDescriptorImageInfo>>
         materialImagesInfos;
-    materialImagesInfos.reserve(_pbrMaterials.size());
-    for (const PBRMaterial &material : _pbrMaterials) {
-      std::array<VkDescriptorImageInfo, PBRMaterial::NumImages> imageInfos;
-
-      int i = 0;
-      for (const Image &image : material.Maps) {
-        VkDescriptorImageInfo &imageInfo = imageInfos[i++];
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = image.View;
-      }
+    materialImagesInfos.reserve(_materialSet.Materials.size());
+    for (int i = 0; i < _materialSet.Materials.size(); ++i) {
+      EnumArray<PBRMapType, VkDescriptorImageInfo> imageInfos = {};
+      imageInfos[PBRMapType::Albedo].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Albedo].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Albedo).View;
+      imageInfos[PBRMapType::Metallic].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Metallic].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Metallic).View;
+      imageInfos[PBRMapType::Roughness].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Roughness].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Roughness).View;
+      imageInfos[PBRMapType::AO].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::AO].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::AO).View;
+      imageInfos[PBRMapType::Normal].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Normal].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Normal).View;
+      imageInfos[PBRMapType::Height].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Height].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Height).View;
 
       materialImagesInfos.push_back(imageInfos);
     }

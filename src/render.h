@@ -189,6 +189,19 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
                                        const std::string &_rootPath);
 void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material);
 
+struct PBRMaterialSet {
+  std::vector<PBRMaterial> Materials;
+  PBRMaterial DefaultMaterial;
+};
+
+PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
+                                    VkCommandPool _cmdPool);
+void destroyPBRMaterialSet(const Renderer &_renderer,
+                           PBRMaterialSet &_materialSet);
+
+Image getPBRMapOrDefault(const PBRMaterialSet &_materialSet, int _materialIndex,
+                         PBRMapType _mapType);
+
 enum class DescriptorFrequency {
   PerFrame,
   PerView,
@@ -255,7 +268,7 @@ struct Frame {
 Frame createFrame(const Renderer &_renderer,
                   const StandardPipelineLayout &_standardPipelineLayout,
                   VkDescriptorPool _descriptorPool,
-                  const std::vector<PBRMaterial> &_pbrMaterials);
+                  const PBRMaterialSet &_materialSet);
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
 
