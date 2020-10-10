@@ -504,7 +504,7 @@ RenderPass createForwardRenderPass(const Renderer &_renderer, const SwapChain& _
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = _swapChain.ColorFormat;
   colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -514,7 +514,7 @@ RenderPass createForwardRenderPass(const Renderer &_renderer, const SwapChain& _
   VkAttachmentDescription depthAttachment = {};
   depthAttachment.format = _swapChain.DepthFormat;
   depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;

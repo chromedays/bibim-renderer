@@ -8,11 +8,11 @@ layout (location = 0) in vec2 vUV;
 
 layout (location = 0) out vec4 outColor;
 void main() {
-    vec3 posWorld = texture(sampler2D(uGbuffer[TEX_G_POSITION], uSamplers[SMP_LINEAR]), vUV).rgb;
-    vec3 normal = texture(sampler2D(uGbuffer[TEX_G_NORMAL], uSamplers[SMP_LINEAR]), vUV).rgb;
-    vec3 albedo = texture(sampler2D(uGbuffer[TEX_G_ALBEDO], uSamplers[SMP_LINEAR]), vUV).rgb;
-    vec4 MRAH = texture(sampler2D(uGbuffer[TEX_G_MRAH], uSamplers[SMP_LINEAR]), vUV);
-    vec3 materialIndex = texture(sampler2D(uGbuffer[TEX_G_MATINDEX], uSamplers[SMP_LINEAR]), vUV).rgb;
+    vec3 posWorld = texture(sampler2D(uGbuffer[TEX_G_POSITION], uSamplers[SMP_NEAREST]), vUV).rgb;
+    vec3 normal = texture(sampler2D(uGbuffer[TEX_G_NORMAL], uSamplers[SMP_NEAREST]), vUV).rgb;
+    vec3 albedo = texture(sampler2D(uGbuffer[TEX_G_ALBEDO], uSamplers[SMP_NEAREST]), vUV).rgb;
+    vec4 MRAH = texture(sampler2D(uGbuffer[TEX_G_MRAH], uSamplers[SMP_NEAREST]), vUV);
+    vec3 materialIndex = texture(sampler2D(uGbuffer[TEX_G_MATINDEX], uSamplers[SMP_NEAREST]), vUV).rgb;
 
     float metallic = MRAH.r;
     float roughness = MRAH.g;

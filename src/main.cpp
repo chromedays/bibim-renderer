@@ -138,6 +138,12 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass, 
   renderPassInfo.renderPass = _forwardRenderPass;
   renderPassInfo.framebuffer = _forwardFramebuffer;
 
+  vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
+
+
+  vkCmdEndRenderPass(_cmdBuffer);
   // TODO: Draw forward pass on the rendered scene from deferred rendering.
   // TODO: Add imgui.
   // TODO: gGizmo.
@@ -623,7 +629,7 @@ int main(int _argc, char **_argv) {
   std::vector<PBRMaterial> pbrMaterials;
   pbrMaterials.push_back(createPBRMaterialFromFiles(
       renderer, transientCmdPool,
-      createAbsolutePath("pbr/branches_twisted")));
+      createAbsolutePath("pbr/hardwood_brown_planks")));
 
   StandardPipelineLayout standardPipelineLayout =
       createStandardPipelineLayout(renderer);
@@ -1017,7 +1023,7 @@ int main(int _argc, char **_argv) {
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)forwardFrames.size();
 
     static float angle = -90;
-    angle += 30.f * dt;
+    //angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }
