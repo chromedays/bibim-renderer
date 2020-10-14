@@ -284,4 +284,9 @@ void generateUVSphereMesh(std::vector<Vertex> &_vertices,
                           int _horizontalDivision = 16,
                           int _verticalDivision = 16);
 
+#if BB_DEBUG
+void labelGPUResource(const Renderer &_renderer, const Image &_image,
+                      const std::string &_name);
+#endif
+
 } // namespace bb

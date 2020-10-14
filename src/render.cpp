@@ -964,6 +964,18 @@ Shader createShaderFromFile(const Renderer &_renderer,
   BB_VK_ASSERT(vkCreateShaderModule(_renderer.Device, &createInfo, nullptr,
                                     &result.Handle));
 
+#if BB_DEBUG
+  {
+    std::string fileName = "Shader - " + getFileName(_filePath);
+    VkDebugUtilsObjectNameInfoEXT nameInfo = {};
+    nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    nameInfo.objectType = VK_OBJECT_TYPE_SHADER_MODULE;
+    nameInfo.objectHandle = (uint64_t)result.Handle;
+    nameInfo.pObjectName = fileName.c_str();
+    BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
+  }
+#endif
+
   delete[] contents;
   fclose(f);
 
@@ -1125,6 +1137,22 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
       _renderer, _transientCmdPool, joinPaths(_rootPath, "normal.png"));
   result.Maps[PBRMapType::Height] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "height.png"));
+
+#if BB_DEBUG
+  EnumArray<PBRMapType, std::string> labels = {
+      "Albedo", "Metallic", "Roughness", "AO", "Normal", "Height",
+  };
+
+  std::string materialName = getFileName(_rootPath);
+  for (int i = 0; i < (int)PBRMapType::COUNT; ++i) {
+    PBRMapType mapType = (PBRMapType)i;
+    const Image &image = result.Maps[mapType];
+    if (image.Handle != VK_NULL_HANDLE) {
+      labelGPUResource(_renderer, image,
+                       fmt::format("{} {}", materialName, labels[mapType]));
+    }
+  }
+#endif
   return result;
 }
 
@@ -1620,5 +1648,25 @@ void generateUVSphereMesh(std::vector<Vertex> &_vertices,
 
   appendMesh(_vertices, _indices, newVertices, newIndices);
 }
+
+#if BB_DEBUG
+void labelGPUResource(const Renderer &_renderer, const Image &_image,
+                      const std::string &_name) {
+
+  std::string imageName = "Image - " + _name;
+  std::string viewName = "Image View - " + _name;
+
+  VkDebugUtilsObjectNameInfoEXT nameInfo = {};
+  nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+  nameInfo.objectType = VK_OBJECT_TYPE_IMAGE;
+  nameInfo.objectHandle = (uint64_t)_image.Handle;
+  nameInfo.pObjectName = imageName.c_str();
+  BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
+  nameInfo.objectType = VK_OBJECT_TYPE_IMAGE_VIEW;
+  nameInfo.objectHandle = (uint64_t)_image.View;
+  nameInfo.pObjectName = viewName.c_str();
+  BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
+}
+#endif
 
 } // namespace bb
