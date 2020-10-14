@@ -1125,6 +1125,7 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
                                        const std::string &_rootPath) {
   // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
   PBRMaterial result = {};
+  result.Name = getFileName(_rootPath);
   result.Maps[PBRMapType::Albedo] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "albedo.png"));
   result.Maps[PBRMapType::Metallic] = createImageFromFile(
@@ -1143,13 +1144,12 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
       "Albedo", "Metallic", "Roughness", "AO", "Normal", "Height",
   };
 
-  std::string materialName = getFileName(_rootPath);
   for (int i = 0; i < (int)PBRMapType::COUNT; ++i) {
     PBRMapType mapType = (PBRMapType)i;
     const Image &image = result.Maps[mapType];
     if (image.Handle != VK_NULL_HANDLE) {
       labelGPUResource(_renderer, image,
-                       fmt::format("{} {}", materialName, labels[mapType]));
+                       fmt::format("{} {}", result.Name, labels[mapType]));
     }
   }
 #endif

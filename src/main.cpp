@@ -64,6 +64,8 @@ Buffer gPlaneVertexBuffer;
 Buffer gPlaneIndexBuffer;
 uint32_t gNumPlaneIndices;
 
+int gCurrentMaterial = 1;
+
 void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
                    VkFramebuffer _swapChainFramebuffer,
                    VkExtent2D _swapChainExtent, VkPipeline _graphicsPipeline,
@@ -113,7 +115,8 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _renderPass,
 
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _standardPipelineLayout.Handle, 2, 1,
-                          &_frame.MaterialDescriptorSets[1], 0, nullptr);
+                          &_frame.MaterialDescriptorSets[gCurrentMaterial], 0,
+                          nullptr);
 
   vkCmdDrawIndexed(_cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
 
@@ -691,7 +694,7 @@ int main(int _argc, char **_argv) {
   {
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_SAMPLER, 10},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10},
         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 10},
@@ -779,9 +782,22 @@ int main(int _argc, char **_argv) {
   FreeLookCamera cam = {};
   Input input = {};
 
+  GUIInitParams guiParams = {};
+  guiParams.MaterialImageSampler =
+      standardPipelineLayout.ImmutableSamplers[SamplerType::Nearest];
+  guiParams.MaterialSet = &materialSet;
+  GUI gui = createGUI(guiParams);
+  gui.SelectedMaterialIndex = gCurrentMaterial;
+
   bool running = true;
 
   Time lastTime = getCurrentTime();
+
+  const Image &testImage =
+      materialSet.Materials.front().Maps[PBRMapType::Albedo];
+  ImTextureID textureId = ImGui_ImplVulkan_AddTexture(
+      standardPipelineLayout.ImmutableSamplers[SamplerType::Nearest],
+      testImage.View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   SDL_Event e = {};
   while (running) {
@@ -809,6 +825,9 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplSDL2_NewFrame(window);
     ImGui::NewFrame();
+
+    updateGUI(gui);
+    gCurrentMaterial = gui.SelectedMaterialIndex;
 
 #if 0
     ImGui::ShowDemoWindow();
