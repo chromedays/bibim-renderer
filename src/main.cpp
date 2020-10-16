@@ -37,7 +37,6 @@ namespace bb {
 constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
-
 struct {
   VkPipeline Pipeline;
   Shader VertShader;
@@ -49,16 +48,36 @@ struct {
   int viewportExtent = 100;
 } gGizmo;
 
-void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass, VkRenderPass _deferredRenderPass,
-                   VkFramebuffer _forwardFramebuffer, VkFramebuffer _deferredFramebuffer,
-                   VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline, VkPipeline _brdfPipeline,
-                   VkExtent2D _swapChainExtent, 
+struct {
+  VkPipeline Pipeline;
+  Shader VertShader;
+  Shader FragShader;
+
+  VkExtent2D viewportExtent;
+
+  StandardPipelineLayout PipelineLayout;
+
+  const char *Buffer_labels[6] = {"Position",       "Normal",
+                                  "Albedo",         "MRHA",
+                                  "Material index", "Rendered Scene"};
+  const char *Current_buffer = nullptr;
+  int Current_index = -1;
+} gBufferVisualize;
+
+void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
+                   VkRenderPass _deferredRenderPass,
+                   VkFramebuffer _forwardFramebuffer,
+                   VkFramebuffer _deferredFramebuffer,
+                   VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
+                   VkPipeline _brdfPipeline, VkExtent2D _swapChainExtent,
                    const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
                    const Buffer &_indexBuffer,
                    const StandardPipelineLayout &_forwardPipelineLayout,
                    const StandardPipelineLayout &_gBufferPipelineLayout,
                    const StandardPipelineLayout &_brdfPipelineLayout,
-                   const Frame &_forwardFrame, const Frame& _gBufferFrame, const Frame& _brdfFrame, const std::vector<uint32_t> &_indices,
+                   const Frame &_forwardFrame, const Frame &_gBufferFrame,
+                   const Frame &_brdfFrame,
+                   const std::vector<uint32_t> &_indices,
                    uint32_t _numInstances) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
@@ -75,7 +94,8 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass, 
   renderPassInfo.renderArea.offset = {0, 0};
   renderPassInfo.renderArea.extent = _swapChainExtent;
 
-  VkClearValue clearValues[((int)GBufferAttachmentType::COUNT +2)] = {}; // +1 for depth, 1 for lighting pass
+  VkClearValue clearValues[((int)GBufferAttachmentType::COUNT + 2)] =
+      {};                               // +1 for depth, 1 for lighting pass
   clearValues[0].color = {0, 0, 0, 1};  // Position
   clearValues[1].color = {0, 0, 0, 1};  // Normal
   clearValues[2].color = {0, 0, 0, 1};  // Albedo
@@ -94,7 +114,7 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass, 
   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
   vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
   vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
-                        VK_INDEX_TYPE_UINT32);
+                       VK_INDEX_TYPE_UINT32);
 
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _gBufferPipelineLayout.Handle, 0, 1,
@@ -109,62 +129,161 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass, 
                           &_gBufferFrame.MaterialDescriptorSets[0], 0, nullptr);
 
   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
-                    0);
+                   0);
 
+  if (gBufferVisualize.Current_buffer &&
+      strcmp(gBufferVisualize.Current_buffer, "Rendered Scene")) {
+    vkCmdNextSubpass(_cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdEndRenderPass(_cmdBuffer);
+
+    renderPassInfo.renderPass = _forwardRenderPass;
+    renderPassInfo.framebuffer = _forwardFramebuffer;
+
+    vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo,
+                         VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      gBufferVisualize.Pipeline);
+
+    VkClearAttachment clearDepth = {};
+    clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    clearDepth.clearValue.depthStencil = {0.f, 0};
+    VkClearRect clearDepthRegion = {};
+    clearDepthRegion.rect.offset = {0, 0};
+    clearDepthRegion.rect.extent = gBufferVisualize.viewportExtent;
+    clearDepthRegion.layerCount = 1;
+    clearDepthRegion.baseArrayLayer = 0;
+    vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
+
+    vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            _brdfPipelineLayout.Handle, 0, 1,
+                            &_brdfFrame.FrameDescriptorSet, 0, nullptr);
+
+    vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            _brdfPipelineLayout.Handle, 1, 1,
+                            &_brdfFrame.ViewDescriptorSet, 0, nullptr);
+
+    vkCmdDraw(_cmdBuffer, 3, 1, 0, 0);
+
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
+    vkCmdEndRenderPass(_cmdBuffer);
+
+    BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
+
+    return;
+  }
+
+  // TODO: Add forward rendered scene.
+  // else if (/* condition */)
+  // {
+  //   vkCmdNextSubpass(_cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+  //   vkCmdEndRenderPass(_cmdBuffer);
+  //   renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  //   renderPassInfo.renderPass = _forwardRenderPass;
+  //   renderPassInfo.framebuffer = _forwardFramebuffer;
+  //   renderPassInfo.renderArea.offset = {0, 0};
+  //   renderPassInfo.renderArea.extent = _swapChainExtent;
+
+  //   clearValues[0] = {};
+  //   clearValues[1] = {};
+  //   clearValues[0].color = {0, 0, 0, 1};
+  //   clearValues[1].depthStencil = {0, 0};
+  //   renderPassInfo.clearValueCount = 2;
+  //   renderPassInfo.pClearValues = clearValues;
+
+  //   vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo,
+  //   VK_SUBPASS_CONTENTS_INLINE);
+
+  //   vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //                     _forwardPipeline);
+  //   VkDeviceSize offset = 0;
+  //   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
+  //   vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle,
+  //   &offset); vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
+  //                         VK_INDEX_TYPE_UINT32);
+
+  //   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //                           _forwardPipelineLayout.Handle, 0, 1,
+  //                           &_forwardFrame.FrameDescriptorSet, 0, nullptr);
+
+  //   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //                           _forwardPipelineLayout.Handle, 1, 1,
+  //                           &_forwardFrame.ViewDescriptorSet, 0, nullptr);
+
+  //   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //                           _forwardPipelineLayout.Handle, 2, 1,
+  //                           &_forwardFrame.MaterialDescriptorSets[0], 0,
+  //                           nullptr);
+
+  //   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0,
+  //   0,
+  //                     0);
+  //   vkCmdEndRenderPass(_cmdBuffer);
+  //   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
+
+  //   return;
+  // }
 
   vkCmdNextSubpass(_cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    _brdfPipeline);
+  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _brdfPipeline);
 
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           _brdfPipelineLayout.Handle, 0, 1,
                           &_brdfFrame.FrameDescriptorSet, 0, nullptr);
 
-
   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        _brdfPipelineLayout.Handle, 1, 1,
-                        &_brdfFrame.ViewDescriptorSet, 0, nullptr);
-
+                          _brdfPipelineLayout.Handle, 1, 1,
+                          &_brdfFrame.ViewDescriptorSet, 0, nullptr);
 
   vkCmdDraw(_cmdBuffer, 3, 1, 0, 0);
 
-
-
   vkCmdEndRenderPass(_cmdBuffer);
-
-
 
   renderPassInfo.renderPass = _forwardRenderPass;
   renderPassInfo.framebuffer = _forwardFramebuffer;
 
   vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
+  VkClearAttachment clearDepth = {};
+  clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  clearDepth.clearValue.depthStencil = {0.f, 0};
+  VkClearRect clearDepthRegion = {};
+  clearDepthRegion.rect.offset = {
+      (int32_t)(_swapChainExtent.width - gGizmo.viewportExtent), 0};
+  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.viewportExtent,
+                                  (uint32_t)gGizmo.viewportExtent};
+  clearDepthRegion.layerCount = 1;
+  clearDepthRegion.baseArrayLayer = 0;
+  vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
+  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    gGizmo.Pipeline);
+
+  vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gGizmo.VertexBuffer.Handle,
+                         &offset);
+  vkCmdBindIndexBuffer(_cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+
+  vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          _forwardPipelineLayout.Handle, 1, 1,
+                          &_forwardFrame.ViewDescriptorSet, 0, nullptr);
+
+  vkCmdDrawIndexed(_cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
+
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
-
-
   vkCmdEndRenderPass(_cmdBuffer);
-  // TODO: Draw forward pass on the rendered scene from deferred rendering.
-  // TODO: Add imgui.
-  // TODO: gGizmo.
-  // vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-  // ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
-  // vkCmdEndRenderPass(_cmdBuffer);
-  
+
   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
 }
 
 void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
-    const SwapChain *_oldSwapChain, 
+    const SwapChain *_oldSwapChain,
     const PipelineParams &_forwardPipelineParams,
-    const PipelineParams &_gBufferPipelineParams, 
-    const PipelineParams &_brdfPipelineParams,
-    SwapChain *_outSwapChain,
-    RenderPass *_outForwardRenderPass, 
-    RenderPass *_outDeferredRenderPass,
-    VkPipeline *_outForwardPipeline,
-    VkPipeline *_outGbufferPipeline,
+    const PipelineParams &_gBufferPipelineParams,
+    const PipelineParams &_brdfPipelineParams, SwapChain *_outSwapChain,
+    RenderPass *_outForwardRenderPass, RenderPass *_outDeferredRenderPass,
+    VkPipeline *_outForwardPipeline, VkPipeline *_outGbufferPipeline,
     VkPipeline *_outBrdfPipeline,
     std::vector<VkFramebuffer> *_outForwardSwapChainFramebuffers,
     std::vector<VkFramebuffer> *_outDeferredSwapChainFramebuffers,
@@ -173,14 +292,15 @@ void initReloadableResources(
   SwapChain swapChain =
       createSwapChain(_renderer, _width, _height, _oldSwapChain);
 
+  gBufferVisualize.viewportExtent.width = _width;
+  gBufferVisualize.viewportExtent.height = _height;
+
   RenderPass forwardRenderPass = createForwardRenderPass(_renderer, swapChain);
-  RenderPass deferredRenderPass = createDeferredRenderPass(_renderer, swapChain);
+  RenderPass deferredRenderPass =
+      createDeferredRenderPass(_renderer, swapChain);
 
   std::vector<VkFramebuffer> forwardFramebuffers(swapChain.NumColorImages);
   std::vector<VkFramebuffer> deferredFramebuffers(swapChain.NumColorImages);
-
-
-
 
   // Create forward framebuffer
   for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
@@ -200,7 +320,8 @@ void initReloadableResources(
   }
 
   // Cretae gBuffer framebuffer attachment
-  //std::vector<Image> gBufferAttachmentImages((int)GBufferAttachmentType::COUNT);
+  // std::vector<Image>
+  // gBufferAttachmentImages((int)GBufferAttachmentType::COUNT);
 
   EnumArray<GBufferAttachmentType, Image> deferredAttachmentImages;
 
@@ -212,28 +333,28 @@ void initReloadableResources(
   gBufferAttachmentImageCreateInfo.extent.depth = 1;
   gBufferAttachmentImageCreateInfo.mipLevels = 1;
   gBufferAttachmentImageCreateInfo.arrayLayers = 1;
-  //gBufferAttachmentImageCreateInfo.format = swapChain.ColorFormat;
+  // gBufferAttachmentImageCreateInfo.format = swapChain.ColorFormat;
   gBufferAttachmentImageCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
   gBufferAttachmentImageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   gBufferAttachmentImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  gBufferAttachmentImageCreateInfo.usage =
-      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+  gBufferAttachmentImageCreateInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                           VK_IMAGE_USAGE_SAMPLED_BIT |
+                                           VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
   gBufferAttachmentImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   gBufferAttachmentImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
   gBufferAttachmentImageCreateInfo.flags = 0;
 
   for (GBufferAttachmentType type = GBufferAttachmentType::Position;
        type < GBufferAttachmentType::COUNT;
-       type = (GBufferAttachmentType)((int)type +1)) 
-       {
-         Image& currentImage = deferredAttachmentImages[type]; 
+       type = (GBufferAttachmentType)((int)type + 1)) {
+    Image &currentImage = deferredAttachmentImages[type];
     BB_VK_ASSERT(vkCreateImage(_renderer.Device,
                                &gBufferAttachmentImageCreateInfo, nullptr,
                                &currentImage.Handle));
 
     VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(
-        _renderer.Device, currentImage.Handle, &memRequirements);
+    vkGetImageMemoryRequirements(_renderer.Device, currentImage.Handle,
+                                 &memRequirements);
 
     VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
     textureImageMemoryAllocateInfo.sType =
@@ -247,15 +368,14 @@ void initReloadableResources(
                                   &textureImageMemoryAllocateInfo, nullptr,
                                   &currentImage.Memory));
 
-    BB_VK_ASSERT(vkBindImageMemory(_renderer.Device,
-                                   currentImage.Handle,
+    BB_VK_ASSERT(vkBindImageMemory(_renderer.Device, currentImage.Handle,
                                    currentImage.Memory, 0));
 
     VkImageViewCreateInfo imageViewCreateInfo = {};
     imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imageViewCreateInfo.image = currentImage.Handle;
     imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    //imageViewCreateInfo.format = swapChain.ColorFormat;
+    // imageViewCreateInfo.format = swapChain.ColorFormat;
     imageViewCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
@@ -271,13 +391,14 @@ void initReloadableResources(
     VkFramebufferCreateInfo fbCreateInfo = {};
     fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fbCreateInfo.renderPass = deferredRenderPass.Handle;
-    VkImageView attachments[] = {deferredAttachmentImages[GBufferAttachmentType::Position].View,
-                                 deferredAttachmentImages[GBufferAttachmentType::Normal].View,
-                                 deferredAttachmentImages[GBufferAttachmentType::Albedo].View,
-                                 deferredAttachmentImages[GBufferAttachmentType::MRAH].View,
-                                 deferredAttachmentImages[GBufferAttachmentType::MaterialIndex].View,
-                                 swapChain.DepthImageView,
-                                 swapChain.ColorImageViews[i]};
+    VkImageView attachments[] = {
+        deferredAttachmentImages[GBufferAttachmentType::Position].View,
+        deferredAttachmentImages[GBufferAttachmentType::Normal].View,
+        deferredAttachmentImages[GBufferAttachmentType::Albedo].View,
+        deferredAttachmentImages[GBufferAttachmentType::MRAH].View,
+        deferredAttachmentImages[GBufferAttachmentType::MaterialIndex].View,
+        swapChain.DepthImageView,
+        swapChain.ColorImageViews[i]};
     fbCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
     fbCreateInfo.pAttachments = attachments;
     fbCreateInfo.width = swapChain.Extent.width;
@@ -287,8 +408,7 @@ void initReloadableResources(
     BB_VK_ASSERT(vkCreateFramebuffer(_renderer.Device, &fbCreateInfo, nullptr,
                                      &deferredFramebuffers[i]));
   }
-  
-  
+
   // PBR Forward Pipeline
   PipelineParams pipelineParams = _forwardPipelineParams;
   {
@@ -318,33 +438,37 @@ void initReloadableResources(
   // Gbuffer pipeline
   {
     pipelineParams.Shaders = _gBufferPipelineParams.Shaders;
-    pipelineParams.PipelineLayout = _gBufferPipelineParams.PipelineLayout; // TODO: actually same with forward
+    pipelineParams.PipelineLayout =
+        _gBufferPipelineParams
+            .PipelineLayout; // TODO: actually same with forward
     pipelineParams.RenderPass = deferredRenderPass.Handle;
-    *_outGbufferPipeline = createPipeline(_renderer, pipelineParams, (uint32_t)GBufferAttachmentType::COUNT);
+    *_outGbufferPipeline = createPipeline(
+        _renderer, pipelineParams, (uint32_t)GBufferAttachmentType::COUNT);
   }
 
   // BRDF pipeline
   {
     pipelineParams.VertexInput.NumBindings = 0;
     pipelineParams.VertexInput.Bindings = nullptr;
-    
+
     pipelineParams.VertexInput.NumAttributes = 0;
     pipelineParams.VertexInput.Attributes = nullptr;
-    
 
     pipelineParams.Shaders = _brdfPipelineParams.Shaders;
-    pipelineParams.PipelineLayout = _brdfPipelineParams.PipelineLayout; // TODO: actually same with forward
+    pipelineParams.PipelineLayout =
+        _brdfPipelineParams.PipelineLayout; // TODO: actually same with forward
     pipelineParams.RenderPass = deferredRenderPass.Handle;
     *_outBrdfPipeline = createPipeline(_renderer, pipelineParams, 1, 1);
   }
-
 
   *_outSwapChain = std::move(swapChain);
   *_outForwardRenderPass = forwardRenderPass;
   *_outDeferredRenderPass = deferredRenderPass;
 
-  //*_outForwardGraphicsPipeline = createPipeline(_renderer, _forwardPipelineParams);
-  //*_outDeferredGraphicsPipeline = createPipeline(_renderer, _deferredPipelineParams, (int)GBufferAttachmentType::COUNT);
+  //*_outForwardGraphicsPipeline = createPipeline(_renderer,
+  //_forwardPipelineParams);
+  //*_outDeferredGraphicsPipeline = createPipeline(_renderer,
+  //_deferredPipelineParams, (int)GBufferAttachmentType::COUNT);
 
   *_outForwardSwapChainFramebuffers = std::move(forwardFramebuffers);
   *_outDeferredSwapChainFramebuffers = std::move(deferredFramebuffers);
@@ -389,22 +513,64 @@ void initReloadableResources(
 
     gGizmo.Pipeline = createPipeline(_renderer, pipelineParams);
   }
+
+  // Buffer visualizer
+  {
+    const Shader *shaders[] = {&gBufferVisualize.VertShader,
+                               &gBufferVisualize.FragShader};
+    PipelineParams pipelineParams = {};
+    pipelineParams.Shaders = shaders;
+    pipelineParams.NumShaders = std::size(shaders);
+
+    auto bindings = GizmoVertex::getBindingDescs();
+    auto attributes = GizmoVertex::getAttributeDescs();
+    pipelineParams.VertexInput.Bindings = bindings.data();
+    pipelineParams.VertexInput.NumBindings = bindings.size();
+    pipelineParams.VertexInput.Attributes = attributes.data();
+    pipelineParams.VertexInput.NumAttributes = attributes.size();
+
+    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineParams.Viewport.Offset = {
+        0,
+        0,
+    };
+    pipelineParams.Viewport.Extent = {
+        (float)gBufferVisualize.viewportExtent.width,
+        (float)gBufferVisualize.viewportExtent.height};
+    pipelineParams.Viewport.ScissorOffset = {
+        (int)pipelineParams.Viewport.Offset.X,
+        (int)pipelineParams.Viewport.Offset.Y,
+    };
+    pipelineParams.Viewport.ScissorExtent = {
+        (int)gBufferVisualize.viewportExtent.width,
+        (int)gBufferVisualize.viewportExtent.height};
+
+    pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+    pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+
+    pipelineParams.DepthStencil.DepthTestEnable = true;
+    pipelineParams.DepthStencil.DepthWriteEnable = true;
+    pipelineParams.PipelineLayout = _brdfPipelineParams.PipelineLayout;
+    pipelineParams.RenderPass = forwardRenderPass.Handle;
+
+    gBufferVisualize.Pipeline = createPipeline(_renderer, pipelineParams);
+  }
 }
 
 void cleanupReloadableResources(
-    const Renderer& _renderer,
-    SwapChain& _swapChain,
-    RenderPass& _forwardRenderPass, 
-    RenderPass& _deferredRenderPass,
-    VkPipeline& _forwardGraphicsPipeline,
-    VkPipeline& _gBufferGraphicsPipeline,
-    VkPipeline& _brdfGraphicsPipeline,
-    std::vector<VkFramebuffer>& _forwardSwapChainFramebuffers,
-    std::vector<VkFramebuffer>& _deferredSwapChainFramebuffers,
-    EnumArray<GBufferAttachmentType, Image>& _deferredAttachmentImages) {
+    const Renderer &_renderer, SwapChain &_swapChain,
+    RenderPass &_forwardRenderPass, RenderPass &_deferredRenderPass,
+    VkPipeline &_forwardGraphicsPipeline, VkPipeline &_gBufferGraphicsPipeline,
+    VkPipeline &_brdfGraphicsPipeline,
+    std::vector<VkFramebuffer> &_forwardSwapChainFramebuffers,
+    std::vector<VkFramebuffer> &_deferredSwapChainFramebuffers,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
 
   vkDestroyPipeline(_renderer.Device, gGizmo.Pipeline, nullptr);
   gGizmo.Pipeline = VK_NULL_HANDLE;
+
+  vkDestroyPipeline(_renderer.Device, gBufferVisualize.Pipeline, nullptr);
+  gBufferVisualize.Pipeline = VK_NULL_HANDLE;
 
   for (VkFramebuffer fb : _forwardSwapChainFramebuffers) {
     vkDestroyFramebuffer(_renderer.Device, fb, nullptr);
@@ -424,27 +590,25 @@ void cleanupReloadableResources(
   _forwardGraphicsPipeline = VK_NULL_HANDLE;
   _gBufferGraphicsPipeline = VK_NULL_HANDLE;
   _brdfGraphicsPipeline = VK_NULL_HANDLE;
-  
+
   vkDestroyRenderPass(_renderer.Device, _forwardRenderPass.Handle, nullptr);
   vkDestroyRenderPass(_renderer.Device, _deferredRenderPass.Handle, nullptr);
-  
+
   _forwardRenderPass.Handle = VK_NULL_HANDLE;
   _deferredRenderPass.Handle = VK_NULL_HANDLE;
-  
+
   destroySwapChain(_renderer, _swapChain);
 }
 
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
-void onWindowResize(SDL_Window *_window, const Renderer &_renderer, 
+void onWindowResize(
+    SDL_Window *_window, const Renderer &_renderer,
     const PipelineParams &_forwardPipelineParams,
-    const PipelineParams &_gBufferPipelineParams, 
-    const PipelineParams &_brdfPipelineParams, 
-    SwapChain &_swapChain,
-    RenderPass &_forwardRenderPass, 
-    RenderPass &_deferredRenderPass,
-    VkPipeline &_forwardGraphicsPipeline,
-    VkPipeline &_gBufferGraphicsPipeline,
+    const PipelineParams &_gBufferPipelineParams,
+    const PipelineParams &_brdfPipelineParams, SwapChain &_swapChain,
+    RenderPass &_forwardRenderPass, RenderPass &_deferredRenderPass,
+    VkPipeline &_forwardGraphicsPipeline, VkPipeline &_gBufferGraphicsPipeline,
     VkPipeline &_brdfGraphicsPipeline,
     std::vector<VkFramebuffer> &_forwardSwapChainFramebuffers,
     std::vector<VkFramebuffer> &_deferredSwapChainFramebuffers,
@@ -459,14 +623,19 @@ void onWindowResize(SDL_Window *_window, const Renderer &_renderer,
   vkDeviceWaitIdle(
       _renderer.Device); // Ensure that device finished using swap chain.
 
-  cleanupReloadableResources(_renderer, _swapChain, _forwardRenderPass, _deferredRenderPass, _forwardGraphicsPipeline, _gBufferGraphicsPipeline,
-                            _brdfGraphicsPipeline, _forwardSwapChainFramebuffers, _deferredSwapChainFramebuffers, _deferredAttachmentImages);
-                             
+  cleanupReloadableResources(
+      _renderer, _swapChain, _forwardRenderPass, _deferredRenderPass,
+      _forwardGraphicsPipeline, _gBufferGraphicsPipeline, _brdfGraphicsPipeline,
+      _forwardSwapChainFramebuffers, _deferredSwapChainFramebuffers,
+      _deferredAttachmentImages);
 
-
-  initReloadableResources(_renderer, width, height, nullptr, _forwardPipelineParams, _gBufferPipelineParams, _brdfPipelineParams,
-                          &_swapChain, &_forwardRenderPass, &_deferredRenderPass, &_forwardGraphicsPipeline, &_gBufferGraphicsPipeline, &_brdfGraphicsPipeline,
-                          &_forwardSwapChainFramebuffers, &_deferredSwapChainFramebuffers, &_deferredAttachmentImages);
+  initReloadableResources(
+      _renderer, width, height, nullptr, _forwardPipelineParams,
+      _gBufferPipelineParams, _brdfPipelineParams, &_swapChain,
+      &_forwardRenderPass, &_deferredRenderPass, &_forwardGraphicsPipeline,
+      &_gBufferGraphicsPipeline, &_brdfGraphicsPipeline,
+      &_forwardSwapChainFramebuffers, &_deferredSwapChainFramebuffers,
+      &_deferredAttachmentImages);
 }
 
 } // namespace bb
@@ -599,9 +768,11 @@ int main(int _argc, char **_argv) {
   std::string shaderRootPath = "../src/shaders";
 
   Shader gBufferVertShader = createShaderFromFile(
-      renderer, createAbsolutePath(joinPaths(shaderRootPath, "gbuffer.vert.spv")));
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "gbuffer.vert.spv")));
   Shader gBufferFragShader = createShaderFromFile(
-      renderer, createAbsolutePath(joinPaths(shaderRootPath, "gbuffer.frag.spv")));
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "gbuffer.frag.spv")));
 
   Shader brdfVertShader = createShaderFromFile(
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.vert.spv")));
@@ -609,9 +780,11 @@ int main(int _argc, char **_argv) {
       renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.frag.spv")));
 
   Shader forwardBrdfVertShader = createShaderFromFile(
-      renderer, createAbsolutePath(joinPaths(shaderRootPath, "forwardBrdf.vert.spv")));
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "forwardBrdf.vert.spv")));
   Shader forwardBrdfFragShader = createShaderFromFile(
-      renderer, createAbsolutePath(joinPaths(shaderRootPath, "forwardBrdf.frag.spv")));
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "forwardBrdf.frag.spv")));
 
   gGizmo.VertShader = createShaderFromFile(
       renderer,
@@ -620,13 +793,20 @@ int main(int _argc, char **_argv) {
       renderer,
       createAbsolutePath(joinPaths(shaderRootPath, "gizmo.frag.spv")));
 
+  gBufferVisualize.VertShader = createShaderFromFile(
+      renderer, createAbsolutePath(
+                    joinPaths(shaderRootPath, "bufferVisualize.vert.spv")));
+  gBufferVisualize.FragShader = createShaderFromFile(
+      renderer, createAbsolutePath(
+                    joinPaths(shaderRootPath, "bufferVisualize.frag.spv")));
+
   VkCommandPoolCreateInfo transientCmdPoolCreateInfo = {};
   transientCmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   transientCmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
   transientCmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
   VkCommandPool transientCmdPool;
-  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &transientCmdPoolCreateInfo, nullptr,
-                                   &transientCmdPool));
+  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &transientCmdPoolCreateInfo,
+                                   nullptr, &transientCmdPool));
 
   std::vector<PBRMaterial> pbrMaterials;
   pbrMaterials.push_back(createPBRMaterialFromFiles(
@@ -635,10 +815,11 @@ int main(int _argc, char **_argv) {
 
   StandardPipelineLayout standardPipelineLayout =
       createStandardPipelineLayout(renderer);
-  StandardPipelineLayout gBufferPipelineLayout = 
+  StandardPipelineLayout gBufferPipelineLayout =
       createGbufferPipelineLayout(renderer);
-  StandardPipelineLayout brdfPipelineLayout = 
+  StandardPipelineLayout brdfPipelineLayout =
       createBrdfPipelineLayout(renderer);
+  gBufferVisualize.PipelineLayout = createBrdfPipelineLayout(renderer);
 
   // Create a descriptor pool corresponding to the standard pipeline layout
   VkDescriptorPool descriptorPool;
@@ -685,8 +866,10 @@ int main(int _argc, char **_argv) {
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptorPoolCreateInfo.poolSizeCount = (uint32_t)poolSizes.size();
     descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
-    descriptorPoolCreateInfo.maxSets = (uint32_t)(
-        (standardPipelineLayout.DescriptorSetLayouts.size() + gBufferPipelineLayout.DescriptorSetLayouts.size()) * numFrames); 
+    descriptorPoolCreateInfo.maxSets =
+        (uint32_t)((standardPipelineLayout.DescriptorSetLayouts.size() +
+                    gBufferPipelineLayout.DescriptorSetLayouts.size()) *
+                   numFrames);
     BB_VK_ASSERT(vkCreateDescriptorPool(
         renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
   }
@@ -696,7 +879,7 @@ int main(int _argc, char **_argv) {
   {
     std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
 
-    // TODO: use 
+    // TODO: use
     for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
          frequency < DescriptorFrequency::COUNT;
          frequency = (DescriptorFrequency)((int)frequency + 1)) {
@@ -704,7 +887,6 @@ int main(int _argc, char **_argv) {
           standardPipelineLayout.DescriptorSetLayouts[frequency];
 
       uint32_t numDescriptorSets = numFrames;
-
 
       for (auto [type, numDescriptors] :
            descriptorSetLayout.NumDescriptorsTable) {
@@ -728,8 +910,9 @@ int main(int _argc, char **_argv) {
     descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
     descriptorPoolCreateInfo.maxSets = (uint32_t)(
         standardPipelineLayout.DescriptorSetLayouts.size() * numFrames);
-    BB_VK_ASSERT(vkCreateDescriptorPool(
-        renderer.Device, &descriptorPoolCreateInfo, nullptr, &brdfDescriptorPool));
+    BB_VK_ASSERT(vkCreateDescriptorPool(renderer.Device,
+                                        &descriptorPoolCreateInfo, nullptr,
+                                        &brdfDescriptorPool));
   }
 
   SwapChain swapChain;
@@ -745,33 +928,30 @@ int main(int _argc, char **_argv) {
   std::vector<VkFramebuffer> defrerredFramebuffers;
   EnumArray<GBufferAttachmentType, Image> deferredAttachmentImages;
 
-
-  const Shader* forwardShaders[] = {&forwardBrdfVertShader, &forwardBrdfFragShader};
+  const Shader *forwardShaders[] = {&forwardBrdfVertShader,
+                                    &forwardBrdfFragShader};
   PipelineParams forwardPipelineParam;
   forwardPipelineParam.Shaders = forwardShaders;
   forwardPipelineParam.NumShaders = std::size(forwardShaders);
   forwardPipelineParam.PipelineLayout = standardPipelineLayout.Handle;
 
-
-  const Shader* gBufferShaders[] = {&gBufferVertShader, &gBufferFragShader};
+  const Shader *gBufferShaders[] = {&gBufferVertShader, &gBufferFragShader};
   PipelineParams gBufferPipelineParam;
   gBufferPipelineParam.Shaders = gBufferShaders;
   gBufferPipelineParam.NumShaders = std::size(gBufferShaders);
   gBufferPipelineParam.PipelineLayout = gBufferPipelineLayout.Handle;
 
-
-  const Shader* brdfShaders[] = {&brdfVertShader, &brdfFragShader};
+  const Shader *brdfShaders[] = {&brdfVertShader, &brdfFragShader};
   PipelineParams brdfPipelineParam;
   brdfPipelineParam.Shaders = brdfShaders;
   brdfPipelineParam.NumShaders = std::size(brdfShaders);
   brdfPipelineParam.PipelineLayout = brdfPipelineLayout.Handle;
 
-
-
-
-  initReloadableResources(renderer, width, height, nullptr, forwardPipelineParam, gBufferPipelineParam, brdfPipelineParam,
-                          &swapChain, &forwardRenderPass, &deferredRenderPass, &forwardPipeline, &gBufferPipeline, &brdfPipeline,
-                           &forwardFramebuffers, &defrerredFramebuffers, &deferredAttachmentImages);
+  initReloadableResources(
+      renderer, width, height, nullptr, forwardPipelineParam,
+      gBufferPipelineParam, brdfPipelineParam, &swapChain, &forwardRenderPass,
+      &deferredRenderPass, &forwardPipeline, &gBufferPipeline, &brdfPipeline,
+      &forwardFramebuffers, &defrerredFramebuffers, &deferredAttachmentImages);
 
   Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -815,7 +995,6 @@ int main(int _argc, char **_argv) {
                                         &imguiDescriptorPool));
   }
 
-
   VkCommandPool drawCmdPool;
   VkCommandBuffer drawCmdBuffer;
 
@@ -832,28 +1011,26 @@ int main(int _argc, char **_argv) {
   drawCmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   drawCmdBufferAllocInfo.commandBufferCount = 1;
   drawCmdBufferAllocInfo.commandPool = drawCmdPool;
-  BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &drawCmdBufferAllocInfo,
-                                        &drawCmdBuffer));
-
-
-
+  BB_VK_ASSERT(vkAllocateCommandBuffers(
+      renderer.Device, &drawCmdBufferAllocInfo, &drawCmdBuffer));
 
   std::vector<Frame> forwardFrames;
   for (int i = 0; i < numFrames; ++i) {
     forwardFrames.push_back(createFrame(renderer, standardPipelineLayout,
-                                 descriptorPool, pbrMaterials));
+                                        descriptorPool, pbrMaterials));
   }
 
   std::vector<Frame> gBufferFrames;
   for (int i = 0; i < numFrames; ++i) {
     gBufferFrames.push_back(createFrame(renderer, gBufferPipelineLayout,
-                                 descriptorPool, pbrMaterials));
+                                        descriptorPool, pbrMaterials));
   }
 
   std::vector<Frame> brdfFrames;
   for (int i = 0; i < numFrames; ++i) {
     brdfFrames.push_back(createBrdfFrame(renderer, brdfPipelineLayout,
-                                 brdfDescriptorPool, deferredAttachmentImages));
+                                         brdfDescriptorPool,
+                                         deferredAttachmentImages));
   }
 
   uint32_t currentFrameIndex = 0;
@@ -992,7 +1169,6 @@ int main(int _argc, char **_argv) {
     Frame &currentGbufferFrame = gBufferFrames[currentFrameIndex];
     Frame &currentBrdfFrame = brdfFrames[currentFrameIndex];
 
-
     VkResult acquireNextImageResult =
         vkAcquireNextImageKHR(renderer.Device, swapChain.Handle, UINT64_MAX,
                               currentGbufferFrame.ImagePresentedSemaphore,
@@ -1003,9 +1179,11 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, forwardPipelineParam, gBufferPipelineParam, brdfPipelineParam, swapChain,
-                    forwardRenderPass, deferredRenderPass, forwardPipeline, gBufferPipeline, brdfPipeline,
-                    forwardFramebuffers, defrerredFramebuffers, deferredAttachmentImages);
+      onWindowResize(window, renderer, forwardPipelineParam,
+                     gBufferPipelineParam, brdfPipelineParam, swapChain,
+                     forwardRenderPass, deferredRenderPass, forwardPipeline,
+                     gBufferPipeline, brdfPipeline, forwardFramebuffers,
+                     defrerredFramebuffers, deferredAttachmentImages);
 
       continue;
     }
@@ -1016,16 +1194,17 @@ int main(int _argc, char **_argv) {
     VkFramebuffer currentDeferredFramebuffer =
         defrerredFramebuffers[currentSwapChainImageIndex];
 
-        
-
-    // vkWaitForFences(renderer.Device, 1, &currentGbufferFrame.FrameAvailableFence,
+    // vkWaitForFences(renderer.Device, 1,
+    // &currentGbufferFrame.FrameAvailableFence,
     //                 VK_TRUE, UINT64_MAX);
-    // vkResetFences(renderer.Device, 1, &currentGbufferFrame.FrameAvailableFence);
+    // vkResetFences(renderer.Device, 1,
+    // &currentGbufferFrame.FrameAvailableFence);
 
-    currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)forwardFrames.size();
+    currentFrameIndex =
+        (currentFrameIndex + 1) % (uint32_t)forwardFrames.size();
 
     static float angle = -90;
-    //angle += 30.f * dt;
+    // angle += 30.f * dt;
     if (angle > 360) {
       angle -= 360;
     }
@@ -1052,11 +1231,24 @@ int main(int _argc, char **_argv) {
     light->OuterCutOff = degToRad(25);
 
     {
+      if (gBufferVisualize.Current_buffer &&
+          strcmp(gBufferVisualize.Current_buffer, "Rendered Scene")) {
+        frameUniformBlock.NumLights = gBufferVisualize.Current_index;
+      }
+
       void *data;
-      vkMapMemory(renderer.Device, currentBrdfFrame.FrameUniformBuffer.Memory, 0,
+      vkMapMemory(renderer.Device, currentBrdfFrame.FrameUniformBuffer.Memory,
+                  0, sizeof(FrameUniformBlock), 0, &data);
+      memcpy(data, &frameUniformBlock, sizeof(FrameUniformBlock));
+      vkUnmapMemory(renderer.Device,
+                    currentBrdfFrame.FrameUniformBuffer.Memory);
+
+      vkMapMemory(renderer.Device,
+                  currentForwardFrame.FrameUniformBuffer.Memory, 0,
                   sizeof(FrameUniformBlock), 0, &data);
       memcpy(data, &frameUniformBlock, sizeof(FrameUniformBlock));
-      vkUnmapMemory(renderer.Device, currentBrdfFrame.FrameUniformBuffer.Memory);
+      vkUnmapMemory(renderer.Device,
+                    currentForwardFrame.FrameUniformBuffer.Memory);
     }
 
     ViewUniformBlock viewUniformBlock = {};
@@ -1067,16 +1259,22 @@ int main(int _argc, char **_argv) {
 
     {
       void *data;
-      vkMapMemory(renderer.Device, currentGbufferFrame.ViewUniformBuffer.Memory, 0,
-                  sizeof(ViewUniformBlock), 0, &data);
+      vkMapMemory(renderer.Device, currentGbufferFrame.ViewUniformBuffer.Memory,
+                  0, sizeof(ViewUniformBlock), 0, &data);
       memcpy(data, &viewUniformBlock, sizeof(ViewUniformBlock));
-      vkUnmapMemory(renderer.Device, currentGbufferFrame.ViewUniformBuffer.Memory);
-
+      vkUnmapMemory(renderer.Device,
+                    currentGbufferFrame.ViewUniformBuffer.Memory);
 
       vkMapMemory(renderer.Device, currentBrdfFrame.ViewUniformBuffer.Memory, 0,
                   sizeof(ViewUniformBlock), 0, &data);
       memcpy(data, &viewUniformBlock, sizeof(ViewUniformBlock));
       vkUnmapMemory(renderer.Device, currentBrdfFrame.ViewUniformBuffer.Memory);
+
+      vkMapMemory(renderer.Device, currentForwardFrame.ViewUniformBuffer.Memory,
+                  0, sizeof(ViewUniformBlock), 0, &data);
+      memcpy(data, &viewUniformBlock, sizeof(ViewUniformBlock));
+      vkUnmapMemory(renderer.Device,
+                    currentForwardFrame.ViewUniformBuffer.Memory);
     }
 
     static int selectedInstanceIndex = -1;
@@ -1101,6 +1299,26 @@ int main(int _argc, char **_argv) {
     }
     ImGui::End();
 
+    if (ImGui::Begin("Render Setting")) {
+      if (ImGui::BeginCombo("Buffer", gBufferVisualize.Current_buffer)) {
+        for (int i = 0; i < IM_ARRAYSIZE(gBufferVisualize.Buffer_labels); i++) {
+          bool is_selected = (gBufferVisualize.Current_buffer ==
+                              gBufferVisualize.Buffer_labels[i]);
+
+          if (ImGui::Selectable(gBufferVisualize.Buffer_labels[i],
+                                is_selected)) {
+            gBufferVisualize.Current_buffer = gBufferVisualize.Buffer_labels[i];
+            gBufferVisualize.Current_index = i;
+          }
+
+          if (is_selected)
+            ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
+    }
+    ImGui::End();
+
     for (int i = 0; i < instanceData.size(); i++) {
       instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
                                  Mat4::rotateY(angle) * Mat4::rotateX(-90) *
@@ -1115,18 +1333,18 @@ int main(int _argc, char **_argv) {
       memcpy(data, instanceData.data(), instanceBuffer.Size);
       vkUnmapMemory(renderer.Device, instanceBuffer.Memory);
     }
-    
+
     vkResetCommandPool(renderer.Device, drawCmdPool,
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
-    recordCommand(drawCmdBuffer, forwardRenderPass.Handle, deferredRenderPass.Handle,
-                  currentForwardFramebuffer, currentDeferredFramebuffer, 
-                  forwardPipeline, gBufferPipeline, brdfPipeline, swapChain.Extent,
-                  shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, standardPipelineLayout, gBufferPipelineLayout, brdfPipelineLayout,
-                  currentForwardFrame, currentGbufferFrame, currentBrdfFrame,
-                  shaderBallIndices, numInstances);
+    recordCommand(
+        drawCmdBuffer, forwardRenderPass.Handle, deferredRenderPass.Handle,
+        currentForwardFramebuffer, currentDeferredFramebuffer, forwardPipeline,
+        gBufferPipeline, brdfPipeline, swapChain.Extent, shaderBallVertexBuffer,
+        instanceBuffer, shaderBallIndexBuffer, standardPipelineLayout,
+        gBufferPipelineLayout, brdfPipelineLayout, currentForwardFrame,
+        currentGbufferFrame, currentBrdfFrame, shaderBallIndices, numInstances);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1143,8 +1361,9 @@ int main(int _argc, char **_argv) {
     BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo,
                                currentGbufferFrame.FrameAvailableFence));
 
-    vkWaitForFences(renderer.Device, 1, &currentGbufferFrame.FrameAvailableFence,
-                    VK_TRUE, UINT64_MAX);
+    vkWaitForFences(renderer.Device, 1,
+                    &currentGbufferFrame.FrameAvailableFence, VK_TRUE,
+                    UINT64_MAX);
     vkResetFences(renderer.Device, 1, &currentGbufferFrame.FrameAvailableFence);
 
     VkPresentInfoKHR presentInfo = {};
@@ -1163,11 +1382,12 @@ int main(int _argc, char **_argv) {
           renderer.PhysicalDevice, renderer.Surface,
           &renderer.SwapChainSupportDetails.Capabilities);
 
-      onWindowResize(window, renderer, forwardPipelineParam, gBufferPipelineParam, brdfPipelineParam, swapChain,
-                    forwardRenderPass, deferredRenderPass, forwardPipeline, gBufferPipeline, brdfPipeline,
-                    forwardFramebuffers, defrerredFramebuffers, deferredAttachmentImages);
+      onWindowResize(window, renderer, forwardPipelineParam,
+                     gBufferPipelineParam, brdfPipelineParam, swapChain,
+                     forwardRenderPass, deferredRenderPass, forwardPipeline,
+                     gBufferPipeline, brdfPipeline, forwardFramebuffers,
+                     defrerredFramebuffers, deferredAttachmentImages);
     }
-
   }
 
   vkDeviceWaitIdle(renderer.Device);
@@ -1199,8 +1419,10 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
 
-  cleanupReloadableResources(renderer, swapChain, forwardRenderPass, deferredRenderPass, forwardPipeline, gBufferPipeline, brdfPipeline, 
-                              forwardFramebuffers, defrerredFramebuffers, deferredAttachmentImages);
+  cleanupReloadableResources(renderer, swapChain, forwardRenderPass,
+                             deferredRenderPass, forwardPipeline,
+                             gBufferPipeline, brdfPipeline, forwardFramebuffers,
+                             defrerredFramebuffers, deferredAttachmentImages);
 
   destroyStandardPipelineLayout(renderer, standardPipelineLayout);
 
@@ -1213,6 +1435,12 @@ int main(int _argc, char **_argv) {
   destroyShader(renderer, gGizmo.FragShader);
   destroyShader(renderer, brdfVertShader);
   destroyShader(renderer, brdfFragShader);
+  destroyShader(renderer, gBufferVertShader);
+  destroyShader(renderer, gBufferFragShader);
+  destroyShader(renderer, forwardBrdfVertShader);
+  destroyShader(renderer, forwardBrdfFragShader);
+  destroyShader(renderer, gBufferVisualize.VertShader);
+  destroyShader(renderer, gBufferVisualize.FragShader);
   destroyRenderer(renderer);
 
   SDL_DestroyWindow(window);

@@ -113,6 +113,8 @@ Settings
     'brdf.frag',
     'gizmo.vert',
     'gizmo.frag',
+    'bufferVisualize.vert',
+    'bufferVisualize.frag',
 }
 
 ForEach (.Shader in .Shaders)

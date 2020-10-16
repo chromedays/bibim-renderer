@@ -57,7 +57,14 @@ void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
 enum class LightType : int { Point = 0, Spot, Directional };
 
-enum class GBufferAttachmentType { Position, Normal, Albedo, MRAH, MaterialIndex, COUNT };
+enum class GBufferAttachmentType {
+  Position,
+  Normal,
+  Albedo,
+  MRAH,
+  MaterialIndex,
+  COUNT
+};
 
 struct InstanceBlock {
   Mat4 ModelMat;
@@ -135,8 +142,10 @@ struct RenderPass {
   // std::function<void(VkCommandBuffer, VkDescriptorSet)> Command;
 };
 
-RenderPass createForwardRenderPass(const Renderer &_renderer, const SwapChain& _swapChain);
-RenderPass createDeferredRenderPass(const Renderer &_renderer, const SwapChain& _swapChain);
+RenderPass createForwardRenderPass(const Renderer &_renderer,
+                                   const SwapChain &_swapChain);
+RenderPass createDeferredRenderPass(const Renderer &_renderer,
+                                    const SwapChain &_swapChain);
 
 struct PipelineParams {
   const Shader **Shaders;
@@ -179,7 +188,8 @@ struct PipelineParams {
 };
 
 VkPipeline createPipeline(const Renderer &_renderer,
-                          const PipelineParams &_params, uint32_t _numColorBlend = 1, uint32_t _subpass = 0);
+                          const PipelineParams &_params,
+                          uint32_t _numColorBlend = 1, uint32_t _subpass = 0);
 enum class PBRMapType {
   Albedo,
   Metallic,
@@ -221,7 +231,8 @@ struct StandardPipelineLayout {
   VkPipelineLayout Handle;
 };
 
-EnumArray<SamplerType, VkSampler> createImmutableSamplers(const Renderer &_renderer);
+EnumArray<SamplerType, VkSampler>
+createImmutableSamplers(const Renderer &_renderer);
 
 StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer);
 StandardPipelineLayout createGbufferPipelineLayout(const Renderer &_renderer);
@@ -229,9 +240,6 @@ StandardPipelineLayout createBrdfPipelineLayout(const Renderer &_renderer);
 
 void destroyStandardPipelineLayout(const Renderer &_renderer,
                                    StandardPipelineLayout &_layout);
-
-
-
 
 struct alignas(16) Light {
   Float3 Pos;
@@ -256,8 +264,8 @@ struct ViewUniformBlock {
 };
 
 struct Frame {
-  //VkCommandPool CmdPool; // TODO: remove this
-  //VkCommandBuffer CmdBuffer;
+  // VkCommandPool CmdPool; // TODO: remove this
+  // VkCommandBuffer CmdBuffer;
   VkDescriptorSet FrameDescriptorSet;
   VkDescriptorSet ViewDescriptorSet;
   std::vector<VkDescriptorSet> MaterialDescriptorSets;
@@ -275,10 +283,11 @@ Frame createFrame(const Renderer &_renderer,
                   VkDescriptorPool _descriptorPool,
                   const std::vector<PBRMaterial> &_pbrMaterials);
 
-Frame createBrdfFrame(const Renderer &_renderer,
-                  const StandardPipelineLayout &_standardPipelineLayout,
-                  VkDescriptorPool _descriptorPool,
-                  EnumArray<GBufferAttachmentType, Image>& _deferredAttachmentImages);
+Frame createBrdfFrame(
+    const Renderer &_renderer,
+    const StandardPipelineLayout &_standardPipelineLayout,
+    VkDescriptorPool _descriptorPool,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
 
