@@ -212,7 +212,8 @@ void initReloadableResources(
   gBufferAttachmentImageCreateInfo.extent.depth = 1;
   gBufferAttachmentImageCreateInfo.mipLevels = 1;
   gBufferAttachmentImageCreateInfo.arrayLayers = 1;
-  gBufferAttachmentImageCreateInfo.format = swapChain.ColorFormat;
+  //gBufferAttachmentImageCreateInfo.format = swapChain.ColorFormat;
+  gBufferAttachmentImageCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
   gBufferAttachmentImageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   gBufferAttachmentImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   gBufferAttachmentImageCreateInfo.usage =
@@ -254,7 +255,8 @@ void initReloadableResources(
     imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imageViewCreateInfo.image = currentImage.Handle;
     imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    imageViewCreateInfo.format = swapChain.ColorFormat;
+    //imageViewCreateInfo.format = swapChain.ColorFormat;
+    imageViewCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
     imageViewCreateInfo.subresourceRange.levelCount = 1;

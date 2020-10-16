@@ -566,7 +566,8 @@ RenderPass createForwardRenderPass(const Renderer &_renderer, const SwapChain& _
 RenderPass createDeferredRenderPass(const Renderer &_renderer, const SwapChain& _swapChain)
 {
   VkAttachmentDescription gBufferColorAttachment = {};
-  gBufferColorAttachment.format = _swapChain.ColorFormat;
+  //gBufferColorAttachment.format = _swapChain.ColorFormat;
+  gBufferColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
   gBufferColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   gBufferColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   gBufferColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

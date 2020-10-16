@@ -20,7 +20,6 @@ void main() {
     float height = MRAH.a;
 
 
-
     vec3 Lo = vec3(0);
 
     for (int i = 0; i < uNumLights; ++i) {
@@ -44,7 +43,7 @@ void main() {
             L = -normalize(light.dir);
             att = 1;
         }
-            
+        
         vec3 V = normalize(uViewPos - posWorld);
         vec3 N = normalize(normal);
         vec3 H = normalize(L + V);
