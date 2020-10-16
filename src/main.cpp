@@ -320,9 +320,6 @@ void initReloadableResources(
   }
 
   // Cretae gBuffer framebuffer attachment
-  // std::vector<Image>
-  // gBufferAttachmentImages((int)GBufferAttachmentType::COUNT);
-
   EnumArray<GBufferAttachmentType, Image> deferredAttachmentImages;
 
   VkImageCreateInfo gBufferAttachmentImageCreateInfo = {};
@@ -375,7 +372,6 @@ void initReloadableResources(
     imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imageViewCreateInfo.image = currentImage.Handle;
     imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    // imageViewCreateInfo.format = swapChain.ColorFormat;
     imageViewCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
@@ -440,7 +436,7 @@ void initReloadableResources(
     pipelineParams.Shaders = _gBufferPipelineParams.Shaders;
     pipelineParams.PipelineLayout =
         _gBufferPipelineParams
-            .PipelineLayout; // TODO: actually same with forward
+            .PipelineLayout;
     pipelineParams.RenderPass = deferredRenderPass.Handle;
     *_outGbufferPipeline = createPipeline(
         _renderer, pipelineParams, (uint32_t)GBufferAttachmentType::COUNT);
@@ -456,7 +452,7 @@ void initReloadableResources(
 
     pipelineParams.Shaders = _brdfPipelineParams.Shaders;
     pipelineParams.PipelineLayout =
-        _brdfPipelineParams.PipelineLayout; // TODO: actually same with forward
+        _brdfPipelineParams.PipelineLayout;
     pipelineParams.RenderPass = deferredRenderPass.Handle;
     *_outBrdfPipeline = createPipeline(_renderer, pipelineParams, 1, 1);
   }
@@ -464,11 +460,6 @@ void initReloadableResources(
   *_outSwapChain = std::move(swapChain);
   *_outForwardRenderPass = forwardRenderPass;
   *_outDeferredRenderPass = deferredRenderPass;
-
-  //*_outForwardGraphicsPipeline = createPipeline(_renderer,
-  //_forwardPipelineParams);
-  //*_outDeferredGraphicsPipeline = createPipeline(_renderer,
-  //_deferredPipelineParams, (int)GBufferAttachmentType::COUNT);
 
   *_outForwardSwapChainFramebuffers = std::move(forwardFramebuffers);
   *_outDeferredSwapChainFramebuffers = std::move(deferredFramebuffers);
@@ -677,14 +668,8 @@ int main(int _argc, char **_argv) {
 
       Vertex v = {};
       v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[vi]);
-      // std::swap(v.Pos.Y, v.Pos.Z);
-      // v.Pos.Z *= -1.f;
       v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
-      // const aiVector3D &tangent = shaderBallMesh->mTangents[face]
-      // v.Normal =
       v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
-      // std::swap(v.Normal.Y, v.Normal.Z);
-      // v.Normal.Z *= -1.f;
       v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
       shaderBallVertices.push_back(v);
     }
@@ -874,12 +859,9 @@ int main(int _argc, char **_argv) {
         renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
   }
 
-  // TODO: seperate it.
   VkDescriptorPool brdfDescriptorPool = {};
   {
     std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
-
-    // TODO: use
     for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
          frequency < DescriptorFrequency::COUNT;
          frequency = (DescriptorFrequency)((int)frequency + 1)) {
@@ -1164,7 +1146,6 @@ int main(int _argc, char **_argv) {
         dt;
     cam.Pos += camMovement;
 
-    // TODO
     Frame &currentForwardFrame = forwardFrames[currentFrameIndex];
     Frame &currentGbufferFrame = gBufferFrames[currentFrameIndex];
     Frame &currentBrdfFrame = brdfFrames[currentFrameIndex];
@@ -1193,12 +1174,6 @@ int main(int _argc, char **_argv) {
 
     VkFramebuffer currentDeferredFramebuffer =
         defrerredFramebuffers[currentSwapChainImageIndex];
-
-    // vkWaitForFences(renderer.Device, 1,
-    // &currentGbufferFrame.FrameAvailableFence,
-    //                 VK_TRUE, UINT64_MAX);
-    // vkResetFences(renderer.Device, 1,
-    // &currentGbufferFrame.FrameAvailableFence);
 
     currentFrameIndex =
         (currentFrameIndex + 1) % (uint32_t)forwardFrames.size();

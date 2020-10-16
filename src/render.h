@@ -139,7 +139,6 @@ void destroyShader(const Renderer &_renderer, Shader &_shader);
 struct RenderPass {
   VkRenderPass Handle;
   VkRenderPassBeginInfo BeginInfo = {};
-  // std::function<void(VkCommandBuffer, VkDescriptorSet)> Command;
 };
 
 RenderPass createForwardRenderPass(const Renderer &_renderer,
@@ -264,8 +263,6 @@ struct ViewUniformBlock {
 };
 
 struct Frame {
-  // VkCommandPool CmdPool; // TODO: remove this
-  // VkCommandBuffer CmdBuffer;
   VkDescriptorSet FrameDescriptorSet;
   VkDescriptorSet ViewDescriptorSet;
   std::vector<VkDescriptorSet> MaterialDescriptorSets;
