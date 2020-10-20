@@ -742,10 +742,10 @@ int main(int _argc, char **_argv) {
 
   Shader forwardBrdfVertShader = createShaderFromFile(
       renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "forwardBrdf.vert.spv")));
+      createAbsolutePath(joinPaths(shaderRootPath, "forward_brdf.vert.spv")));
   Shader forwardBrdfFragShader = createShaderFromFile(
       renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "forwardBrdf.frag.spv")));
+      createAbsolutePath(joinPaths(shaderRootPath, "forward_brdf.frag.spv")));
 
   gGizmo.VertShader = createShaderFromFile(
       renderer,
@@ -756,10 +756,10 @@ int main(int _argc, char **_argv) {
 
   gBufferVisualize.VertShader = createShaderFromFile(
       renderer, createAbsolutePath(
-                    joinPaths(shaderRootPath, "bufferVisualize.vert.spv")));
+                    joinPaths(shaderRootPath, "buffer_visualize.vert.spv")));
   gBufferVisualize.FragShader = createShaderFromFile(
       renderer, createAbsolutePath(
-                    joinPaths(shaderRootPath, "bufferVisualize.frag.spv")));
+                    joinPaths(shaderRootPath, "buffer_visualize.frag.spv")));
 
   VkCommandPoolCreateInfo transientCmdPoolCreateInfo = {};
   transientCmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;

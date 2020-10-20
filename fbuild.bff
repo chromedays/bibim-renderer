@@ -105,16 +105,16 @@ Settings
 .VSConfigs = {}
 
 .Shaders = {
-    'forwardBrdf.vert',
-    'forwardBrdf.frag',
+    'forward_brdf.vert',
+    'forward_brdf.frag',
     'gbuffer.vert',
     'gbuffer.frag',
     'brdf.vert',
     'brdf.frag',
     'gizmo.vert',
     'gizmo.frag',
-    'bufferVisualize.vert',
-    'bufferVisualize.frag',
+    'buffer_visualize.vert',
+    'buffer_visualize.frag',
 }
 
 ForEach (.Shader in .Shaders)
