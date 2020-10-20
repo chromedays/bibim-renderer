@@ -17,6 +17,7 @@ struct Light {
 layout (set = SET_FRAME, binding = 0) uniform FrameData {
     int uNumLights;
     Light uLights[MAX_NUM_LIGHTS];
+    int uVisualizedGBufferAttachmentIndex;
 };
 
 layout (set = SET_FRAME, binding = 1) uniform sampler uSamplers[2];

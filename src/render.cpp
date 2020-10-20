@@ -565,7 +565,8 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
 
 RenderPass createDeferredRenderPass(const Renderer &_renderer,
                                     const SwapChain &_swapChain) {
-  VkAttachmentDescription gBufferColorAttachment = {};;
+  VkAttachmentDescription gBufferColorAttachment = {};
+  ;
   gBufferColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
   gBufferColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   gBufferColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -649,8 +650,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   subpassDependency.dstStageMask =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-  subpassDependency.srcAccessMask =
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  subpassDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
   subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
 
   VkRenderPassCreateInfo renderPassCreateInfo = {};
@@ -1348,6 +1348,8 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
                 {VK_DESCRIPTOR_TYPE_SAMPLER,
                  (uint32_t)layout.ImmutableSamplers.size()},
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                 (uint32_t)GBufferAttachmentType::COUNT},
             },
             // PerView
             {
@@ -1368,174 +1370,6 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
 
       uint32_t numBindings = 0;
 
-      for (auto [descriptorType, numDescriptors] : meta[frequency]) {
-        VkDescriptorSetLayoutBinding &binding = bindings[numBindings++];
-        binding.descriptorType = descriptorType;
-        binding.descriptorCount = numDescriptors;
-        if ((frequency == DescriptorFrequency::PerFrame) &&
-            (descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER)) {
-          binding.pImmutableSamplers = layout.ImmutableSamplers.data();
-        }
-      }
-
-      descriptorSetLayoutCreateInfo.bindingCount = numBindings;
-
-      BB_VK_ASSERT(vkCreateDescriptorSetLayout(
-          _renderer.Device, &descriptorSetLayoutCreateInfo, nullptr,
-          &layout.DescriptorSetLayouts[frequency].Handle));
-      layout.DescriptorSetLayouts[frequency].NumDescriptorsTable =
-          std::move(meta[frequency]);
-    }
-  }
-
-  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
-  pipelineLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-  descriptorSetLayouts.reserve(layout.DescriptorSetLayouts.size());
-  for (const DescriptorSetLayout &descriptorSetLayout :
-       layout.DescriptorSetLayouts) {
-    descriptorSetLayouts.push_back(descriptorSetLayout.Handle);
-  }
-  pipelineLayoutCreateInfo.setLayoutCount =
-      (uint32_t)descriptorSetLayouts.size();
-  pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts.data();
-  vkCreatePipelineLayout(_renderer.Device, &pipelineLayoutCreateInfo, nullptr,
-                         &layout.Handle);
-
-  return layout;
-}
-
-StandardPipelineLayout createGbufferPipelineLayout(const Renderer &_renderer) {
-  StandardPipelineLayout layout = {};
-
-  layout.ImmutableSamplers = std::move(createImmutableSamplers(_renderer));
-
-  VkDescriptorSetLayoutBinding bindings[16] = {};
-  for (size_t i = 0; i < std::size(bindings); ++i) {
-    bindings[i].binding = (uint32_t)i;
-    bindings[i].stageFlags =
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  }
-  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-  descriptorSetLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  descriptorSetLayoutCreateInfo.pBindings = bindings;
-
-  // Create descriptor set layouts with the predefined metadata
-  {
-    EnumArray<DescriptorFrequency,
-              std::unordered_map<VkDescriptorType, uint32_t>>
-        meta = {{
-            // PerFrame
-            {
-                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-                {VK_DESCRIPTOR_TYPE_SAMPLER,
-                 (uint32_t)layout.ImmutableSamplers.size()},
-                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 (uint32_t)GBufferAttachmentType::COUNT},
-            },
-            // PerView
-            {
-
-                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-            },
-            // PerMaterial
-            {
-                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 (uint32_t)PBRMaterial::NumImages},
-            },
-            // PerDraw
-            {},
-        }};
-
-    for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
-         frequency < DescriptorFrequency::COUNT;
-         frequency = (DescriptorFrequency)((int)frequency + 1)) {
-      uint32_t numBindings = 0;
-      for (auto [descriptorType, numDescriptors] : meta[frequency]) {
-        VkDescriptorSetLayoutBinding &binding = bindings[numBindings++];
-        binding.descriptorType = descriptorType;
-        binding.descriptorCount = numDescriptors;
-        if ((frequency == DescriptorFrequency::PerFrame) &&
-            (descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER)) {
-          binding.pImmutableSamplers = layout.ImmutableSamplers.data();
-        }
-      }
-
-      descriptorSetLayoutCreateInfo.bindingCount = numBindings;
-
-      BB_VK_ASSERT(vkCreateDescriptorSetLayout(
-          _renderer.Device, &descriptorSetLayoutCreateInfo, nullptr,
-          &layout.DescriptorSetLayouts[frequency].Handle));
-      layout.DescriptorSetLayouts[frequency].NumDescriptorsTable =
-          std::move(meta[frequency]);
-    }
-  }
-
-  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
-  pipelineLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-  descriptorSetLayouts.reserve(layout.DescriptorSetLayouts.size());
-  for (const DescriptorSetLayout &descriptorSetLayout :
-       layout.DescriptorSetLayouts) {
-    descriptorSetLayouts.push_back(descriptorSetLayout.Handle);
-  }
-  pipelineLayoutCreateInfo.setLayoutCount =
-      (uint32_t)descriptorSetLayouts.size();
-  pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts.data();
-  vkCreatePipelineLayout(_renderer.Device, &pipelineLayoutCreateInfo, nullptr,
-                         &layout.Handle);
-
-  return layout;
-}
-
-StandardPipelineLayout createBrdfPipelineLayout(const Renderer &_renderer) {
-  StandardPipelineLayout layout = {};
-
-  layout.ImmutableSamplers = std::move(createImmutableSamplers(_renderer));
-
-  VkDescriptorSetLayoutBinding bindings[16] = {};
-  for (size_t i = 0; i < std::size(bindings); ++i) {
-    bindings[i].binding = (uint32_t)i;
-    bindings[i].stageFlags =
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  }
-  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-  descriptorSetLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  descriptorSetLayoutCreateInfo.pBindings = bindings;
-
-  // Create descriptor set layouts with the predefined metadata
-  {
-    EnumArray<DescriptorFrequency,
-              std::unordered_map<VkDescriptorType, uint32_t>>
-        meta = {{
-            // PerFrame
-            {
-                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-                {VK_DESCRIPTOR_TYPE_SAMPLER,
-                 (uint32_t)layout.ImmutableSamplers.size()},
-                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 (uint32_t)GBufferAttachmentType::COUNT},
-            },
-            // PerView
-            {
-                {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-            },
-            // PerMaterial
-            {},
-            // PerDraw
-            {},
-        }};
-
-    for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
-         frequency < DescriptorFrequency::COUNT;
-         frequency = (DescriptorFrequency)((int)frequency + 1)) {
-      uint32_t numBindings = 0;
       for (auto [descriptorType, numDescriptors] : meta[frequency]) {
         VkDescriptorSetLayoutBinding &binding = bindings[numBindings++];
         binding.descriptorType = descriptorType;
@@ -1589,10 +1423,12 @@ void destroyStandardPipelineLayout(const Renderer &_renderer,
   _layout = {};
 }
 
-Frame createFrame(const Renderer &_renderer,
-                  const StandardPipelineLayout &_standardPipelineLayout,
-                  VkDescriptorPool _descriptorPool,
-                  const std::vector<PBRMaterial> &_pbrMaterials) {
+Frame createFrame(
+    const Renderer &_renderer,
+    const StandardPipelineLayout &_standardPipelineLayout,
+    VkDescriptorPool _descriptorPool,
+    const std::vector<PBRMaterial> &_pbrMaterials,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
   Frame frame = {};
 
   // Allocate descriptor sets
@@ -1697,31 +1533,36 @@ Frame createFrame(const Renderer &_renderer,
       writeInfos.push_back(writeInfo);
     }
 
+    // uGbuffer
+    std::array<VkDescriptorImageInfo, (int)GBufferAttachmentType::COUNT>
+        gBufferImageInfos;
+
+    int i = 0;
+    for (const Image &image : _deferredAttachmentImages) {
+      VkDescriptorImageInfo &imageInfo = gBufferImageInfos[i++];
+      imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfo.imageView = image.View;
+    }
+
+    {
+      writeInfo.dstSet = frame.FrameDescriptorSet;
+      writeInfo.dstBinding = 2; // 2 in standard_sets.glsl
+      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      writeInfo.descriptorCount = (int)GBufferAttachmentType::COUNT;
+      writeInfo.pImageInfo = gBufferImageInfos.data();
+      writeInfos.push_back(writeInfo);
+    }
+
     vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(),
                            writeInfos.data(), 0, nullptr);
   }
 
-  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &frame.RenderFinishedSemaphore));
-  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &frame.ImagePresentedSemaphore));
-
-  VkFenceCreateInfo fenceCreateInfo = {};
-  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceCreateInfo.flags = 0; // Unsignaled statae
-  BB_VK_ASSERT(vkCreateFence(_renderer.Device, &fenceCreateInfo, nullptr,
-                             &frame.FrameAvailableFence));
-
   return frame;
 }
 
-Frame createBrdfFrame(
-    const Renderer &_renderer,
-    const StandardPipelineLayout &_brdfPipelineLayout,
-    VkDescriptorPool _descriptorPool,
-    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
+Frame createBrdfFrame(const Renderer &_renderer,
+                      const StandardPipelineLayout &_brdfPipelineLayout,
+                      VkDescriptorPool _descriptorPool) {
   Frame frame = {};
 
   // Allocate descriptor sets
@@ -1758,7 +1599,6 @@ Frame createBrdfFrame(
 
   // Link descriptor sets to actual resources
   {
-
     std::vector<VkWriteDescriptorSet> writeInfos;
     VkWriteDescriptorSet writeInfo = {};
     writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1787,50 +1627,14 @@ Frame createBrdfFrame(
     writeInfo.pBufferInfo = &viewUniformBufferInfo;
     writeInfos.push_back(writeInfo);
 
-    // uGbuffer
-    std::array<VkDescriptorImageInfo, (int)GBufferAttachmentType::COUNT>
-        gBufferImageInfos;
-
-    int i = 0;
-    for (const Image &image : _deferredAttachmentImages) {
-      VkDescriptorImageInfo &imageInfo = gBufferImageInfos[i++];
-      imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      imageInfo.imageView = image.View;
-    }
-
-    {
-      writeInfo.dstSet = frame.FrameDescriptorSet;
-      writeInfo.dstBinding = 2; // 2 in standard_sets.glsl
-      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writeInfo.descriptorCount = (int)GBufferAttachmentType::COUNT;
-      writeInfo.pImageInfo = gBufferImageInfos.data();
-      writeInfos.push_back(writeInfo);
-    }
-
     vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(),
                            writeInfos.data(), 0, nullptr);
   }
-
-  VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-  semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &frame.RenderFinishedSemaphore));
-  BB_VK_ASSERT(vkCreateSemaphore(_renderer.Device, &semaphoreCreateInfo,
-                                 nullptr, &frame.ImagePresentedSemaphore));
-
-  VkFenceCreateInfo fenceCreateInfo = {};
-  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceCreateInfo.flags = 0; // UNSIGNALED
-  BB_VK_ASSERT(vkCreateFence(_renderer.Device, &fenceCreateInfo, nullptr,
-                             &frame.FrameAvailableFence));
 
   return frame;
 }
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame) {
-  vkDestroySemaphore(_renderer.Device, _frame.ImagePresentedSemaphore, nullptr);
-  vkDestroySemaphore(_renderer.Device, _frame.RenderFinishedSemaphore, nullptr);
-  vkDestroyFence(_renderer.Device, _frame.FrameAvailableFence, nullptr);
   destroyBuffer(_renderer, _frame.ViewUniformBuffer);
   destroyBuffer(_renderer, _frame.FrameUniformBuffer);
   _frame = {};

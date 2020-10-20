@@ -138,6 +138,7 @@ void destroyShader(const Renderer &_renderer, Shader &_shader);
 
 struct RenderPass {
   VkRenderPass Handle;
+  // TODO(ilgwon): Not implemented yet
   VkRenderPassBeginInfo BeginInfo = {};
 };
 
@@ -234,8 +235,6 @@ EnumArray<SamplerType, VkSampler>
 createImmutableSamplers(const Renderer &_renderer);
 
 StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer);
-StandardPipelineLayout createGbufferPipelineLayout(const Renderer &_renderer);
-StandardPipelineLayout createBrdfPipelineLayout(const Renderer &_renderer);
 
 void destroyStandardPipelineLayout(const Renderer &_renderer,
                                    StandardPipelineLayout &_layout);
@@ -254,6 +253,7 @@ struct alignas(16) Light {
 struct FrameUniformBlock {
   int NumLights;
   Light Lights[MAX_NUM_LIGHTS];
+  int VisualizedGBufferAttachmentIndex;
 };
 
 struct ViewUniformBlock {
@@ -269,21 +269,19 @@ struct Frame {
 
   Buffer FrameUniformBuffer;
   Buffer ViewUniformBuffer;
+};
 
+struct FrameSync {
   VkFence FrameAvailableFence;
   VkSemaphore RenderFinishedSemaphore;
   VkSemaphore ImagePresentedSemaphore;
 };
 
-Frame createFrame(const Renderer &_renderer,
-                  const StandardPipelineLayout &_standardPipelineLayout,
-                  VkDescriptorPool _descriptorPool,
-                  const std::vector<PBRMaterial> &_pbrMaterials);
-
-Frame createBrdfFrame(
+Frame createFrame(
     const Renderer &_renderer,
     const StandardPipelineLayout &_standardPipelineLayout,
     VkDescriptorPool _descriptorPool,
+    const std::vector<PBRMaterial> &_pbrMaterials,
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
