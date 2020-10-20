@@ -269,6 +269,9 @@ struct Frame {
 
   Buffer FrameUniformBuffer;
   Buffer ViewUniformBuffer;
+
+  VkCommandPool CmdPool;
+  VkCommandBuffer CmdBuffer;
 };
 
 struct FrameSync {

@@ -76,7 +76,7 @@ struct {
 
 static StandardPipelineLayout gStandardPipelineLayout;
 
-void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
+void recordCommand(VkRenderPass _forwardRenderPass,
                    VkRenderPass _deferredRenderPass,
                    VkFramebuffer _forwardFramebuffer,
                    VkFramebuffer _deferredFramebuffer,
@@ -91,7 +91,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
   cmdBeginInfo.flags = 0;
   cmdBeginInfo.pInheritanceInfo = nullptr;
 
-  BB_VK_ASSERT(vkBeginCommandBuffer(_cmdBuffer, &cmdBeginInfo));
+  VkCommandBuffer cmdBuffer = _frame.CmdBuffer;
+
+  BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
 
   VkRenderPassBeginInfo renderPassInfo = {};
   renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -112,52 +114,51 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
   renderPassInfo.clearValueCount = (uint32_t)std::size(clearValues);
   renderPassInfo.pClearValues = clearValues;
 
-  vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _gBufferPipeline);
   VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
-  vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
-  vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
-                       VK_INDEX_TYPE_UINT32);
+  vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
+  vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
 
-  vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           gStandardPipelineLayout.Handle, 0, 1,
                           &_frame.FrameDescriptorSet, 0, nullptr);
 
-  vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           gStandardPipelineLayout.Handle, 1, 1,
                           &_frame.ViewDescriptorSet, 0, nullptr);
 
-  vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           gStandardPipelineLayout.Handle, 2, 1,
                           &_frame.MaterialDescriptorSets[0], 0, nullptr);
 
-  vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
+  vkCmdDrawIndexed(cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
                    0);
 
-  vkCmdNextSubpass(_cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
   if (gBufferVisualize.CurrentOption ==
       GBufferVisualizingOption::RenderedScene) {
 
-    vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _brdfPipeline);
 
-    vkCmdDraw(_cmdBuffer, 3, 1, 0, 0);
+    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
   }
 
-  vkCmdEndRenderPass(_cmdBuffer);
+  vkCmdEndRenderPass(cmdBuffer);
 
   renderPassInfo.renderPass = _forwardRenderPass;
   renderPassInfo.framebuffer = _forwardFramebuffer;
 
-  vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
   if (gBufferVisualize.CurrentOption !=
       GBufferVisualizingOption::RenderedScene) {
 
-    vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       gBufferVisualize.Pipeline);
 
     VkClearAttachment clearDepth = {};
@@ -168,9 +169,9 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
     clearDepthRegion.rect.extent = gBufferVisualize.ViewportExtent;
     clearDepthRegion.layerCount = 1;
     clearDepthRegion.baseArrayLayer = 0;
-    vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
+    vkCmdClearAttachments(cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
 
-    vkCmdDraw(_cmdBuffer, 3, 1, 0, 0);
+    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
   }
 
   VkClearAttachment clearDepth = {};
@@ -183,28 +184,27 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
                                   (uint32_t)gGizmo.viewportExtent};
   clearDepthRegion.layerCount = 1;
   clearDepthRegion.baseArrayLayer = 0;
-  vkCmdClearAttachments(_cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
+  vkCmdClearAttachments(cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
 
-  vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     gGizmo.Pipeline);
 
-  vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &gGizmo.VertexBuffer.Handle,
-                         &offset);
-  vkCmdBindIndexBuffer(_cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
+  vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gGizmo.VertexBuffer.Handle, &offset);
+  vkCmdBindIndexBuffer(cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
 
-  vkCmdDrawIndexed(_cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
+  vkCmdDrawIndexed(cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
 
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _cmdBuffer);
-  vkCmdEndRenderPass(_cmdBuffer);
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuffer);
+  vkCmdEndRenderPass(cmdBuffer);
 
-  BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
+  BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
 
   // TODO: Add forward rendered scene.
   // else if (/* condition */)
   // {
-  //   vkCmdNextSubpass(_cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
-  //   vkCmdEndRenderPass(_cmdBuffer);
+  //   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+  //   vkCmdEndRenderPass(cmdBuffer);
   //   renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   //   renderPassInfo.renderPass = _forwardRenderPass;
   //   renderPassInfo.framebuffer = _forwardFramebuffer;
@@ -218,35 +218,35 @@ void recordCommand(VkCommandBuffer _cmdBuffer, VkRenderPass _forwardRenderPass,
   //   renderPassInfo.clearValueCount = 2;
   //   renderPassInfo.pClearValues = clearValues;
 
-  //   vkCmdBeginRenderPass(_cmdBuffer, &renderPassInfo,
+  //   vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo,
   //   VK_SUBPASS_CONTENTS_INLINE);
 
-  //   vkCmdBindPipeline(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //   vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
   //                     _forwardPipeline);
   //   VkDeviceSize offset = 0;
-  //   vkCmdBindVertexBuffers(_cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
-  //   vkCmdBindVertexBuffers(_cmdBuffer, 1, 1, &_instanceBuffer.Handle,
-  //   &offset); vkCmdBindIndexBuffer(_cmdBuffer, _indexBuffer.Handle, 0,
+  //   vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
+  //   vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &_instanceBuffer.Handle,
+  //   &offset); vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Handle, 0,
   //                         VK_INDEX_TYPE_UINT32);
 
-  //   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
   //                           _forwardPipelineLayout.Handle, 0, 1,
   //                           &_forwardFrame.FrameDescriptorSet, 0, nullptr);
 
-  //   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
   //                           _forwardPipelineLayout.Handle, 1, 1,
   //                           &_forwardFrame.ViewDescriptorSet, 0, nullptr);
 
-  //   vkCmdBindDescriptorSets(_cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+  //   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
   //                           _forwardPipelineLayout.Handle, 2, 1,
   //                           &_forwardFrame.MaterialDescriptorSets[0], 0,
   //                           nullptr);
 
-  //   vkCmdDrawIndexed(_cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0,
+  //   vkCmdDrawIndexed(cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0,
   //   0,
   //                     0);
-  //   vkCmdEndRenderPass(_cmdBuffer);
-  //   BB_VK_ASSERT(vkEndCommandBuffer(_cmdBuffer));
+  //   vkCmdEndRenderPass(cmdBuffer);
+  //   BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
 
   //   return;
   // }
@@ -900,25 +900,6 @@ int main(int _argc, char **_argv) {
                                         &imguiDescriptorPool));
   }
 
-  VkCommandPool drawCmdPool;
-  VkCommandBuffer drawCmdBuffer;
-
-  VkCommandPoolCreateInfo drawCmdPoolCreateInfo = {};
-  drawCmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  drawCmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
-  drawCmdPoolCreateInfo.flags = 0;
-
-  BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &drawCmdPoolCreateInfo,
-                                   nullptr, &drawCmdPool));
-
-  VkCommandBufferAllocateInfo drawCmdBufferAllocInfo = {};
-  drawCmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  drawCmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  drawCmdBufferAllocInfo.commandBufferCount = 1;
-  drawCmdBufferAllocInfo.commandPool = drawCmdPool;
-  BB_VK_ASSERT(vkAllocateCommandBuffers(
-      renderer.Device, &drawCmdBufferAllocInfo, &drawCmdBuffer));
-
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
     frames.push_back(createFrame(renderer, gStandardPipelineLayout,
@@ -1100,6 +1081,10 @@ int main(int _argc, char **_argv) {
       continue;
     }
 
+    vkWaitForFences(renderer.Device, 1, &frameSyncObject.FrameAvailableFence,
+                    VK_TRUE, UINT64_MAX);
+    vkResetFences(renderer.Device, 1, &frameSyncObject.FrameAvailableFence);
+
     VkFramebuffer currentForwardFramebuffer =
         forwardFramebuffers[currentSwapChainImageIndex];
 
@@ -1222,16 +1207,16 @@ int main(int _argc, char **_argv) {
       vkUnmapMemory(renderer.Device, instanceBuffer.Memory);
     }
 
-    vkResetCommandPool(renderer.Device, drawCmdPool,
+    vkResetCommandPool(renderer.Device, currentFrame.CmdPool,
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
-    recordCommand(drawCmdBuffer, forwardRenderPass.Handle,
-                  deferredRenderPass.Handle, currentForwardFramebuffer,
-                  currentDeferredFramebuffer, forwardPipeline, gBufferPipeline,
-                  brdfPipeline, swapChain.Extent, shaderBallVertexBuffer,
-                  instanceBuffer, shaderBallIndexBuffer, currentFrame,
-                  shaderBallIndices, numInstances);
+    recordCommand(forwardRenderPass.Handle, deferredRenderPass.Handle,
+                  currentForwardFramebuffer, currentDeferredFramebuffer,
+                  forwardPipeline, gBufferPipeline, brdfPipeline,
+                  swapChain.Extent, shaderBallVertexBuffer, instanceBuffer,
+                  shaderBallIndexBuffer, currentFrame, shaderBallIndices,
+                  numInstances);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1243,14 +1228,10 @@ int main(int _argc, char **_argv) {
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = &frameSyncObject.RenderFinishedSemaphore;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &drawCmdBuffer;
+    submitInfo.pCommandBuffers = &currentFrame.CmdBuffer;
 
     BB_VK_ASSERT(vkQueueSubmit(renderer.Queue, 1, &submitInfo,
                                frameSyncObject.FrameAvailableFence));
-
-    vkWaitForFences(renderer.Device, 1, &frameSyncObject.FrameAvailableFence,
-                    VK_TRUE, UINT64_MAX);
-    vkResetFences(renderer.Device, 1, &frameSyncObject.FrameAvailableFence);
 
     VkPresentInfoKHR presentInfo = {};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1281,8 +1262,6 @@ int main(int _argc, char **_argv) {
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
-
-  vkDestroyCommandPool(renderer.Device, drawCmdPool, nullptr);
 
   for (FrameSync &frameSyncObject : frameSyncObjects) {
     vkDestroyFence(renderer.Device, frameSyncObject.FrameAvailableFence,

@@ -1557,6 +1557,24 @@ Frame createFrame(
                            writeInfos.data(), 0, nullptr);
   }
 
+  {
+    VkCommandPoolCreateInfo cmdPoolCreateInfo = {};
+    cmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cmdPoolCreateInfo.queueFamilyIndex = _renderer.QueueFamilyIndex;
+    cmdPoolCreateInfo.flags = 0;
+
+    BB_VK_ASSERT(vkCreateCommandPool(_renderer.Device, &cmdPoolCreateInfo,
+                                     nullptr, &frame.CmdPool));
+
+    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmdBufferAllocInfo.commandBufferCount = 1;
+    cmdBufferAllocInfo.commandPool = frame.CmdPool;
+    BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
+                                          &frame.CmdBuffer));
+  }
+
   return frame;
 }
 
@@ -1635,6 +1653,8 @@ Frame createBrdfFrame(const Renderer &_renderer,
 }
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame) {
+  vkDestroyCommandPool(_renderer.Device, _frame.CmdPool, nullptr);
+
   destroyBuffer(_renderer, _frame.ViewUniformBuffer);
   destroyBuffer(_renderer, _frame.FrameUniformBuffer);
   _frame = {};
