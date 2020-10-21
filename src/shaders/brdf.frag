@@ -68,12 +68,6 @@ void main() {
 
     vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 color = ambient + Lo;
-    
-    //color = TBN[0];
-    //color = vec3(dot(TBN[0], TBN[2]));
-    //color = transpose(TBN) * normal;
-    //color = vec3(vUV.xy, 0);
-    //color = TBN[2];
-    //outColor = vec4(colorizeNormal(normal), 1);
+
     outColor = vec4(color , 1);
 }
