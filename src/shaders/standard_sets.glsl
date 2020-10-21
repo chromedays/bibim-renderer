@@ -17,11 +17,19 @@ struct Light {
 layout (set = SET_FRAME, binding = 0) uniform FrameData {
     int uNumLights;
     Light uLights[MAX_NUM_LIGHTS];
+    int uVisualizedGBufferAttachmentIndex;
 };
 
 layout (set = SET_FRAME, binding = 1) uniform sampler uSamplers[2];
 #define SMP_NEAREST 0
 #define SMP_LINEAR  1
+
+layout (set = SET_FRAME, binding = 2) uniform texture2D uGbuffer[5];
+#define TEX_G_POSITION    0
+#define TEX_G_NORMAL      1
+#define TEX_G_ALBEDO      2
+#define TEX_G_MRAH        3
+#define TEX_G_MATINDEX    4
 
 layout (set = SET_VIEW, binding = 0) uniform ViewData {
     mat4 uViewMat;

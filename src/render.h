@@ -46,8 +46,8 @@ struct SwapChain {
   std::vector<VkImage> ColorImages;
   std::vector<VkImageView> ColorImageViews;
   VkImage DepthImage;
-  VkDeviceMemory DepthImageMemory;
   VkImageView DepthImageView;
+  VkDeviceMemory DepthImageMemory;
 };
 
 SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
@@ -56,6 +56,15 @@ SwapChain createSwapChain(const Renderer &_renderer, uint32_t _width,
 void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
 enum class LightType : int { Point = 0, Spot, Directional };
+
+enum class GBufferAttachmentType {
+  Position,
+  Normal,
+  Albedo,
+  MRAH,
+  MaterialIndex,
+  COUNT
+};
 
 struct InstanceBlock {
   Mat4 ModelMat;
@@ -130,6 +139,17 @@ Shader createShaderFromFile(const Renderer &_renderer,
                             const std::string &_filePath);
 void destroyShader(const Renderer &_renderer, Shader &_shader);
 
+struct RenderPass {
+  VkRenderPass Handle;
+  // TODO(ilgwon): Not implemented yet
+  VkRenderPassBeginInfo BeginInfo = {};
+};
+
+RenderPass createForwardRenderPass(const Renderer &_renderer,
+                                   const SwapChain &_swapChain);
+RenderPass createDeferredRenderPass(const Renderer &_renderer,
+                                    const SwapChain &_swapChain);
+
 struct PipelineParams {
   const Shader **Shaders;
   int NumShaders;
@@ -162,13 +182,17 @@ struct PipelineParams {
     bool DepthWriteEnable;
   } DepthStencil;
 
+  struct {
+    uint32_t NumAttachments;
+  } Blend;
+
   VkPipelineLayout PipelineLayout;
   VkRenderPass RenderPass;
 };
 
 VkPipeline createPipeline(const Renderer &_renderer,
-                          const PipelineParams &_params);
-
+                          const PipelineParams &_params,
+                          uint32_t _numColorBlend = 1, uint32_t _subpass = 0);
 enum class PBRMapType {
   Albedo,
   Metallic,
@@ -210,7 +234,11 @@ struct StandardPipelineLayout {
   VkPipelineLayout Handle;
 };
 
+EnumArray<SamplerType, VkSampler>
+createImmutableSamplers(const Renderer &_renderer);
+
 StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer);
+
 void destroyStandardPipelineLayout(const Renderer &_renderer,
                                    StandardPipelineLayout &_layout);
 
@@ -228,6 +256,7 @@ struct alignas(16) Light {
 struct FrameUniformBlock {
   int NumLights;
   Light Lights[MAX_NUM_LIGHTS];
+  int VisualizedGBufferAttachmentIndex;
 };
 
 struct ViewUniformBlock {
@@ -238,8 +267,6 @@ struct ViewUniformBlock {
 };
 
 struct Frame {
-  VkCommandPool CmdPool;
-  VkCommandBuffer CmdBuffer;
   VkDescriptorSet FrameDescriptorSet;
   VkDescriptorSet ViewDescriptorSet;
   std::vector<VkDescriptorSet> MaterialDescriptorSets;
@@ -247,17 +274,28 @@ struct Frame {
   Buffer FrameUniformBuffer;
   Buffer ViewUniformBuffer;
 
+  VkCommandPool CmdPool;
+  VkCommandBuffer CmdBuffer;
+};
+
+struct FrameSync {
   VkFence FrameAvailableFence;
   VkSemaphore RenderFinishedSemaphore;
   VkSemaphore ImagePresentedSemaphore;
 };
 
-Frame createFrame(const Renderer &_renderer,
-                  const StandardPipelineLayout &_standardPipelineLayout,
-                  VkDescriptorPool _descriptorPool,
-                  const std::vector<PBRMaterial> &_pbrMaterials);
+Frame createFrame(
+    const Renderer &_renderer,
+    const StandardPipelineLayout &_standardPipelineLayout,
+    VkDescriptorPool _descriptorPool,
+    const std::vector<PBRMaterial> &_pbrMaterials,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
+
+void writeGBuffersToDescriptorSet(
+    const Renderer &_renderer, Frame &_frame,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
 
 void generatePlaneMesh(std::vector<Vertex> &_vertices,
                        std::vector<uint32_t> &_indices);
