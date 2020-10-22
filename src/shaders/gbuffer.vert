@@ -12,8 +12,8 @@ layout (location = 8) in mat4 aInvModel;
 
 layout (location = 0) out vec4 vPosWorld;
 layout (location = 1) out vec2 vUV;
-layout (location = 2) out mat3 vTBN;
-
+layout (location = 2) out vec3 vNormalWorld;
+layout (location = 3) out mat3 vTBN;
 
 void main() {
     vec4 posWorld = aModel * vec4(aPosition, 1.0);
@@ -27,7 +27,7 @@ void main() {
     vec3 T = normalize(normalMat * aTangent);
     vec3 B = cross(N, T);
 
-
+    vNormalWorld = N;
     vPosWorld = posWorld;
     
 

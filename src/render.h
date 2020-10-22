@@ -69,10 +69,6 @@ enum class GBufferAttachmentType {
 struct InstanceBlock {
   Mat4 ModelMat;
   Mat4 InvModelMat;
-  alignas(16) Float3 Albedo = {1, 1, 1};
-  float Metallic;
-  float Roughness = 0.5f;
-  float AO = 1;
 };
 
 struct Vertex {
@@ -93,6 +89,13 @@ struct GizmoVertex {
 
   static std::array<VkVertexInputBindingDescription, 1> getBindingDescs();
   static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs();
+};
+
+struct LightSourceVertex {
+  Float3 Pos;
+
+  static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
+  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescs();
 };
 
 struct Buffer {
@@ -260,6 +263,7 @@ struct ViewUniformBlock {
   Mat4 ViewMat;
   Mat4 ProjMat;
   Float3 ViewPos;
+  int EnableNormalMap;
 };
 
 struct Frame {
@@ -288,5 +292,21 @@ Frame createFrame(
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
+
+void writeGBuffersToDescriptorSet(
+    const Renderer &_renderer, Frame &_frame,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
+
+void generatePlaneMesh(std::vector<Vertex> &_vertices,
+                       std::vector<uint32_t> &_indices);
+void generateQuadMesh(std::vector<Vertex> &_vertices,
+                      std::vector<uint32_t> &_indices);
+
+// The tangent vector of UV Sphere will be broken at the top and the bottom
+// side, because of how UV Sphere is constructed.
+void generateUVSphereMesh(std::vector<Vertex> &_vertices,
+                          std::vector<uint32_t> &_indices, float _radius = 1.f,
+                          int _horizontalDivision = 16,
+                          int _verticalDivision = 16);
 
 } // namespace bb

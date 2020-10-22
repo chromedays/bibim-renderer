@@ -4,7 +4,8 @@
 
 layout (location = 0) in vec4 vPosWorld;
 layout (location = 1) in vec2 vUV;
-layout (location = 2) in mat3 vTBN;
+layout (location = 2) in vec3 vNormalWorld;
+layout (location = 3) in mat3 vTBN;
 
 layout (location = 0) out vec4 outPosWorld;
 layout (location = 1) out vec3 outNormal;
@@ -21,7 +22,11 @@ void main()
     float height = texture(sampler2D(uMaterialTextures[TEX_HEIGHT], uSamplers[SMP_LINEAR]), vUV).r;
 
     outPosWorld = vPosWorld;
-    outNormal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+    if (uEnableNormalMap != 0) {
+        outNormal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+    } else {
+        outNormal = vNormalWorld;
+    }
     outAlbedo = texture(sampler2D(uMaterialTextures[TEX_ALBEDO], uSamplers[SMP_LINEAR]), vUV).rgb;
     outMRAH = vec4(metallic, roughness, ao, height);
     outMaterialIndex = vec3(1,0,0); // Not in use?

@@ -4,9 +4,11 @@
 
 namespace bb {
 constexpr float pi32 = 3.141592f;
+constexpr float halfPi32 = pi32 * 0.5f;
+constexpr float twoPi32 = pi32 * 2.f;
 constexpr float epsilon32 = std::numeric_limits<float>::epsilon();
 
-int compareFloats(float a, float b);
+int compareFloats(float _a, float _b);
 inline float degToRad(float _degrees) { return _degrees * pi32 / 180.f; }
 inline float radToDeg(float _radians) { return _radians * 180.f / pi32; }
 
@@ -20,6 +22,8 @@ struct Int2 {
 struct Float2 {
   float X = 0.f;
   float Y = 0.f;
+
+  Float2 operator-(Float2 _other) const { return {X - _other.X, Y - _other.Y}; }
 };
 
 inline float dot(Float2 _a, Float2 _b) { return _a.X * _b.X + _a.Y * _b.Y; }
@@ -75,11 +79,19 @@ struct Mat4 {
   static Mat4 rotateZ(float _degrees);
   static Mat4 lookAt(const Float3 &_eye, const Float3 &_target,
                      const Float3 &_upAxis = {0, 1, 0});
-  static Mat4 perspective(float _fovDegrees, float aspectRatio, float _nearZ,
+  static Mat4 perspective(float _fovDegrees, float _aspectRatio, float _nearZ,
                           float _farZ);
 };
 
 Mat4 operator*(const Mat4 &_a, const Mat4 &_b);
-Mat4 operator/(const Mat4 &_a, float b);
+Mat4 operator/(const Mat4 &_a, float _b);
+
+struct SphericalFloat3 {
+  float r;
+  float theta;
+  float phi;
+};
+
+Float3 sphericalToCartesian(const SphericalFloat3 &_spherical);
 
 } // namespace bb

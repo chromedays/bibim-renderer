@@ -43,9 +43,9 @@ struct {
   Shader FragShader;
   Buffer VertexBuffer;
   Buffer IndexBuffer;
-  uint32_t numIndices;
+  uint32_t NumIndices;
 
-  int viewportExtent = 100;
+  int ViewportExtent = 100;
 } gGizmo;
 
 enum class GBufferVisualizingOption {
@@ -74,6 +74,22 @@ struct {
       GBufferVisualizingOption::RenderedScene;
 } gBufferVisualize;
 
+struct {
+  VkPipeline Pipeline;
+  Shader VertShader;
+  Shader FragShader;
+  Buffer VertexBuffer;
+  Buffer IndexBuffer;
+  uint32_t NumIndices;
+  Buffer InstanceBuffer;
+  uint32_t NumLights;
+} gLightSources;
+
+Buffer gPlaneInstanceBuffer;
+Buffer gPlaneVertexBuffer;
+Buffer gPlaneIndexBuffer;
+uint32_t gNumPlaneIndices;
+
 static StandardPipelineLayout gStandardPipelineLayout;
 
 void recordCommand(VkRenderPass _forwardRenderPass,
@@ -84,8 +100,7 @@ void recordCommand(VkRenderPass _forwardRenderPass,
                    VkPipeline _brdfPipeline, VkExtent2D _swapChainExtent,
                    const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
                    const Buffer &_indexBuffer, const Frame &_frame,
-                   const std::vector<uint32_t> &_indices,
-                   uint32_t _numInstances) {
+                   uint32_t _numIndices, uint32_t _numInstances) {
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
   cmdBeginInfo.flags = 0;
@@ -135,8 +150,14 @@ void recordCommand(VkRenderPass _forwardRenderPass,
                           gStandardPipelineLayout.Handle, 2, 1,
                           &_frame.MaterialDescriptorSets[0], 0, nullptr);
 
-  vkCmdDrawIndexed(cmdBuffer, (uint32_t)_indices.size(), _numInstances, 0, 0,
-                   0);
+  vkCmdDrawIndexed(cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
+
+  vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gPlaneVertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &gPlaneInstanceBuffer.Handle,
+                         &offset);
+  vkCmdBindIndexBuffer(cmdBuffer, gPlaneIndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(cmdBuffer, gNumPlaneIndices, 1, 0, 0, 0);
 
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
   if (gBufferVisualize.CurrentOption ==
@@ -155,12 +176,7 @@ void recordCommand(VkRenderPass _forwardRenderPass,
 
   vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-  if (gBufferVisualize.CurrentOption !=
-      GBufferVisualizingOption::RenderedScene) {
-
-    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      gBufferVisualize.Pipeline);
-
+  {
     VkClearAttachment clearDepth = {};
     clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     clearDepth.clearValue.depthStencil = {0.f, 0};
@@ -170,18 +186,34 @@ void recordCommand(VkRenderPass _forwardRenderPass,
     clearDepthRegion.layerCount = 1;
     clearDepthRegion.baseArrayLayer = 0;
     vkCmdClearAttachments(cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
+  }
+
+  if (gBufferVisualize.CurrentOption !=
+      GBufferVisualizingOption::RenderedScene) {
+
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      gBufferVisualize.Pipeline);
 
     vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
   }
+
+  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    gLightSources.Pipeline);
+  vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gLightSources.VertexBuffer.Handle,
+                         &offset);
+  vkCmdBindIndexBuffer(cmdBuffer, gLightSources.IndexBuffer.Handle, 0,
+                       VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(cmdBuffer, gLightSources.NumIndices, gLightSources.NumLights,
+                   0, 0, 0);
 
   VkClearAttachment clearDepth = {};
   clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   clearDepth.clearValue.depthStencil = {0.f, 0};
   VkClearRect clearDepthRegion = {};
   clearDepthRegion.rect.offset = {
-      (int32_t)(_swapChainExtent.width - gGizmo.viewportExtent), 0};
-  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.viewportExtent,
-                                  (uint32_t)gGizmo.viewportExtent};
+      (int32_t)(_swapChainExtent.width - gGizmo.ViewportExtent), 0};
+  clearDepthRegion.rect.extent = {(uint32_t)gGizmo.ViewportExtent,
+                                  (uint32_t)gGizmo.ViewportExtent};
   clearDepthRegion.layerCount = 1;
   clearDepthRegion.baseArrayLayer = 0;
   vkCmdClearAttachments(cmdBuffer, 1, &clearDepth, 1, &clearDepthRegion);
@@ -193,7 +225,7 @@ void recordCommand(VkRenderPass _forwardRenderPass,
   vkCmdBindIndexBuffer(cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
                        VK_INDEX_TYPE_UINT32);
 
-  vkCmdDrawIndexed(cmdBuffer, gGizmo.numIndices, 1, 0, 0, 0);
+  vkCmdDrawIndexed(cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
 
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuffer);
   vkCmdEndRenderPass(cmdBuffer);
@@ -455,17 +487,17 @@ void initReloadableResources(
 
     pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     pipelineParams.Viewport.Offset = {
-        (float)swapChain.Extent.width - gGizmo.viewportExtent,
+        (float)swapChain.Extent.width - gGizmo.ViewportExtent,
         0,
     };
-    pipelineParams.Viewport.Extent = {(float)gGizmo.viewportExtent,
-                                      (float)gGizmo.viewportExtent};
+    pipelineParams.Viewport.Extent = {(float)gGizmo.ViewportExtent,
+                                      (float)gGizmo.ViewportExtent};
     pipelineParams.Viewport.ScissorOffset = {
         (int)pipelineParams.Viewport.Offset.X,
         (int)pipelineParams.Viewport.Offset.Y,
     };
-    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.viewportExtent,
-                                             (int)gGizmo.viewportExtent};
+    pipelineParams.Viewport.ScissorExtent = {(int)gGizmo.ViewportExtent,
+                                             (int)gGizmo.ViewportExtent};
 
     pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
     pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
@@ -476,6 +508,41 @@ void initReloadableResources(
     pipelineParams.RenderPass = forwardRenderPass.Handle;
 
     gGizmo.Pipeline = createPipeline(_renderer, pipelineParams);
+  }
+
+  // Light Sources Pipeline
+  {
+    PipelineParams pipelineParams = {};
+    const Shader *shaders[] = {&gLightSources.VertShader,
+                               &gLightSources.FragShader};
+    pipelineParams.Shaders = shaders;
+    pipelineParams.NumShaders = std::size(shaders);
+
+    auto bindings = LightSourceVertex::getBindingDescs();
+    auto attributes = LightSourceVertex::getAttributeDescs();
+
+    pipelineParams.VertexInput.Bindings = bindings.data();
+    pipelineParams.VertexInput.NumBindings = bindings.size();
+    pipelineParams.VertexInput.Attributes = attributes.data();
+    pipelineParams.VertexInput.NumAttributes = attributes.size();
+
+    pipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                      (float)swapChain.Extent.height};
+    pipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                             (int)swapChain.Extent.height};
+
+    pipelineParams.InputAssembly.Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+    pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+
+    pipelineParams.DepthStencil.DepthTestEnable = true;
+    pipelineParams.DepthStencil.DepthWriteEnable = true;
+
+    pipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
+    pipelineParams.RenderPass = forwardRenderPass.Handle;
+
+    gLightSources.Pipeline = createPipeline(_renderer, pipelineParams);
   }
 
   // Buffer visualizer
@@ -530,6 +597,9 @@ void cleanupReloadableResources(
     std::vector<VkFramebuffer> &_deferredSwapChainFramebuffers,
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
 
+  vkDestroyPipeline(_renderer.Device, gLightSources.Pipeline, nullptr);
+  gLightSources.Pipeline = VK_NULL_HANDLE;
+
   vkDestroyPipeline(_renderer.Device, gGizmo.Pipeline, nullptr);
   gGizmo.Pipeline = VK_NULL_HANDLE;
 
@@ -570,7 +640,7 @@ void cleanupReloadableResources(
 // Important : You need to delete every cmd used by swapchain
 // through queue. Dont forget to add it here too when you add another cmd.
 void onWindowResize(
-    SDL_Window *_window, const Renderer &_renderer,
+    SDL_Window *_window, Renderer &_renderer,
     const PipelineParams &_forwardPipelineParams,
     const PipelineParams &_gBufferPipelineParams,
     const PipelineParams &_brdfPipelineParams, SwapChain &_swapChain,
@@ -579,16 +649,23 @@ void onWindowResize(
     VkPipeline &_brdfGraphicsPipeline,
     std::vector<VkFramebuffer> &_forwardSwapChainFramebuffers,
     std::vector<VkFramebuffer> &_deferredSwapChainFramebuffers,
-    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages,
+    std::vector<Frame> &_frames) {
   int width = 0, height = 0;
 
   if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED)
     SDL_WaitEvent(nullptr);
 
   SDL_GetWindowSize(_window, &width, &height);
+  if (width == 0 || height == 0)
+    return;
 
   vkDeviceWaitIdle(
       _renderer.Device); // Ensure that device finished using swap chain.
+
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+      _renderer.PhysicalDevice, _renderer.Surface,
+      &_renderer.SwapChainSupportDetails.Capabilities);
 
   cleanupReloadableResources(
       _renderer, _swapChain, _forwardRenderPass, _deferredRenderPass,
@@ -603,6 +680,10 @@ void onWindowResize(
       &_gBufferGraphicsPipeline, &_brdfGraphicsPipeline,
       &_forwardSwapChainFramebuffers, &_deferredSwapChainFramebuffers,
       &_deferredAttachmentImages);
+
+  for (Frame &frame : _frames) {
+    writeGBuffersToDescriptorSet(_renderer, frame, _deferredAttachmentImages);
+  }
 }
 
 } // namespace bb
@@ -754,6 +835,13 @@ int main(int _argc, char **_argv) {
       renderer,
       createAbsolutePath(joinPaths(shaderRootPath, "gizmo.frag.spv")));
 
+  gLightSources.VertShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "light.vert.spv")));
+  gLightSources.FragShader = createShaderFromFile(
+      renderer,
+      createAbsolutePath(joinPaths(shaderRootPath, "light.frag.spv")));
+
   gBufferVisualize.VertShader = createShaderFromFile(
       renderer, createAbsolutePath(
                     joinPaths(shaderRootPath, "buffer_visualize.vert.spv")));
@@ -765,6 +853,7 @@ int main(int _argc, char **_argv) {
   transientCmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   transientCmdPoolCreateInfo.queueFamilyIndex = renderer.QueueFamilyIndex;
   transientCmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
   VkCommandPool transientCmdPool;
   BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &transientCmdPoolCreateInfo,
                                    nullptr, &transientCmdPool));
@@ -858,6 +947,58 @@ int main(int _argc, char **_argv) {
       &deferredRenderPass, &forwardPipeline, &gBufferPipeline, &brdfPipeline,
       &forwardFramebuffers, &defrerredFramebuffers, &deferredAttachmentImages);
 
+  std::vector<Vertex> planeVertices;
+  std::vector<uint32_t> planeIndices;
+  generatePlaneMesh(planeVertices, planeIndices);
+  gPlaneVertexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      sizeBytes32(planeVertices), planeVertices.data());
+  gPlaneIndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(planeIndices), planeIndices.data());
+  gNumPlaneIndices = planeIndices.size();
+
+  InstanceBlock planeInstanceData = {};
+  planeInstanceData.ModelMat =
+      Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
+  planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
+
+  gPlaneInstanceBuffer = createBuffer(renderer, sizeof(planeInstanceData),
+                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+  {
+    void *dst;
+    vkMapMemory(renderer.Device, gPlaneInstanceBuffer.Memory, 0,
+                gPlaneInstanceBuffer.Size, 0, &dst);
+    memcpy(dst, &planeInstanceData, sizeof(planeInstanceData));
+    vkUnmapMemory(renderer.Device, gPlaneInstanceBuffer.Memory);
+  }
+
+  std::vector<LightSourceVertex> lightSourceVertices;
+  std::vector<uint32_t> lightSourceIndices;
+  {
+    std::vector<Vertex> sphereVertices;
+    generateUVSphereMesh(sphereVertices, lightSourceIndices, 0.1f, 16, 16);
+    lightSourceVertices.reserve(sphereVertices.size());
+    for (const Vertex &v : sphereVertices) {
+      lightSourceVertices.push_back({v.Pos});
+    }
+  }
+
+  gLightSources.VertexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      sizeBytes32(lightSourceVertices), lightSourceVertices.data());
+  gLightSources.IndexBuffer = createDeviceLocalBufferFromMemory(
+      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      sizeBytes32(lightSourceIndices), lightSourceIndices.data());
+  gLightSources.NumIndices = lightSourceIndices.size();
+
+  gLightSources.InstanceBuffer = createBuffer(
+      renderer, sizeof(int) * MAX_NUM_LIGHTS, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
   Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       sizeBytes32(shaderBallVertices), shaderBallVertices.data());
@@ -872,7 +1013,7 @@ int main(int _argc, char **_argv) {
   gGizmo.IndexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       sizeBytes32(gizmoIndices), gizmoIndices.data());
-  gGizmo.numIndices = gizmoIndices.size();
+  gGizmo.NumIndices = gizmoIndices.size();
 
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
@@ -982,8 +1123,7 @@ int main(int _argc, char **_argv) {
   std::vector<InstanceBlock> instanceData(numInstances);
 
   Buffer instanceBuffer = createBuffer(renderer, sizeBytes32(instanceData),
-                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
@@ -1068,15 +1208,12 @@ int main(int _argc, char **_argv) {
                               VK_NULL_HANDLE, &currentSwapChainImageIndex);
 
     if (acquireNextImageResult == VK_ERROR_OUT_OF_DATE_KHR) {
-      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-          renderer.PhysicalDevice, renderer.Surface,
-          &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, forwardPipelineParam,
                      gBufferPipelineParam, brdfPipelineParam, swapChain,
                      forwardRenderPass, deferredRenderPass, forwardPipeline,
                      gBufferPipeline, brdfPipeline, forwardFramebuffers,
-                     defrerredFramebuffers, deferredAttachmentImages);
+                     defrerredFramebuffers, deferredAttachmentImages, frames);
 
       continue;
     }
@@ -1101,11 +1238,12 @@ int main(int _argc, char **_argv) {
 
     FrameUniformBlock frameUniformBlock = {};
     frameUniformBlock.NumLights = 3;
+    gLightSources.NumLights = frameUniformBlock.NumLights;
     Light *light = &frameUniformBlock.Lights[0];
     light->Dir = {-1, -1, 0};
     light->Type = LightType::Directional;
-    light->Color = {23.47f, 21.31f, 20.79f};
-    light->Intensity = 0.1f;
+    light->Color = {0.2347f, 0.2131f, 0.2079f};
+    light->Intensity = 10.f;
     ++light;
     light->Pos = {0, 2, 0};
     light->Type = LightType::Point;
@@ -1114,7 +1252,7 @@ int main(int _argc, char **_argv) {
     ++light;
     light->Pos = {4, 2, 0};
     light->Dir = {0, -1, 0};
-    light->Type = LightType::Spot;
+    light->Type = LightType::Point;
     light->Color = {0, 1, 0};
     light->Intensity = 200;
     light->InnerCutOff = degToRad(30);
@@ -1135,11 +1273,18 @@ int main(int _argc, char **_argv) {
       vkUnmapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory);
     }
 
+    static bool enableNormalMap;
+    if (ImGui::Begin("Settings")) {
+      ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
+    }
+    ImGui::End();
+
     ViewUniformBlock viewUniformBlock = {};
     viewUniformBlock.ViewMat = cam.getViewMatrix();
     viewUniformBlock.ProjMat =
         Mat4::perspective(60.f, (float)width / (float)height, 0.1f, 1000.f);
     viewUniformBlock.ViewPos = cam.Pos;
+    viewUniformBlock.EnableNormalMap = enableNormalMap;
 
     {
       void *data;
@@ -1157,16 +1302,6 @@ int main(int _argc, char **_argv) {
         if (ImGui::Selectable(label.c_str(), i == selectedInstanceIndex)) {
           selectedInstanceIndex = i;
         }
-      }
-    }
-    ImGui::End();
-
-    if (ImGui::Begin("Material")) {
-      if (selectedInstanceIndex >= 0) {
-        InstanceBlock &currentInstance = instanceData[selectedInstanceIndex];
-
-        guiMaterialPicker(fmt::format("Instance {}", selectedInstanceIndex),
-                          currentInstance);
       }
     }
     ImGui::End();
@@ -1193,9 +1328,12 @@ int main(int _argc, char **_argv) {
     ImGui::End();
 
     for (int i = 0; i < instanceData.size(); i++) {
-      instanceData[i].ModelMat = Mat4::translate({(float)(i * 2), -1, 2}) *
-                                 Mat4::rotateY(angle) * Mat4::rotateX(-90) *
-                                 Mat4::scale({0.01f, 0.01f, 0.01f});
+      instanceData[i].ModelMat =
+          Mat4::translate({(float)(i * 2), -1, 2}) * Mat4::rotateY(angle)
+#if 1
+          * Mat4::rotateX(-90) * Mat4::scale({0.01f, 0.01f, 0.01f})
+#endif
+          ;
       instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
     }
 
@@ -1215,7 +1353,7 @@ int main(int _argc, char **_argv) {
                   currentForwardFramebuffer, currentDeferredFramebuffer,
                   forwardPipeline, gBufferPipeline, brdfPipeline,
                   swapChain.Extent, shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, currentFrame, shaderBallIndices,
+                  shaderBallIndexBuffer, currentFrame, shaderBallIndices.size(),
                   numInstances);
 
     VkSubmitInfo submitInfo = {};
@@ -1245,15 +1383,12 @@ int main(int _argc, char **_argv) {
         vkQueuePresentKHR(renderer.Queue, &presentInfo);
     if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR ||
         queuePresentResult == VK_SUBOPTIMAL_KHR) {
-      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-          renderer.PhysicalDevice, renderer.Surface,
-          &renderer.SwapChainSupportDetails.Capabilities);
 
       onWindowResize(window, renderer, forwardPipelineParam,
                      gBufferPipelineParam, brdfPipelineParam, swapChain,
                      forwardRenderPass, deferredRenderPass, forwardPipeline,
                      gBufferPipeline, brdfPipeline, forwardFramebuffers,
-                     defrerredFramebuffers, deferredAttachmentImages);
+                     defrerredFramebuffers, deferredAttachmentImages, frames);
     }
   }
 
@@ -1280,11 +1415,17 @@ int main(int _argc, char **_argv) {
   vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
+  destroyBuffer(renderer, gLightSources.InstanceBuffer);
+  destroyBuffer(renderer, gLightSources.IndexBuffer);
+  destroyBuffer(renderer, gLightSources.VertexBuffer);
   destroyBuffer(renderer, gGizmo.IndexBuffer);
   destroyBuffer(renderer, gGizmo.VertexBuffer);
   destroyBuffer(renderer, shaderBallIndexBuffer);
   destroyBuffer(renderer, shaderBallVertexBuffer);
   destroyBuffer(renderer, instanceBuffer);
+  destroyBuffer(renderer, gPlaneIndexBuffer);
+  destroyBuffer(renderer, gPlaneVertexBuffer);
+  destroyBuffer(renderer, gPlaneInstanceBuffer);
 
   cleanupReloadableResources(renderer, swapChain, forwardRenderPass,
                              deferredRenderPass, forwardPipeline,
@@ -1298,6 +1439,8 @@ int main(int _argc, char **_argv) {
   }
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
+  destroyShader(renderer, gLightSources.VertShader);
+  destroyShader(renderer, gLightSources.FragShader);
   destroyShader(renderer, gGizmo.VertShader);
   destroyShader(renderer, gGizmo.FragShader);
   destroyShader(renderer, brdfVertShader);

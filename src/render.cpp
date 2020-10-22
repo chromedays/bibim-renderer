@@ -811,6 +811,36 @@ GizmoVertex::getAttributeDescs() {
   return attributeDescs;
 }
 
+std::array<VkVertexInputBindingDescription, 2>
+LightSourceVertex::getBindingDescs() {
+  std::array<VkVertexInputBindingDescription, 2> bindings = {};
+  bindings[0].binding = 0;
+  bindings[0].stride = sizeof(LightSourceVertex);
+  bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  bindings[1].binding = 1;
+  bindings[1].stride = sizeof(int);
+  bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+  return bindings;
+}
+
+std::array<VkVertexInputAttributeDescription, 2>
+LightSourceVertex::getAttributeDescs() {
+  std::array<VkVertexInputAttributeDescription, 2> attributes = {};
+  attributes[0].binding = 0;
+  attributes[0].location = 0;
+  attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributes[0].offset = offsetof(LightSourceVertex, Pos);
+
+  attributes[1].binding = 1;
+  attributes[1].location = 1;
+  attributes[1].format = VK_FORMAT_R32_SINT;
+  attributes[1].offset = 0;
+
+  return attributes;
+}
+
 Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
                     VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties) {
@@ -1533,28 +1563,10 @@ Frame createFrame(
       writeInfos.push_back(writeInfo);
     }
 
-    // uGbuffer
-    std::array<VkDescriptorImageInfo, (int)GBufferAttachmentType::COUNT>
-        gBufferImageInfos;
-
-    int i = 0;
-    for (const Image &image : _deferredAttachmentImages) {
-      VkDescriptorImageInfo &imageInfo = gBufferImageInfos[i++];
-      imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      imageInfo.imageView = image.View;
-    }
-
-    {
-      writeInfo.dstSet = frame.FrameDescriptorSet;
-      writeInfo.dstBinding = 2; // 2 in standard_sets.glsl
-      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writeInfo.descriptorCount = (int)GBufferAttachmentType::COUNT;
-      writeInfo.pImageInfo = gBufferImageInfos.data();
-      writeInfos.push_back(writeInfo);
-    }
-
     vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(),
                            writeInfos.data(), 0, nullptr);
+
+    writeGBuffersToDescriptorSet(_renderer, frame, _deferredAttachmentImages);
   }
 
   {
@@ -1578,86 +1590,179 @@ Frame createFrame(
   return frame;
 }
 
-Frame createBrdfFrame(const Renderer &_renderer,
-                      const StandardPipelineLayout &_brdfPipelineLayout,
-                      VkDescriptorPool _descriptorPool) {
-  Frame frame = {};
-
-  // Allocate descriptor sets
-  {
-    VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
-    descriptorSetAllocInfo.sType =
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    descriptorSetAllocInfo.descriptorPool = _descriptorPool;
-
-    descriptorSetAllocInfo.descriptorSetCount = 1;
-    descriptorSetAllocInfo.pSetLayouts =
-        &_brdfPipelineLayout.DescriptorSetLayouts[DescriptorFrequency::PerFrame]
-             .Handle;
-    BB_VK_ASSERT(vkAllocateDescriptorSets(
-        _renderer.Device, &descriptorSetAllocInfo, &frame.FrameDescriptorSet));
-
-    descriptorSetAllocInfo.descriptorSetCount = 1;
-    descriptorSetAllocInfo.pSetLayouts =
-        &_brdfPipelineLayout.DescriptorSetLayouts[DescriptorFrequency::PerView]
-             .Handle;
-    BB_VK_ASSERT(vkAllocateDescriptorSets(
-        _renderer.Device, &descriptorSetAllocInfo, &frame.ViewDescriptorSet));
-  }
-
-  frame.FrameUniformBuffer = createBuffer(
-      _renderer, sizeof(FrameUniformBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-  frame.ViewUniformBuffer = createBuffer(
-      _renderer, sizeof(ViewUniformBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-  // Link descriptor sets to actual resources
-  {
-    std::vector<VkWriteDescriptorSet> writeInfos;
-    VkWriteDescriptorSet writeInfo = {};
-    writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-
-    // FrameData
-    writeInfo.dstSet = frame.FrameDescriptorSet;
-    writeInfo.dstBinding = 0;
-    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writeInfo.descriptorCount = 1;
-    VkDescriptorBufferInfo frameUniformBufferInfo = {};
-    frameUniformBufferInfo.buffer = frame.FrameUniformBuffer.Handle;
-    frameUniformBufferInfo.offset = 0;
-    frameUniformBufferInfo.range = frame.FrameUniformBuffer.Size;
-    writeInfo.pBufferInfo = &frameUniformBufferInfo;
-    writeInfos.push_back(writeInfo);
-
-    // ViewData
-    writeInfo.dstSet = frame.ViewDescriptorSet;
-    writeInfo.dstBinding = 0;
-    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writeInfo.descriptorCount = 1;
-    VkDescriptorBufferInfo viewUniformBufferInfo = {};
-    viewUniformBufferInfo.buffer = frame.ViewUniformBuffer.Handle;
-    viewUniformBufferInfo.offset = 0;
-    viewUniformBufferInfo.range = frame.ViewUniformBuffer.Size;
-    writeInfo.pBufferInfo = &viewUniformBufferInfo;
-    writeInfos.push_back(writeInfo);
-
-    vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(),
-                           writeInfos.data(), 0, nullptr);
-  }
-
-  return frame;
-}
-
 void destroyFrame(const Renderer &_renderer, Frame &_frame) {
   vkDestroyCommandPool(_renderer.Device, _frame.CmdPool, nullptr);
 
   destroyBuffer(_renderer, _frame.ViewUniformBuffer);
   destroyBuffer(_renderer, _frame.FrameUniformBuffer);
   _frame = {};
+}
+
+void writeGBuffersToDescriptorSet(
+    const Renderer &_renderer, Frame &_frame,
+    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
+  // uGbuffer
+  std::vector<VkWriteDescriptorSet> writeInfos;
+  std::array<VkDescriptorImageInfo, (int)GBufferAttachmentType::COUNT>
+      gBufferImageInfos;
+
+  int i = 0;
+  for (const Image &image : _deferredAttachmentImages) {
+    VkDescriptorImageInfo &imageInfo = gBufferImageInfos[i++];
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = image.View;
+  }
+
+  {
+    VkWriteDescriptorSet writeInfo = {};
+    writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeInfo.dstSet = _frame.FrameDescriptorSet;
+    writeInfo.dstBinding = 2; // 2 in standard_sets.glsl
+    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    writeInfo.descriptorCount = (int)GBufferAttachmentType::COUNT;
+    writeInfo.pImageInfo = gBufferImageInfos.data();
+    writeInfos.push_back(writeInfo);
+  }
+
+  vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(), writeInfos.data(),
+                         0, nullptr);
+}
+
+template <typename VertexContainer, typename IndexContainer>
+void appendMesh(std::vector<Vertex> &_dstVertices,
+                std::vector<uint32_t> &_dstIndices,
+                const VertexContainer &_srcVertices,
+                const IndexContainer &_srcIndices) {
+  uint32_t baseIndex = (uint32_t)_dstIndices.size();
+
+  _dstVertices.insert(_dstVertices.end(), std::begin(_srcVertices),
+                      std::end(_srcVertices));
+
+  for (uint32_t index : _srcIndices) {
+    _dstIndices.push_back(index + baseIndex);
+  }
+}
+
+void generatePlaneMesh(std::vector<Vertex> &_vertices,
+                       std::vector<uint32_t> &_indices) {
+  // clang-format off
+  Vertex newVertices[] = {
+    {{-0.5f, 0, -0.5f}, {0, 0}, {0, 1, 0}, {1, 0, 0}},
+    {{-0.5f, 0,  0.5f}, {0, 1}, {0, 1, 0}, {1, 0, 0}},
+    {{ 0.5f, 0,  0.5f}, {1, 1}, {0, 1, 0}, {1, 0, 0}},
+    {{ 0.5f, 0, -0.5f}, {1, 0}, {0, 1, 0}, {1, 0, 0}},
+  };
+  // clang-format on
+
+  uint32_t newIndices[] = {0, 1, 2, 2, 3, 0};
+
+  appendMesh(_vertices, _indices, newVertices, newIndices);
+}
+
+void generateQuadMesh(std::vector<Vertex> &_vertices,
+                      std::vector<uint32_t> &_indices) {
+  // clang-format off
+  Vertex newVertices[] = {
+      {{-0.5f, -0.5f, 0}, {0, 0}, {0, 0, -1}, {1, 0, 0}},
+      {{-0.5f,  0.5f, 0}, {0, 1}, {0, 0, -1}, {1, 0, 0}},
+      {{ 0.5f,  0.5f, 0}, {1, 1}, {0, 0, -1}, {1, 0, 0}},
+      {{ 0.5f, -0.5f, 0}, {1, 0}, {0, 0, -1}, {1, 0, 0}}};
+  // clang-format on
+
+  uint32_t newIndices[] = {0, 1, 2, 2, 3, 0};
+
+  appendMesh(_vertices, _indices, newVertices, newIndices);
+}
+
+void generateUVSphereMesh(std::vector<Vertex> &_vertices,
+                          std::vector<uint32_t> &_indices, float _radius,
+                          int _horizontalDivision, int _verticalDivision) {
+  BB_ASSERT((_horizontalDivision >= 3) && (_verticalDivision >= 2));
+
+  Float3 top = {0, _radius, 0};
+  Float3 bottom = {0, -_radius, 0};
+
+  std::vector<Vertex> newVertices;
+  newVertices.reserve((_horizontalDivision + 1) * (_verticalDivision + 1));
+  std::vector<uint32_t> newIndices;
+  newIndices.reserve(6 * _horizontalDivision * (_verticalDivision - 1));
+
+  std::vector<Float3> tangents(_horizontalDivision);
+  for (int i = 0; i < _horizontalDivision; ++i) {
+    float rad = twoPi32 * ((float)i / (float)_horizontalDivision);
+    tangents[i] = Float3{-sinf(rad), 0, cosf(rad)}.normalize();
+  }
+
+  std::vector<Float3> topTangents(_horizontalDivision);
+  for (int i = 0; i < _horizontalDivision; ++i) {
+    float rad = twoPi32 * (((float)i + 0.5f) / (float)_horizontalDivision);
+    topTangents[i] = Float3{-sinf(rad), 0, cosf(rad)}.normalize();
+  }
+
+  std::vector<Float3> bottomTangents(_horizontalDivision);
+  for (int i = 0; i < _horizontalDivision; ++i) {
+    float rad = twoPi32 * (((float)i + 0.5f) / (float)_horizontalDivision);
+    bottomTangents[i] = Float3{-sinf(rad), 0, cosf(rad)}.normalize();
+  }
+
+  for (int v = 0; v <= _verticalDivision; ++v) {
+    float theta = -halfPi32 + pi32 * ((float)v / (float)_verticalDivision);
+    for (int h = 0; h <= _horizontalDivision; ++h) {
+      float phi = twoPi32 * ((float)h / (float)_horizontalDivision);
+
+      Vertex vertex = {};
+      vertex.Pos = sphericalToCartesian({_radius, theta, phi});
+      vertex.Normal = vertex.Pos.normalize();
+      vertex.UV.X = (float)h / (float)_horizontalDivision;
+      vertex.UV.Y = (float)v / (float)_verticalDivision;
+      if (v == 0) {
+        vertex.Tangent = bottomTangents[h % _horizontalDivision];
+      } else if (v == _verticalDivision) {
+        vertex.Tangent = topTangents[h % _horizontalDivision];
+      } else {
+        vertex.Tangent = tangents[h % _horizontalDivision];
+      }
+
+      newVertices.push_back(vertex);
+    }
+  }
+
+  for (int v = 0; v < _verticalDivision; ++v) {
+    for (int h = 0; h < _horizontalDivision; ++h) {
+      int baseIndex = (_horizontalDivision + 1) * v + h;
+      if (v < _verticalDivision - 1) {
+        newIndices.push_back(baseIndex);
+        newIndices.push_back(baseIndex + _horizontalDivision + 1);
+        newIndices.push_back(baseIndex + _horizontalDivision + 2);
+      }
+      if (v > 0) {
+        newIndices.push_back(baseIndex + _horizontalDivision + 2);
+        newIndices.push_back(baseIndex + 1);
+        newIndices.push_back(baseIndex);
+      }
+    }
+  }
+
+  for (size_t i = 0; i < newIndices.size(); i += 3) {
+    Vertex &v0 = newVertices[newIndices[i]];
+    Vertex &v1 = newVertices[newIndices[i + 1]];
+    Vertex &v2 = newVertices[newIndices[i + 2]];
+
+    Float3 e0 = v2.Pos - v0.Pos;
+    Float3 e1 = v1.Pos - v0.Pos;
+    Float2 duv0 = v2.UV - v0.UV;
+    Float2 duv1 = v1.UV - v0.UV;
+    float f = 1.0f / (duv0.X * duv1.Y - duv1.X * duv0.Y);
+
+    Float3 tangent = {f * (duv1.Y * e0.X - duv0.Y * e1.X),
+                      f * (duv1.Y * e0.Y - duv0.Y * e1.Y),
+                      f * (duv1.Y * e0.Z - duv0.Y * e1.Z)};
+    v0.Tangent = tangent;
+    v1.Tangent = tangent;
+    v2.Tangent = tangent;
+  }
+
+  appendMesh(_vertices, _indices, newVertices, newIndices);
 }
 
 } // namespace bb

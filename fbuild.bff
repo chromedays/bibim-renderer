@@ -113,6 +113,8 @@ Settings
     'brdf.frag',
     'gizmo.vert',
     'gizmo.frag',
+    'light.vert',
+    'light.frag',
     'buffer_visualize.vert',
     'buffer_visualize.frag',
 }

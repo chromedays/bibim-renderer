@@ -5,7 +5,8 @@
 
 layout (location = 0) in vec2 vUV;
 layout (location = 1) in vec3 vPosWorld;
-layout (location = 2) in mat3 vTBN;
+layout (location = 2) in vec3 vNormalWorld;
+layout (location = 3) in mat3 vTBN;
 //layout (location = 5) in flat vec3 vAlbedo;
 //layout (location = 6) in flat vec3 vMRA; // Metallic, Roughness, AO
 
@@ -16,7 +17,12 @@ void main() {
     float metallic = texture(sampler2D(uMaterialTextures[TEX_METALLIC], uSamplers[SMP_LINEAR]), vUV).r;
     float roughness = texture(sampler2D(uMaterialTextures[TEX_ROUGHNESS], uSamplers[SMP_LINEAR]), vUV).r;
     float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
-    vec3 normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+    vec3 normal;
+    if (uEnableNormalMap != 0) {
+        normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+    } else {
+        normal = normalize(vNormalWorld);
+    }
 
     vec3 Lo = vec3(0);
 
