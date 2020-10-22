@@ -29,4 +29,69 @@ template <typename E, typename T> struct EnumArray {
   static_assert((int64_t)(E::COUNT) > 0);
 };
 
+// Simple helper struct for iterating through all values of a strong enum type.
+// Useful especially for range based for loop.
+// e.g.
+// for (SomeEnum type : AllEnums<SomeEnum>)
+template <typename E> struct AllEnumsWithIndexImpl {
+  static_assert(std::is_enum_v<E>, "The type E is not enum");
+
+  using UnderlyingType = std::underlying_type_t<E>;
+
+  struct Iterator {
+    UnderlyingType Index;
+    E Enum;
+
+    Iterator &operator++() {
+      ++Index;
+      Enum = (E)Index;
+      return *this;
+    }
+
+    constexpr bool operator==(Iterator other) { return Index == other.Index; }
+    constexpr bool operator!=(Iterator other) { return !(*this == other); }
+    constexpr Iterator operator*() { return *this; }
+  };
+
+  constexpr Iterator begin() const { return {}; };
+  constexpr Iterator end() const {
+    return {(UnderlyingType)E::COUNT, E::COUNT};
+  }
+};
+
+template <typename E>
+static constexpr auto AllEnumsWithIndex = AllEnumsWithIndexImpl<E>();
+
+template <typename E> struct AllEnumsImpl {
+  static_assert(std::is_enum_v<E>, "The type E is not enum");
+
+  using UnderlyingType = std::underlying_type_t<E>;
+
+  struct Iterator {
+    UnderlyingType Index;
+
+    Iterator &operator++() {
+      ++Index;
+      return *this;
+    }
+
+    constexpr bool operator==(Iterator other) { return Index == other.Index; }
+    constexpr bool operator!=(Iterator other) { return !(*this == other); }
+    constexpr E operator*() { return (E)Index; }
+  };
+
+  constexpr Iterator begin() const { return {}; };
+  constexpr Iterator end() const { return {(UnderlyingType)(E::COUNT)}; }
+};
+
+template <typename E> static constexpr auto AllEnums = AllEnumsImpl<E>();
+
+template <typename E> struct EnumCountImpl {
+  static_assert(std::is_enum_v<E>, "The type E is not enum");
+  static constexpr auto Value = (std::underlying_type_t<E>)(E::COUNT);
+};
+
+template <typename E>
+static constexpr auto EnumCount = typename EnumCountImpl<E>::Value;
+
 } // namespace bb

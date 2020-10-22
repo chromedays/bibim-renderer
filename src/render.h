@@ -204,7 +204,7 @@ enum class PBRMapType {
 };
 
 struct PBRMaterial {
-  static constexpr int NumImages = (int)PBRMapType::COUNT;
+  static constexpr auto NumImages = EnumCount<PBRMapType>;
   std::string Name;
   EnumArray<PBRMapType, Image> Maps;
 };

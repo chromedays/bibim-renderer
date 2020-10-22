@@ -598,14 +598,12 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
   std::vector<VkAttachmentReference> gBufferColorAttachmentRefs;
-  gBufferColorAttachmentRefs.reserve((int)GBufferAttachmentType::COUNT);
+  gBufferColorAttachmentRefs.reserve(EnumCount<GBufferAttachmentType>);
 
   std::vector<VkAttachmentReference> brdfInputAttachmentRefs;
-  brdfInputAttachmentRefs.reserve((int)GBufferAttachmentType::COUNT);
+  brdfInputAttachmentRefs.reserve(EnumCount<GBufferAttachmentType>);
 
-  for (GBufferAttachmentType type = GBufferAttachmentType::Position;
-       type < GBufferAttachmentType::COUNT;
-       type = (GBufferAttachmentType)((int)type + 1)) {
+  for (auto type : AllEnums<GBufferAttachmentType>) {
     VkAttachmentReference attachmentRef = {};
 
     attachmentRef.attachment = (uint32_t)type;
@@ -619,13 +617,13 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   VkAttachmentReference gBufferDepthAttachmentRef = {};
   gBufferDepthAttachmentRef.attachment =
-      (int)GBufferAttachmentType::COUNT; // ,,,,TODO
+      EnumCount<GBufferAttachmentType>; // ,,,,TODO
   gBufferDepthAttachmentRef.layout =
       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
   VkAttachmentReference brdfColorAttachmentRef = {};
   brdfColorAttachmentRef.attachment =
-      (int)GBufferAttachmentType::COUNT + 1; //....
+      EnumCount<GBufferAttachmentType> + 1; //....
   brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
   VkSubpassDescription subpass[2] = {};
@@ -1326,8 +1324,7 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
       "Albedo", "Metallic", "Roughness", "AO", "Normal", "Height",
   };
 
-  for (int i = 0; i < (int)PBRMapType::COUNT; ++i) {
-    PBRMapType mapType = (PBRMapType)i;
+  for (auto mapType : AllEnums<PBRMapType>) {
     const Image &image = result.Maps[mapType];
     if (image.Handle != VK_NULL_HANDLE) {
       labelGPUResource(_renderer, image,
@@ -1457,7 +1454,7 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
                 {VK_DESCRIPTOR_TYPE_SAMPLER,
                  (uint32_t)layout.ImmutableSamplers.size()},
                 {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 (uint32_t)GBufferAttachmentType::COUNT},
+                 EnumCount<GBufferAttachmentType>},
             },
             // PerView
             {
@@ -1472,9 +1469,7 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
             {},
         }};
 
-    for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
-         frequency < DescriptorFrequency::COUNT;
-         frequency = (DescriptorFrequency)((int)frequency + 1)) {
+    for (auto frequency : AllEnums<DescriptorFrequency>) {
 
       uint32_t numBindings = 0;
 
@@ -1700,7 +1695,7 @@ void writeGBuffersToDescriptorSet(
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
   // uGbuffer
   std::vector<VkWriteDescriptorSet> writeInfos;
-  std::array<VkDescriptorImageInfo, (int)GBufferAttachmentType::COUNT>
+  std::array<VkDescriptorImageInfo, EnumCount<GBufferAttachmentType>>
       gBufferImageInfos;
 
   int i = 0;
@@ -1716,7 +1711,7 @@ void writeGBuffersToDescriptorSet(
     writeInfo.dstSet = _frame.FrameDescriptorSet;
     writeInfo.dstBinding = 2; // 2 in standard_sets.glsl
     writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    writeInfo.descriptorCount = (int)GBufferAttachmentType::COUNT;
+    writeInfo.descriptorCount = EnumCount<GBufferAttachmentType>;
     writeInfo.pImageInfo = gBufferImageInfos.data();
     writeInfos.push_back(writeInfo);
   }
