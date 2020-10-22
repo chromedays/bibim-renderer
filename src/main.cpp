@@ -1068,7 +1068,7 @@ int main(int _argc, char **_argv) {
 
     VkFenceCreateInfo fenceCreateInfo = {};
     fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceCreateInfo.flags = 0; // Unsignaled statae
+    fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Signaled statae
     BB_VK_ASSERT(vkCreateFence(renderer.Device, &fenceCreateInfo, nullptr,
                                &syncObject.FrameAvailableFence));
     frameSyncObjects.push_back(syncObject);
