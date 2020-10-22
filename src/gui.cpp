@@ -11,8 +11,7 @@ GUI createGUI(const GUIInitParams &_params) {
   GUI gui = {};
   gui.MaterialSet = _params.MaterialSet;
 
-  for (int i = 0; i < (int)PBRMapType::COUNT; ++i) {
-    PBRMapType mapType = (PBRMapType)i;
+  for (auto mapType : AllEnums<PBRMapType>) {
     const Image &image = gui.MaterialSet->DefaultMaterial.Maps[mapType];
     if (image.Handle != VK_NULL_HANDLE) {
       gui.DefaultMaterialTextureId[mapType] =
@@ -23,8 +22,7 @@ GUI createGUI(const GUIInitParams &_params) {
 
   for (const PBRMaterial &material : gui.MaterialSet->Materials) {
     EnumArray<PBRMapType, ImTextureID> textureIds;
-    for (int i = 0; i < (int)PBRMapType::COUNT; ++i) {
-      PBRMapType mapType = (PBRMapType)i;
+    for (PBRMapType mapType : AllEnums<PBRMapType>) {
       const Image &image = material.Maps[mapType];
       if (image.Handle != VK_NULL_HANDLE) {
         textureIds[mapType] = ImGui_ImplVulkan_AddTexture(

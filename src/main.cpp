@@ -118,7 +118,7 @@ void recordCommand(VkRenderPass _forwardRenderPass,
   renderPassInfo.renderArea.offset = {0, 0};
   renderPassInfo.renderArea.extent = _swapChainExtent;
 
-  VkClearValue clearValues[((int)GBufferAttachmentType::COUNT + 2)] =
+  VkClearValue clearValues[(EnumCount<GBufferAttachmentType> + 2)] =
       {};                               // +1 for depth, 1 for lighting pass
   clearValues[0].color = {0, 0, 0, 1};  // Position
   clearValues[1].color = {0, 0, 0, 1};  // Normal
@@ -351,9 +351,7 @@ void initReloadableResources(
   gBufferAttachmentImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
   gBufferAttachmentImageCreateInfo.flags = 0;
 
-  for (GBufferAttachmentType type = GBufferAttachmentType::Position;
-       type < GBufferAttachmentType::COUNT;
-       type = (GBufferAttachmentType)((int)type + 1)) {
+  for (GBufferAttachmentType type : AllEnums<GBufferAttachmentType>) {
     Image &currentImage = deferredAttachmentImages[type];
     BB_VK_ASSERT(vkCreateImage(_renderer.Device,
                                &gBufferAttachmentImageCreateInfo, nullptr,
@@ -446,8 +444,8 @@ void initReloadableResources(
     pipelineParams.Shaders = _gBufferPipelineParams.Shaders;
     pipelineParams.PipelineLayout = _gBufferPipelineParams.PipelineLayout;
     pipelineParams.RenderPass = deferredRenderPass.Handle;
-    *_outGbufferPipeline = createPipeline(
-        _renderer, pipelineParams, (uint32_t)GBufferAttachmentType::COUNT);
+    *_outGbufferPipeline = createPipeline(_renderer, pipelineParams,
+                                          EnumCount<GBufferAttachmentType>);
   }
 
   // BRDF pipeline
@@ -869,10 +867,7 @@ int main(int _argc, char **_argv) {
   {
     std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
 
-    for (DescriptorFrequency frequency = DescriptorFrequency::PerFrame;
-         frequency < DescriptorFrequency::COUNT;
-         frequency = (DescriptorFrequency)((int)frequency + 1)) {
-
+    for (DescriptorFrequency frequency : AllEnums<DescriptorFrequency>) {
       const DescriptorSetLayout &descriptorSetLayout =
           gStandardPipelineLayout.DescriptorSetLayouts[frequency];
 
@@ -1331,13 +1326,13 @@ int main(int _argc, char **_argv) {
       if (ImGui::BeginCombo(
               "Buffer",
               gBufferVisualize.OptionLabels[gBufferVisualize.CurrentOption])) {
-        for (GBufferVisualizingOption i = GBufferVisualizingOption::Position;
-             (int)i < (int)GBufferVisualizingOption::COUNT;
-             i = (GBufferVisualizingOption)((int)i + 1)) {
-          bool isSelected = (gBufferVisualize.CurrentOption == i);
 
-          if (ImGui::Selectable(gBufferVisualize.OptionLabels[i], isSelected)) {
-            gBufferVisualize.CurrentOption = i;
+        for (auto option : AllEnums<GBufferVisualizingOption>) {
+          bool isSelected = (gBufferVisualize.CurrentOption == option);
+
+          if (ImGui::Selectable(gBufferVisualize.OptionLabels[option],
+                                isSelected)) {
+            gBufferVisualize.CurrentOption = option;
           }
 
           if (isSelected)
