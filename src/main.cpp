@@ -90,6 +90,7 @@ Buffer gPlaneVertexBuffer;
 Buffer gPlaneIndexBuffer;
 uint32_t gNumPlaneIndices;
 
+int gCurrentMaterial = 1;
 static StandardPipelineLayout gStandardPipelineLayout;
 
 void recordCommand(VkRenderPass _forwardRenderPass,
@@ -148,7 +149,8 @@ void recordCommand(VkRenderPass _forwardRenderPass,
 
   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           gStandardPipelineLayout.Handle, 2, 1,
-                          &_frame.MaterialDescriptorSets[0], 0, nullptr);
+                          &_frame.MaterialDescriptorSets[gCurrentMaterial], 0,
+                          nullptr);
 
   vkCmdDrawIndexed(cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
 
@@ -858,10 +860,7 @@ int main(int _argc, char **_argv) {
   BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &transientCmdPoolCreateInfo,
                                    nullptr, &transientCmdPool));
 
-  std::vector<PBRMaterial> pbrMaterials;
-  pbrMaterials.push_back(createPBRMaterialFromFiles(
-      renderer, transientCmdPool,
-      createAbsolutePath("pbr/hardwood_brown_planks")));
+  PBRMaterialSet materialSet = createPBRMaterialSet(renderer, transientCmdPool);
 
   gStandardPipelineLayout = createStandardPipelineLayout(renderer);
 
@@ -879,7 +878,7 @@ int main(int _argc, char **_argv) {
 
       uint32_t numDescriptorSets = numFrames;
       if (frequency == DescriptorFrequency::PerMaterial) {
-        numDescriptorSets *= pbrMaterials.size();
+        numDescriptorSets *= materialSet.Materials.size();
       }
 
       for (auto [type, numDescriptors] :
@@ -903,8 +902,14 @@ int main(int _argc, char **_argv) {
     descriptorPoolCreateInfo.poolSizeCount = (uint32_t)poolSizes.size();
     descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
 
-    descriptorPoolCreateInfo.maxSets = (uint32_t)(
-        (gStandardPipelineLayout.DescriptorSetLayouts.size()) * numFrames);
+    const int numPerFrameSets = 1;
+    const int numPerViewSets = 1;
+    const int numPerMaterialSets = materialSet.Materials.size();
+    const int numPerDrawSets = 1;
+
+    descriptorPoolCreateInfo.maxSets =
+        numFrames * (numPerFrameSets + numPerViewSets + numPerMaterialSets +
+                     numPerDrawSets);
     BB_VK_ASSERT(vkCreateDescriptorPool(
         renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
   }
@@ -1020,7 +1025,7 @@ int main(int _argc, char **_argv) {
   {
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_SAMPLER, 10},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10},
         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 10},
@@ -1044,7 +1049,7 @@ int main(int _argc, char **_argv) {
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
     frames.push_back(createFrame(renderer, gStandardPipelineLayout,
-                                 descriptorPool, pbrMaterials,
+                                 descriptorPool, materialSet,
                                  deferredAttachmentImages));
   }
 
@@ -1063,7 +1068,7 @@ int main(int _argc, char **_argv) {
 
     VkFenceCreateInfo fenceCreateInfo = {};
     fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceCreateInfo.flags = 0; // Unsignaled statae
+    fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Signaled state
     BB_VK_ASSERT(vkCreateFence(renderer.Device, &fenceCreateInfo, nullptr,
                                &syncObject.FrameAvailableFence));
     frameSyncObjects.push_back(syncObject);
@@ -1130,9 +1135,22 @@ int main(int _argc, char **_argv) {
   FreeLookCamera cam = {};
   Input input = {};
 
+  GUIInitParams guiParams = {};
+  guiParams.MaterialImageSampler =
+      gStandardPipelineLayout.ImmutableSamplers[SamplerType::Nearest];
+  guiParams.MaterialSet = &materialSet;
+  GUI gui = createGUI(guiParams);
+  gui.SelectedMaterialIndex = gCurrentMaterial;
+
   bool running = true;
 
   Time lastTime = getCurrentTime();
+
+  const Image &testImage =
+      materialSet.Materials.front().Maps[PBRMapType::Albedo];
+  ImTextureID textureId = ImGui_ImplVulkan_AddTexture(
+      gStandardPipelineLayout.ImmutableSamplers[SamplerType::Nearest],
+      testImage.View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   SDL_Event e = {};
   while (running) {
@@ -1160,6 +1178,9 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplSDL2_NewFrame(window);
     ImGui::NewFrame();
+
+    updateGUI(gui);
+    gCurrentMaterial = gui.SelectedMaterialIndex;
 
 #if 0
     ImGui::ShowDemoWindow();
@@ -1434,9 +1455,8 @@ int main(int _argc, char **_argv) {
 
   destroyStandardPipelineLayout(renderer, gStandardPipelineLayout);
 
-  for (PBRMaterial &material : pbrMaterials) {
-    destroyPBRMaterial(renderer, material);
-  }
+  destroyPBRMaterialSet(renderer, materialSet);
+
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
   destroyShader(renderer, gLightSources.VertShader);

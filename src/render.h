@@ -205,6 +205,7 @@ enum class PBRMapType {
 
 struct PBRMaterial {
   static constexpr int NumImages = (int)PBRMapType::COUNT;
+  std::string Name;
   EnumArray<PBRMapType, Image> Maps;
 };
 
@@ -212,6 +213,19 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
                                        VkCommandPool _transientCmdPool,
                                        const std::string &_rootPath);
 void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material);
+
+struct PBRMaterialSet {
+  std::vector<PBRMaterial> Materials;
+  PBRMaterial DefaultMaterial;
+};
+
+PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
+                                    VkCommandPool _cmdPool);
+void destroyPBRMaterialSet(const Renderer &_renderer,
+                           PBRMaterialSet &_materialSet);
+
+Image getPBRMapOrDefault(const PBRMaterialSet &_materialSet, int _materialIndex,
+                         PBRMapType _mapType);
 
 enum class DescriptorFrequency {
   PerFrame,
@@ -287,8 +301,7 @@ struct FrameSync {
 Frame createFrame(
     const Renderer &_renderer,
     const StandardPipelineLayout &_standardPipelineLayout,
-    VkDescriptorPool _descriptorPool,
-    const std::vector<PBRMaterial> &_pbrMaterials,
+    VkDescriptorPool _descriptorPool, const PBRMaterialSet &_materialSet,
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
 
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
@@ -308,5 +321,10 @@ void generateUVSphereMesh(std::vector<Vertex> &_vertices,
                           std::vector<uint32_t> &_indices, float _radius = 1.f,
                           int _horizontalDivision = 16,
                           int _verticalDivision = 16);
+
+#if BB_DEBUG
+void labelGPUResource(const Renderer &_renderer, const Image &_image,
+                      const std::string &_name);
+#endif
 
 } // namespace bb

@@ -1142,6 +1142,18 @@ Shader createShaderFromFile(const Renderer &_renderer,
   BB_VK_ASSERT(vkCreateShaderModule(_renderer.Device, &createInfo, nullptr,
                                     &result.Handle));
 
+#if BB_DEBUG
+  {
+    std::string fileName = "Shader - " + getFileName(_filePath);
+    VkDebugUtilsObjectNameInfoEXT nameInfo = {};
+    nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    nameInfo.objectType = VK_OBJECT_TYPE_SHADER_MODULE;
+    nameInfo.objectHandle = (uint64_t)result.Handle;
+    nameInfo.pObjectName = fileName.c_str();
+    BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
+  }
+#endif
+
   delete[] contents;
   fclose(f);
 
@@ -1295,6 +1307,7 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
                                        const std::string &_rootPath) {
   // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
   PBRMaterial result = {};
+  result.Name = getFileName(_rootPath);
   result.Maps[PBRMapType::Albedo] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "albedo.png"));
   result.Maps[PBRMapType::Metallic] = createImageFromFile(
@@ -1307,6 +1320,21 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
       _renderer, _transientCmdPool, joinPaths(_rootPath, "normal.png"));
   result.Maps[PBRMapType::Height] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "height.png"));
+
+#if BB_DEBUG
+  EnumArray<PBRMapType, std::string> labels = {
+      "Albedo", "Metallic", "Roughness", "AO", "Normal", "Height",
+  };
+
+  for (int i = 0; i < (int)PBRMapType::COUNT; ++i) {
+    PBRMapType mapType = (PBRMapType)i;
+    const Image &image = result.Maps[mapType];
+    if (image.Handle != VK_NULL_HANDLE) {
+      labelGPUResource(_renderer, image,
+                       fmt::format("{} {}", result.Name, labels[mapType]));
+    }
+  }
+#endif
   return result;
 }
 
@@ -1315,6 +1343,56 @@ void destroyPBRMaterial(const Renderer &_renderer, PBRMaterial &_material) {
     destroyImage(_renderer, image);
   }
   _material = {};
+}
+
+PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
+                                    VkCommandPool _cmdPool) {
+  PBRMaterialSet materialSet = {};
+
+  {
+    WIN32_FIND_DATA fileFindData;
+    std::string pbrRoot = createAbsolutePath("pbr/*");
+    HANDLE findHandle = FindFirstFileA(pbrRoot.c_str(), &fileFindData);
+
+    do {
+      if ((strcmp(fileFindData.cFileName, ".") != 0) &&
+          (strcmp(fileFindData.cFileName, "..") != 0) &&
+          (fileFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        PBRMaterial material = createPBRMaterialFromFiles(
+            _renderer, _cmdPool,
+            createAbsolutePath(joinPaths("pbr", fileFindData.cFileName)));
+
+        if (strcmp(fileFindData.cFileName, "default") == 0) {
+          materialSet.DefaultMaterial = std::move(material);
+        } else {
+          materialSet.Materials.push_back(std::move(material));
+        }
+      }
+    } while (FindNextFileA(findHandle, &fileFindData));
+    FindClose(findHandle);
+  }
+
+  return materialSet;
+}
+
+void destroyPBRMaterialSet(const Renderer &_renderer,
+                           PBRMaterialSet &_materialSet) {
+  destroyPBRMaterial(_renderer, _materialSet.DefaultMaterial);
+  for (PBRMaterial &material : _materialSet.Materials) {
+    destroyPBRMaterial(_renderer, material);
+  }
+
+  _materialSet = {};
+}
+
+Image getPBRMapOrDefault(const PBRMaterialSet &_materialSet, int _materialIndex,
+                         PBRMapType _mapType) {
+  const Image *map = &_materialSet.Materials[_materialIndex].Maps[_mapType];
+  if (map->Handle == VK_NULL_HANDLE) {
+    map = &_materialSet.DefaultMaterial.Maps[_mapType];
+  }
+
+  return *map;
 }
 
 EnumArray<SamplerType, VkSampler>
@@ -1456,8 +1534,7 @@ void destroyStandardPipelineLayout(const Renderer &_renderer,
 Frame createFrame(
     const Renderer &_renderer,
     const StandardPipelineLayout &_standardPipelineLayout,
-    VkDescriptorPool _descriptorPool,
-    const std::vector<PBRMaterial> &_pbrMaterials,
+    VkDescriptorPool _descriptorPool, const PBRMaterialSet &_materialSet,
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
   Frame frame = {};
 
@@ -1484,12 +1561,15 @@ Frame createFrame(
     BB_VK_ASSERT(vkAllocateDescriptorSets(
         _renderer.Device, &descriptorSetAllocInfo, &frame.ViewDescriptorSet));
 
-    frame.MaterialDescriptorSets.resize(_pbrMaterials.size());
-    descriptorSetAllocInfo.descriptorSetCount = _pbrMaterials.size();
-    descriptorSetAllocInfo.pSetLayouts =
-        &_standardPipelineLayout
-             .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
-             .Handle;
+    std::vector<VkDescriptorSetLayout> materialDescriptorSetLayouts(
+        _materialSet.Materials.size(),
+        _standardPipelineLayout
+            .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
+            .Handle);
+    frame.MaterialDescriptorSets.resize(_materialSet.Materials.size());
+    descriptorSetAllocInfo.descriptorSetCount =
+        materialDescriptorSetLayouts.size();
+    descriptorSetAllocInfo.pSetLayouts = materialDescriptorSetLayouts.data();
     BB_VK_ASSERT(vkAllocateDescriptorSets(_renderer.Device,
                                           &descriptorSetAllocInfo,
                                           frame.MaterialDescriptorSets.data()));
@@ -1537,18 +1617,35 @@ Frame createFrame(
     writeInfos.push_back(writeInfo);
 
     // uMaterialTextures
-    std::vector<std::array<VkDescriptorImageInfo, PBRMaterial::NumImages>>
+    std::vector<EnumArray<PBRMapType, VkDescriptorImageInfo>>
         materialImagesInfos;
-    materialImagesInfos.reserve(_pbrMaterials.size());
-    for (const PBRMaterial &material : _pbrMaterials) {
-      std::array<VkDescriptorImageInfo, PBRMaterial::NumImages> imageInfos;
-
-      int i = 0;
-      for (const Image &image : material.Maps) {
-        VkDescriptorImageInfo &imageInfo = imageInfos[i++];
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = image.View;
-      }
+    materialImagesInfos.reserve(_materialSet.Materials.size());
+    for (int i = 0; i < _materialSet.Materials.size(); ++i) {
+      EnumArray<PBRMapType, VkDescriptorImageInfo> imageInfos = {};
+      imageInfos[PBRMapType::Albedo].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Albedo].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Albedo).View;
+      imageInfos[PBRMapType::Metallic].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Metallic].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Metallic).View;
+      imageInfos[PBRMapType::Roughness].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Roughness].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Roughness).View;
+      imageInfos[PBRMapType::AO].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::AO].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::AO).View;
+      imageInfos[PBRMapType::Normal].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Normal].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Normal).View;
+      imageInfos[PBRMapType::Height].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Height].imageView =
+          getPBRMapOrDefault(_materialSet, i, PBRMapType::Height).View;
 
       materialImagesInfos.push_back(imageInfos);
     }
@@ -1764,5 +1861,25 @@ void generateUVSphereMesh(std::vector<Vertex> &_vertices,
 
   appendMesh(_vertices, _indices, newVertices, newIndices);
 }
+
+#if BB_DEBUG
+void labelGPUResource(const Renderer &_renderer, const Image &_image,
+                      const std::string &_name) {
+
+  std::string imageName = "Image - " + _name;
+  std::string viewName = "Image View - " + _name;
+
+  VkDebugUtilsObjectNameInfoEXT nameInfo = {};
+  nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+  nameInfo.objectType = VK_OBJECT_TYPE_IMAGE;
+  nameInfo.objectHandle = (uint64_t)_image.Handle;
+  nameInfo.pObjectName = imageName.c_str();
+  BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
+  nameInfo.objectType = VK_OBJECT_TYPE_IMAGE_VIEW;
+  nameInfo.objectHandle = (uint64_t)_image.View;
+  nameInfo.pObjectName = viewName.c_str();
+  BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
+}
+#endif
 
 } // namespace bb
