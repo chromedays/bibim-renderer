@@ -504,7 +504,7 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = _swapChain.ColorFormat;
   colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -514,7 +514,7 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
   VkAttachmentDescription depthAttachment = {};
   depthAttachment.format = _swapChain.DepthFormat;
   depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -566,7 +566,6 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
 RenderPass createDeferredRenderPass(const Renderer &_renderer,
                                     const SwapChain &_swapChain) {
   VkAttachmentDescription gBufferColorAttachment = {};
-  ;
   gBufferColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
   gBufferColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   gBufferColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -579,7 +578,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   VkAttachmentDescription brdfColorAttachment = {};
   brdfColorAttachment.format = _swapChain.ColorFormat;
   brdfColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   brdfColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   brdfColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   brdfColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -590,7 +589,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   depthAttachment.format = _swapChain.DepthFormat;
   depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -675,8 +674,8 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   return renderPass;
 }
 
-std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
-  std::array<VkVertexInputBindingDescription, 2> bindingDescs = {};
+Vertex::BindingDescs Vertex::getBindingDescs() {
+  BindingDescs bindingDescs = {};
   // Vertex
   bindingDescs[0].binding = 0;
   bindingDescs[0].stride = sizeof(Vertex);
@@ -689,8 +688,8 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 12> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 12> attributeDescs = {};
+Vertex::AttributeDescs Vertex::getAttributeDescs() {
+  AttributeDescs attributeDescs = {};
 
   int lastAttributeIndex = 0;
 
@@ -777,8 +776,8 @@ std::array<VkVertexInputAttributeDescription, 12> Vertex::getAttributeDescs() {
   return attributeDescs;
 }
 
-std::array<VkVertexInputBindingDescription, 1> GizmoVertex::getBindingDescs() {
-  std::array<VkVertexInputBindingDescription, 1> bindingDescs = {};
+GizmoVertex::BindingDescs GizmoVertex::getBindingDescs() {
+  BindingDescs bindingDescs = {};
 
   bindingDescs[0].binding = 0;
   bindingDescs[0].stride = sizeof(GizmoVertex);
@@ -787,9 +786,8 @@ std::array<VkVertexInputBindingDescription, 1> GizmoVertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 3>
-GizmoVertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
+GizmoVertex::AttributeDescs GizmoVertex::getAttributeDescs() {
+  AttributeDescs attributeDescs = {};
 
   attributeDescs[0].binding = 0;
   attributeDescs[0].location = 0;
@@ -809,9 +807,8 @@ GizmoVertex::getAttributeDescs() {
   return attributeDescs;
 }
 
-std::array<VkVertexInputBindingDescription, 2>
-LightSourceVertex::getBindingDescs() {
-  std::array<VkVertexInputBindingDescription, 2> bindings = {};
+LightSourceVertex::BindingDescs LightSourceVertex::getBindingDescs() {
+  BindingDescs bindings = {};
   bindings[0].binding = 0;
   bindings[0].stride = sizeof(LightSourceVertex);
   bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
@@ -823,9 +820,8 @@ LightSourceVertex::getBindingDescs() {
   return bindings;
 }
 
-std::array<VkVertexInputAttributeDescription, 2>
-LightSourceVertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 2> attributes = {};
+LightSourceVertex::AttributeDescs LightSourceVertex::getAttributeDescs() {
+  AttributeDescs attributes = {};
   attributes[0].binding = 0;
   attributes[0].location = 0;
   attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;

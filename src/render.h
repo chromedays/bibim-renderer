@@ -71,15 +71,25 @@ struct InstanceBlock {
   Mat4 InvModelMat;
 };
 
+#define VERTEX_BINDINGS_DECL(numBindings)                                      \
+  using BindingDescs =                                                         \
+      std::array<VkVertexInputBindingDescription, numBindings>;                \
+  static BindingDescs getBindingDescs();                                       \
+  inline static BindingDescs Bindings = getBindingDescs();
+#define VERTEX_ATTRIBUTES_DECL(numAttributes)                                  \
+  using AttributeDescs =                                                       \
+      std::array<VkVertexInputAttributeDescription, numAttributes>;            \
+  static AttributeDescs getAttributeDescs();                                   \
+  inline static AttributeDescs Attributes = getAttributeDescs();
+
 struct Vertex {
   Float3 Pos;
   Float2 UV;
   Float3 Normal = {0, 0, -1};
   Float3 Tangent = {0, -1, 0};
 
-  static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 12> getAttributeDescs();
-  static VkPipelineVertexInputStateCreateInfo getVertexInputState();
+  VERTEX_BINDINGS_DECL(2);
+  VERTEX_ATTRIBUTES_DECL(12);
 };
 
 struct GizmoVertex {
@@ -87,15 +97,15 @@ struct GizmoVertex {
   Float3 Color;
   Float3 Normal;
 
-  static std::array<VkVertexInputBindingDescription, 1> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescs();
+  VERTEX_BINDINGS_DECL(1);
+  VERTEX_ATTRIBUTES_DECL(3);
 };
 
 struct LightSourceVertex {
   Float3 Pos;
 
-  static std::array<VkVertexInputBindingDescription, 2> getBindingDescs();
-  static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescs();
+  VERTEX_BINDINGS_DECL(2);
+  VERTEX_ATTRIBUTES_DECL(2);
 };
 
 struct Buffer {
