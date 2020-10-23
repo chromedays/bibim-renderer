@@ -153,6 +153,12 @@ struct RenderPass {
   VkRenderPass Handle;
 };
 
+// clang-format off
+// All render passes' first and second attachments' format and sampel should be following:
+// 0 - Color Attachment (swapChain.ColorFormat, VK_SAMPLE_COUNT_1_BIT)
+// 1 - Depth Attachment (swapChain.DepthFormat, VK_SAMPLE_COUNT_1_BIT)
+// clang-format on
+
 RenderPass createForwardRenderPass(const Renderer &_renderer,
                                    const SwapChain &_swapChain);
 RenderPass createDeferredRenderPass(const Renderer &_renderer,
