@@ -503,7 +503,7 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
                                    const SwapChain &_swapChain) {
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = _swapChain.ColorFormat;
-  colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  colorAttachment.samples = _swapChain.NumColorSamples;
   colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -513,7 +513,7 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
 
   VkAttachmentDescription depthAttachment = {};
   depthAttachment.format = _swapChain.DepthFormat;
-  depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  depthAttachment.samples = _swapChain.NumDepthSamples;
   depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -577,7 +577,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   VkAttachmentDescription brdfColorAttachment = {};
   brdfColorAttachment.format = _swapChain.ColorFormat;
-  brdfColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  brdfColorAttachment.samples = _swapChain.NumColorSamples;
   brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   brdfColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   brdfColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -587,7 +587,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   VkAttachmentDescription depthAttachment = {};
   depthAttachment.format = _swapChain.DepthFormat;
-  depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  depthAttachment.samples = _swapChain.NumDepthSamples;
   depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -605,7 +605,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   for (auto type : AllEnums<GBufferAttachmentType>) {
     VkAttachmentReference attachmentRef = {};
 
-    attachmentRef.attachment = (uint32_t)type;
+    attachmentRef.attachment = (uint32_t)type + 2;
     attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     gBufferColorAttachmentRefs.push_back(attachmentRef);
@@ -614,16 +614,14 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
     brdfInputAttachmentRefs.push_back(attachmentRef);
   }
 
+  VkAttachmentReference brdfColorAttachmentRef = {};
+  brdfColorAttachmentRef.attachment = 0; //....
+  brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
   VkAttachmentReference gBufferDepthAttachmentRef = {};
-  gBufferDepthAttachmentRef.attachment =
-      EnumCount<GBufferAttachmentType>; // ,,,,TODO
+  gBufferDepthAttachmentRef.attachment = 1; // ,,,,TODO
   gBufferDepthAttachmentRef.layout =
       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-  VkAttachmentReference brdfColorAttachmentRef = {};
-  brdfColorAttachmentRef.attachment =
-      EnumCount<GBufferAttachmentType> + 1; //....
-  brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
   VkSubpassDescription subpass[2] = {};
   subpass[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -654,10 +652,10 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 
   VkAttachmentDescription attachments[] = {
+      brdfColorAttachment, // 1 lighting pass
+      depthAttachment,        gBufferColorAttachment, gBufferColorAttachment,
       gBufferColorAttachment, gBufferColorAttachment,
-      gBufferColorAttachment, gBufferColorAttachment,
-      gBufferColorAttachment, depthAttachment, // 5 gBuffer pass with 1 depth
-      brdfColorAttachment,                     // 1 lighting pass
+      gBufferColorAttachment, // 5 gBuffer pass with 1 depth
   };
 
   renderPassCreateInfo.attachmentCount = (uint32_t)std::size(attachments);

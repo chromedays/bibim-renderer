@@ -40,6 +40,8 @@ struct SwapChain {
   VkSwapchainKHR Handle;
   VkFormat ColorFormat;
   VkFormat DepthFormat;
+  VkSampleCountFlagBits NumColorSamples = VK_SAMPLE_COUNT_1_BIT;
+  VkSampleCountFlagBits NumDepthSamples = VK_SAMPLE_COUNT_1_BIT;
   VkExtent2D Extent;
   uint32_t MinNumImages;
   uint32_t NumColorImages;

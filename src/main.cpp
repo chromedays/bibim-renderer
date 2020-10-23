@@ -186,13 +186,13 @@ void recordCommand(VkRenderPass _forwardRenderPass,
   VkClearValue
       deferredRenderPassClearValues[(EnumCount<GBufferAttachmentType> + 2)] =
           {}; // +1 for depth, 1 for lighting pass
-  deferredRenderPassClearValues[0].color = {0, 0, 0, 1};  // Position
-  deferredRenderPassClearValues[1].color = {0, 0, 0, 1};  // Normal
-  deferredRenderPassClearValues[2].color = {0, 0, 0, 1};  // Albedo
-  deferredRenderPassClearValues[3].color = {0, 0, 0, 1};  // MRAH
-  deferredRenderPassClearValues[4].color = {0, 0, 0, 1};  // Material index
-  deferredRenderPassClearValues[5].depthStencil = {0, 0}; // Depth
-  deferredRenderPassClearValues[6].color = {0, 0, 0, 1};  // Lighting pass
+  deferredRenderPassClearValues[0].color = {0, 0, 0, 1};  // Lighting pass
+  deferredRenderPassClearValues[1].depthStencil = {0, 0}; // Depth
+  deferredRenderPassClearValues[2].color = {0, 0, 0, 1};  // Position
+  deferredRenderPassClearValues[3].color = {0, 0, 0, 1};  // Normal
+  deferredRenderPassClearValues[4].color = {0, 0, 0, 1};  // Albedo
+  deferredRenderPassClearValues[5].color = {0, 0, 0, 1};  // MRAH
+  deferredRenderPassClearValues[6].color = {0, 0, 0, 1};  // Material index
   deferredRenderPassInfo.clearValueCount =
       (uint32_t)std::size(deferredRenderPassClearValues);
   deferredRenderPassInfo.pClearValues = deferredRenderPassClearValues;
@@ -460,13 +460,14 @@ void initReloadableResources(
     fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fbCreateInfo.renderPass = deferredRenderPass.Handle;
     VkImageView attachments[] = {
+        swapChain.ColorImageViews[i],
+        swapChain.DepthImageView,
         deferredAttachmentImages[GBufferAttachmentType::Position].View,
         deferredAttachmentImages[GBufferAttachmentType::Normal].View,
         deferredAttachmentImages[GBufferAttachmentType::Albedo].View,
         deferredAttachmentImages[GBufferAttachmentType::MRAH].View,
         deferredAttachmentImages[GBufferAttachmentType::MaterialIndex].View,
-        swapChain.DepthImageView,
-        swapChain.ColorImageViews[i]};
+    };
     fbCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
     fbCreateInfo.pAttachments = attachments;
     fbCreateInfo.width = swapChain.Extent.width;
