@@ -151,8 +151,6 @@ void destroyShader(const Renderer &_renderer, Shader &_shader);
 
 struct RenderPass {
   VkRenderPass Handle;
-  // TODO(ilgwon): Not implemented yet
-  VkRenderPassBeginInfo BeginInfo = {};
 };
 
 RenderPass createForwardRenderPass(const Renderer &_renderer,
