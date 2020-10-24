@@ -130,9 +130,7 @@ enum class RenderPassType { Forward, Deferred, COUNT };
 
 RenderPassType gSceneRenderPassType = RenderPassType::Forward;
 
-void recordCommand(VkRenderPass _forwardRenderPass,
-                   VkRenderPass _deferredRenderPass,
-                   VkFramebuffer _forwardFramebuffer,
+void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
                    VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
                    VkPipeline _brdfPipeline, VkExtent2D _swapChainExtent,
@@ -161,20 +159,6 @@ void recordCommand(VkRenderPass _forwardRenderPass,
                           gStandardPipelineLayout.Handle, 2, 1,
                           &_frame.MaterialDescriptorSets[gCurrentMaterial], 0,
                           nullptr);
-
-  VkRenderPassBeginInfo forwardRenderPassInfo = {};
-  forwardRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  forwardRenderPassInfo.renderPass = _forwardRenderPass;
-  forwardRenderPassInfo.framebuffer = _forwardFramebuffer;
-  forwardRenderPassInfo.renderArea.offset = {0, 0};
-  forwardRenderPassInfo.renderArea.extent = _swapChainExtent;
-
-  VkClearValue forwardRenderPassClearValues[2] = {};
-  forwardRenderPassClearValues[0].color = {0, 0, 0, 1};
-  forwardRenderPassClearValues[1].depthStencil = {0, 0};
-  forwardRenderPassInfo.clearValueCount =
-      (uint32_t)std::size(forwardRenderPassClearValues);
-  forwardRenderPassInfo.pClearValues = forwardRenderPassClearValues;
 
   VkRenderPassBeginInfo deferredRenderPassInfo = {};
   deferredRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -257,10 +241,6 @@ void recordCommand(VkRenderPass _forwardRenderPass,
 #endif
   }
 
-  // vkCmdEndRenderPass(cmdBuffer);
-  // vkCmdBeginRenderPass(cmdBuffer, &forwardRenderPassInfo,
-  //                      VK_SUBPASS_CONTENTS_INLINE);
-
   if (gBufferVisualize.CurrentOption !=
       GBufferVisualizingOption::RenderedScene) {
 
@@ -318,10 +298,9 @@ void initReloadableResources(
     const Renderer &_renderer, uint32_t _width, uint32_t _height,
     const SwapChain *_oldSwapChain, PipelineParams &_forwardPipelineParams,
     PipelineParams &_gBufferPipelineParams, PipelineParams &_brdfPipelineParams,
-    SwapChain *_outSwapChain, RenderPass *_outForwardRenderPass,
-    RenderPass *_outDeferredRenderPass, VkPipeline *_outForwardPipeline,
-    VkPipeline *_outGbufferPipeline, VkPipeline *_outBrdfPipeline,
-    std::vector<VkFramebuffer> *_outForwardSwapChainFramebuffers,
+    SwapChain *_outSwapChain, RenderPass *_outDeferredRenderPass,
+    VkPipeline *_outForwardPipeline, VkPipeline *_outGbufferPipeline,
+    VkPipeline *_outBrdfPipeline,
     std::vector<VkFramebuffer> *_outDeferredSwapChainFramebuffers,
     EnumArray<GBufferAttachmentType, Image> *_outDeferredAttachmentImages) {
 
@@ -331,29 +310,10 @@ void initReloadableResources(
   gBufferVisualize.ViewportExtent.width = _width;
   gBufferVisualize.ViewportExtent.height = _height;
 
-  RenderPass forwardRenderPass = createForwardRenderPass(_renderer, swapChain);
   RenderPass deferredRenderPass =
       createDeferredRenderPass(_renderer, swapChain);
 
-  std::vector<VkFramebuffer> forwardFramebuffers(swapChain.NumColorImages);
   std::vector<VkFramebuffer> deferredFramebuffers(swapChain.NumColorImages);
-
-  // Create forward framebuffer
-  for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
-    VkFramebufferCreateInfo fbCreateInfo = {};
-    fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fbCreateInfo.renderPass = forwardRenderPass.Handle;
-    VkImageView attachments[] = {swapChain.ColorImageViews[i],
-                                 swapChain.DepthImageView};
-    fbCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
-    fbCreateInfo.pAttachments = attachments;
-    fbCreateInfo.width = swapChain.Extent.width;
-    fbCreateInfo.height = swapChain.Extent.height;
-    fbCreateInfo.layers = 1;
-
-    BB_VK_ASSERT(vkCreateFramebuffer(_renderer.Device, &fbCreateInfo, nullptr,
-                                     &forwardFramebuffers[i]));
-  }
 
   // Cretae gBuffer framebuffer attachment
   EnumArray<GBufferAttachmentType, Image> deferredAttachmentImages;
@@ -462,10 +422,8 @@ void initReloadableResources(
   *_outBrdfPipeline = createPipeline(_renderer, _brdfPipelineParams, 1, 1);
 
   *_outSwapChain = std::move(swapChain);
-  *_outForwardRenderPass = forwardRenderPass;
   *_outDeferredRenderPass = deferredRenderPass;
 
-  *_outForwardSwapChainFramebuffers = std::move(forwardFramebuffers);
   *_outDeferredSwapChainFramebuffers = std::move(deferredFramebuffers);
 
   *_outDeferredAttachmentImages = std::move(deferredAttachmentImages);
@@ -589,10 +547,8 @@ void initReloadableResources(
 
 void cleanupReloadableResources(
     const Renderer &_renderer, SwapChain &_swapChain,
-    RenderPass &_forwardRenderPass, RenderPass &_deferredRenderPass,
-    VkPipeline &_forwardGraphicsPipeline, VkPipeline &_gBufferGraphicsPipeline,
-    VkPipeline &_brdfGraphicsPipeline,
-    std::vector<VkFramebuffer> &_forwardSwapChainFramebuffers,
+    RenderPass &_deferredRenderPass, VkPipeline &_forwardGraphicsPipeline,
+    VkPipeline &_gBufferGraphicsPipeline, VkPipeline &_brdfGraphicsPipeline,
     std::vector<VkFramebuffer> &_deferredSwapChainFramebuffers,
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
 
@@ -604,11 +560,6 @@ void cleanupReloadableResources(
 
   vkDestroyPipeline(_renderer.Device, gBufferVisualize.Pipeline, nullptr);
   gBufferVisualize.Pipeline = VK_NULL_HANDLE;
-
-  for (VkFramebuffer fb : _forwardSwapChainFramebuffers) {
-    vkDestroyFramebuffer(_renderer.Device, fb, nullptr);
-  }
-  _forwardSwapChainFramebuffers.clear();
 
   for (Image &image : _deferredAttachmentImages) {
     destroyImage(_renderer, image);
@@ -627,10 +578,7 @@ void cleanupReloadableResources(
   _gBufferGraphicsPipeline = VK_NULL_HANDLE;
   _brdfGraphicsPipeline = VK_NULL_HANDLE;
 
-  vkDestroyRenderPass(_renderer.Device, _forwardRenderPass.Handle, nullptr);
   vkDestroyRenderPass(_renderer.Device, _deferredRenderPass.Handle, nullptr);
-
-  _forwardRenderPass.Handle = VK_NULL_HANDLE;
   _deferredRenderPass.Handle = VK_NULL_HANDLE;
 
   destroySwapChain(_renderer, _swapChain);
@@ -642,10 +590,9 @@ void onWindowResize(
     SDL_Window *_window, Renderer &_renderer,
     PipelineParams &_forwardPipelineParams,
     PipelineParams &_gBufferPipelineParams, PipelineParams &_brdfPipelineParams,
-    SwapChain &_swapChain, RenderPass &_forwardRenderPass,
-    RenderPass &_deferredRenderPass, VkPipeline &_forwardGraphicsPipeline,
-    VkPipeline &_gBufferGraphicsPipeline, VkPipeline &_brdfGraphicsPipeline,
-    std::vector<VkFramebuffer> &_forwardSwapChainFramebuffers,
+    SwapChain &_swapChain, RenderPass &_deferredRenderPass,
+    VkPipeline &_forwardGraphicsPipeline, VkPipeline &_gBufferGraphicsPipeline,
+    VkPipeline &_brdfGraphicsPipeline,
     std::vector<VkFramebuffer> &_deferredSwapChainFramebuffers,
     EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages,
     std::vector<Frame> &_frames) {
@@ -666,18 +613,16 @@ void onWindowResize(
       &_renderer.SwapChainSupportDetails.Capabilities);
 
   cleanupReloadableResources(
-      _renderer, _swapChain, _forwardRenderPass, _deferredRenderPass,
-      _forwardGraphicsPipeline, _gBufferGraphicsPipeline, _brdfGraphicsPipeline,
-      _forwardSwapChainFramebuffers, _deferredSwapChainFramebuffers,
-      _deferredAttachmentImages);
+      _renderer, _swapChain, _deferredRenderPass, _forwardGraphicsPipeline,
+      _gBufferGraphicsPipeline, _brdfGraphicsPipeline,
+      _deferredSwapChainFramebuffers, _deferredAttachmentImages);
 
   initReloadableResources(
       _renderer, width, height, nullptr, _forwardPipelineParams,
       _gBufferPipelineParams, _brdfPipelineParams, &_swapChain,
-      &_forwardRenderPass, &_deferredRenderPass, &_forwardGraphicsPipeline,
+      &_deferredRenderPass, &_forwardGraphicsPipeline,
       &_gBufferGraphicsPipeline, &_brdfGraphicsPipeline,
-      &_forwardSwapChainFramebuffers, &_deferredSwapChainFramebuffers,
-      &_deferredAttachmentImages);
+      &_deferredSwapChainFramebuffers, &_deferredAttachmentImages);
 
   for (Frame &frame : _frames) {
     writeGBuffersToDescriptorSet(_renderer, frame, _deferredAttachmentImages);
@@ -907,14 +852,12 @@ int main(int _argc, char **_argv) {
         renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
   }
 
-  RenderPass forwardRenderPass;
   RenderPass deferredRenderPass;
 
   VkPipeline forwardPipeline;
   VkPipeline gBufferPipeline;
   VkPipeline brdfPipeline;
 
-  std::vector<VkFramebuffer> forwardFramebuffers;
   std::vector<VkFramebuffer> defrerredFramebuffers;
   EnumArray<GBufferAttachmentType, Image> deferredAttachmentImages;
 
@@ -965,11 +908,11 @@ int main(int _argc, char **_argv) {
 
   SwapChain swapChain;
 
-  initReloadableResources(
-      renderer, width, height, nullptr, forwardPipelineParams,
-      gBufferPipelineParam, brdfPipelineParam, &swapChain, &forwardRenderPass,
-      &deferredRenderPass, &forwardPipeline, &gBufferPipeline, &brdfPipeline,
-      &forwardFramebuffers, &defrerredFramebuffers, &deferredAttachmentImages);
+  initReloadableResources(renderer, width, height, nullptr,
+                          forwardPipelineParams, gBufferPipelineParam,
+                          brdfPipelineParam, &swapChain, &deferredRenderPass,
+                          &forwardPipeline, &gBufferPipeline, &brdfPipeline,
+                          &defrerredFramebuffers, &deferredAttachmentImages);
 
   std::vector<Vertex> planeVertices;
   std::vector<uint32_t> planeIndices;
@@ -1251,9 +1194,9 @@ int main(int _argc, char **_argv) {
 
       onWindowResize(window, renderer, forwardPipelineParams,
                      gBufferPipelineParam, brdfPipelineParam, swapChain,
-                     forwardRenderPass, deferredRenderPass, forwardPipeline,
-                     gBufferPipeline, brdfPipeline, forwardFramebuffers,
-                     defrerredFramebuffers, deferredAttachmentImages, frames);
+                     deferredRenderPass, forwardPipeline, gBufferPipeline,
+                     brdfPipeline, defrerredFramebuffers,
+                     deferredAttachmentImages, frames);
 
       continue;
     }
@@ -1261,9 +1204,6 @@ int main(int _argc, char **_argv) {
     vkWaitForFences(renderer.Device, 1, &frameSyncObject.FrameAvailableFence,
                     VK_TRUE, UINT64_MAX);
     vkResetFences(renderer.Device, 1, &frameSyncObject.FrameAvailableFence);
-
-    VkFramebuffer currentForwardFramebuffer =
-        forwardFramebuffers[currentSwapChainImageIndex];
 
     VkFramebuffer currentDeferredFramebuffer =
         defrerredFramebuffers[currentSwapChainImageIndex];
@@ -1408,8 +1348,7 @@ int main(int _argc, char **_argv) {
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     ImGui::Render();
-    recordCommand(forwardRenderPass.Handle, deferredRenderPass.Handle,
-                  currentForwardFramebuffer, currentDeferredFramebuffer,
+    recordCommand(deferredRenderPass.Handle, currentDeferredFramebuffer,
                   forwardPipeline, gBufferPipeline, brdfPipeline,
                   swapChain.Extent, shaderBallVertexBuffer, instanceBuffer,
                   shaderBallIndexBuffer, currentFrame, shaderBallIndices.size(),
@@ -1445,9 +1384,9 @@ int main(int _argc, char **_argv) {
 
       onWindowResize(window, renderer, forwardPipelineParams,
                      gBufferPipelineParam, brdfPipelineParam, swapChain,
-                     forwardRenderPass, deferredRenderPass, forwardPipeline,
-                     gBufferPipeline, brdfPipeline, forwardFramebuffers,
-                     defrerredFramebuffers, deferredAttachmentImages, frames);
+                     deferredRenderPass, forwardPipeline, gBufferPipeline,
+                     brdfPipeline, defrerredFramebuffers,
+                     deferredAttachmentImages, frames);
     }
   }
 
@@ -1486,9 +1425,8 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, gPlaneVertexBuffer);
   destroyBuffer(renderer, gPlaneInstanceBuffer);
 
-  cleanupReloadableResources(renderer, swapChain, forwardRenderPass,
-                             deferredRenderPass, forwardPipeline,
-                             gBufferPipeline, brdfPipeline, forwardFramebuffers,
+  cleanupReloadableResources(renderer, swapChain, deferredRenderPass,
+                             forwardPipeline, gBufferPipeline, brdfPipeline,
                              defrerredFramebuffers, deferredAttachmentImages);
 
   destroyStandardPipelineLayout(renderer, gStandardPipelineLayout);
