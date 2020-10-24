@@ -578,7 +578,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   VkAttachmentDescription brdfColorAttachment = {};
   brdfColorAttachment.format = _swapChain.ColorFormat;
   brdfColorAttachment.samples = _swapChain.NumColorSamples;
-  brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   brdfColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   brdfColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   brdfColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
