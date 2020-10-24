@@ -615,38 +615,59 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   }
 
   VkAttachmentReference brdfColorAttachmentRef = {};
-  brdfColorAttachmentRef.attachment = 0; //....
+  brdfColorAttachmentRef.attachment = 0;
   brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
   VkAttachmentReference gBufferDepthAttachmentRef = {};
-  gBufferDepthAttachmentRef.attachment = 1; // ,,,,TODO
+  gBufferDepthAttachmentRef.attachment = 1;
   gBufferDepthAttachmentRef.layout =
       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkSubpassDescription subpass[2] = {};
-  subpass[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass[0].colorAttachmentCount = gBufferColorAttachmentRefs.size();
-  subpass[0].pColorAttachments = gBufferColorAttachmentRefs.data();
-  subpass[0].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
+  VkSubpassDescription subpasses[3] = {};
+  subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpasses[0].colorAttachmentCount = gBufferColorAttachmentRefs.size();
+  subpasses[0].pColorAttachments = gBufferColorAttachmentRefs.data();
+  subpasses[0].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
 
-  subpass[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass[1].colorAttachmentCount = 1;
-  subpass[1].pColorAttachments = &brdfColorAttachmentRef;
-  subpass[1].inputAttachmentCount = brdfInputAttachmentRefs.size();
-  subpass[1].pInputAttachments = brdfInputAttachmentRefs.data();
-  subpass[1].pDepthStencilAttachment = nullptr;
+  subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpasses[1].colorAttachmentCount = 1;
+  subpasses[1].pColorAttachments = &brdfColorAttachmentRef;
+  subpasses[1].inputAttachmentCount = brdfInputAttachmentRefs.size();
+  subpasses[1].pInputAttachments = brdfInputAttachmentRefs.data();
+  subpasses[1].pDepthStencilAttachment = nullptr;
 
-  VkSubpassDependency subpassDependency = {};
-  subpassDependency.srcSubpass = 0;
-  subpassDependency.dstSubpass = 1;
+  subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpasses[2].colorAttachmentCount = 1;
+  subpasses[2].pColorAttachments = &brdfColorAttachmentRef;
+  subpasses[2].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
 
-  subpassDependency.srcStageMask =
+  VkSubpassDependency subpassDependencies[3] = {};
+  subpassDependencies[0].srcSubpass = 0;
+  subpassDependencies[0].dstSubpass = 1;
+  subpassDependencies[0].srcStageMask =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependency.dstStageMask =
+  subpassDependencies[0].dstStageMask =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+  
+  subpassDependencies[1].srcSubpass = 0;
+  subpassDependencies[1].dstSubpass = 2;
+  subpassDependencies[1].srcStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[1].dstStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  subpassDependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
 
-  subpassDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-  subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+  subpassDependencies[2].srcSubpass = 1;
+  subpassDependencies[2].dstSubpass = 2;
+  subpassDependencies[2].srcStageMask =
+      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+  subpassDependencies[2].dstStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[2].srcAccessMask = 0;
+  subpassDependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
   VkRenderPassCreateInfo renderPassCreateInfo = {};
   renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -660,10 +681,10 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   renderPassCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
   renderPassCreateInfo.pAttachments = attachments;
-  renderPassCreateInfo.subpassCount = 2;
-  renderPassCreateInfo.pSubpasses = subpass;
-  renderPassCreateInfo.dependencyCount = 1;
-  renderPassCreateInfo.pDependencies = &subpassDependency;
+  renderPassCreateInfo.subpassCount = (uint32_t)std::size(subpasses);
+  renderPassCreateInfo.pSubpasses = subpasses;
+  renderPassCreateInfo.dependencyCount = (uint32_t)std::size(subpassDependencies);
+  renderPassCreateInfo.pDependencies = subpassDependencies;
 
   RenderPass renderPass;
   BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,

@@ -240,7 +240,8 @@ void recordCommand(VkRenderPass _forwardRenderPass,
       vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
     }
 
-    vkCmdEndRenderPass(cmdBuffer);
+    vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+    // vkCmdEndRenderPass(cmdBuffer);
     // vkCmdBeginRenderPass(cmdBuffer, &forwardRenderPassInfo,
     //                      VK_SUBPASS_CONTENTS_INLINE);
 
@@ -253,8 +254,6 @@ void recordCommand(VkRenderPass _forwardRenderPass,
       vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
     }
   }
-
-#if 0
 
   // Draw light sources and gizmo
   {
@@ -292,11 +291,9 @@ void recordCommand(VkRenderPass _forwardRenderPass,
     vkCmdDrawIndexed(cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
   }
 
-
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuffer);
-#endif
 
-  // vkCmdEndRenderPass(cmdBuffer);
+  vkCmdEndRenderPass(cmdBuffer);
 
   BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
 
