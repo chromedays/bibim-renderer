@@ -503,8 +503,8 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
                                    const SwapChain &_swapChain) {
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = _swapChain.ColorFormat;
-  colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  colorAttachment.samples = _swapChain.NumColorSamples;
+  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -513,8 +513,8 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
 
   VkAttachmentDescription depthAttachment = {};
   depthAttachment.format = _swapChain.DepthFormat;
-  depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  depthAttachment.samples = _swapChain.NumDepthSamples;
+  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -566,7 +566,6 @@ RenderPass createForwardRenderPass(const Renderer &_renderer,
 RenderPass createDeferredRenderPass(const Renderer &_renderer,
                                     const SwapChain &_swapChain) {
   VkAttachmentDescription gBufferColorAttachment = {};
-  ;
   gBufferColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
   gBufferColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   gBufferColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -578,7 +577,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   VkAttachmentDescription brdfColorAttachment = {};
   brdfColorAttachment.format = _swapChain.ColorFormat;
-  brdfColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  brdfColorAttachment.samples = _swapChain.NumColorSamples;
   brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   brdfColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   brdfColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -588,9 +587,9 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   VkAttachmentDescription depthAttachment = {};
   depthAttachment.format = _swapChain.DepthFormat;
-  depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  depthAttachment.samples = _swapChain.NumDepthSamples;
   depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -606,7 +605,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   for (auto type : AllEnums<GBufferAttachmentType>) {
     VkAttachmentReference attachmentRef = {};
 
-    attachmentRef.attachment = (uint32_t)type;
+    attachmentRef.attachment = (uint32_t)type + 2;
     attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     gBufferColorAttachmentRefs.push_back(attachmentRef);
@@ -615,58 +614,77 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
     brdfInputAttachmentRefs.push_back(attachmentRef);
   }
 
+  VkAttachmentReference brdfColorAttachmentRef = {};
+  brdfColorAttachmentRef.attachment = 0;
+  brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
   VkAttachmentReference gBufferDepthAttachmentRef = {};
-  gBufferDepthAttachmentRef.attachment =
-      EnumCount<GBufferAttachmentType>; // ,,,,TODO
+  gBufferDepthAttachmentRef.attachment = 1;
   gBufferDepthAttachmentRef.layout =
       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentReference brdfColorAttachmentRef = {};
-  brdfColorAttachmentRef.attachment =
-      EnumCount<GBufferAttachmentType> + 1; //....
-  brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  VkSubpassDescription subpasses[3] = {};
+  subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpasses[0].colorAttachmentCount = gBufferColorAttachmentRefs.size();
+  subpasses[0].pColorAttachments = gBufferColorAttachmentRefs.data();
+  subpasses[0].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
 
-  VkSubpassDescription subpass[2] = {};
-  subpass[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass[0].colorAttachmentCount = gBufferColorAttachmentRefs.size();
-  subpass[0].pColorAttachments = gBufferColorAttachmentRefs.data();
-  subpass[0].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
+  subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpasses[1].colorAttachmentCount = 1;
+  subpasses[1].pColorAttachments = &brdfColorAttachmentRef;
+  subpasses[1].inputAttachmentCount = brdfInputAttachmentRefs.size();
+  subpasses[1].pInputAttachments = brdfInputAttachmentRefs.data();
+  subpasses[1].pDepthStencilAttachment = nullptr;
 
-  subpass[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass[1].colorAttachmentCount = 1;
-  subpass[1].pColorAttachments = &brdfColorAttachmentRef;
-  subpass[1].inputAttachmentCount = brdfInputAttachmentRefs.size();
-  subpass[1].pInputAttachments = brdfInputAttachmentRefs.data();
-  subpass[1].pDepthStencilAttachment = nullptr;
+  subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpasses[2].colorAttachmentCount = 1;
+  subpasses[2].pColorAttachments = &brdfColorAttachmentRef;
+  subpasses[2].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
 
-  VkSubpassDependency subpassDependency = {};
-  subpassDependency.srcSubpass = 0;
-  subpassDependency.dstSubpass = 1;
-
-  subpassDependency.srcStageMask =
+  VkSubpassDependency subpassDependencies[3] = {};
+  subpassDependencies[0].srcSubpass = 0;
+  subpassDependencies[0].dstSubpass = 1;
+  subpassDependencies[0].srcStageMask =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependency.dstStageMask =
+  subpassDependencies[0].dstStageMask =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
 
-  subpassDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-  subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+  subpassDependencies[1].srcSubpass = 0;
+  subpassDependencies[1].dstSubpass = 2;
+  subpassDependencies[1].srcStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[1].dstStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  subpassDependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
+  subpassDependencies[2].srcSubpass = 1;
+  subpassDependencies[2].dstSubpass = 2;
+  subpassDependencies[2].srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+  subpassDependencies[2].dstStageMask =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  subpassDependencies[2].srcAccessMask = 0;
+  subpassDependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
   VkRenderPassCreateInfo renderPassCreateInfo = {};
   renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 
   VkAttachmentDescription attachments[] = {
+      brdfColorAttachment, // 1 lighting pass
+      depthAttachment,        gBufferColorAttachment, gBufferColorAttachment,
       gBufferColorAttachment, gBufferColorAttachment,
-      gBufferColorAttachment, gBufferColorAttachment,
-      gBufferColorAttachment, depthAttachment, // 5 gBuffer pass with 1 depth
-      brdfColorAttachment,                     // 1 lighting pass
+      gBufferColorAttachment, // 5 gBuffer pass with 1 depth
   };
 
   renderPassCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
   renderPassCreateInfo.pAttachments = attachments;
-  renderPassCreateInfo.subpassCount = 2;
-  renderPassCreateInfo.pSubpasses = subpass;
-  renderPassCreateInfo.dependencyCount = 1;
-  renderPassCreateInfo.pDependencies = &subpassDependency;
+  renderPassCreateInfo.subpassCount = (uint32_t)std::size(subpasses);
+  renderPassCreateInfo.pSubpasses = subpasses;
+  renderPassCreateInfo.dependencyCount =
+      (uint32_t)std::size(subpassDependencies);
+  renderPassCreateInfo.pDependencies = subpassDependencies;
 
   RenderPass renderPass;
   BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,
@@ -675,8 +693,8 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   return renderPass;
 }
 
-std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
-  std::array<VkVertexInputBindingDescription, 2> bindingDescs = {};
+Vertex::BindingDescs Vertex::getBindingDescs() {
+  BindingDescs bindingDescs = {};
   // Vertex
   bindingDescs[0].binding = 0;
   bindingDescs[0].stride = sizeof(Vertex);
@@ -689,8 +707,8 @@ std::array<VkVertexInputBindingDescription, 2> Vertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 12> Vertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 12> attributeDescs = {};
+Vertex::AttributeDescs Vertex::getAttributeDescs() {
+  AttributeDescs attributeDescs = {};
 
   int lastAttributeIndex = 0;
 
@@ -777,8 +795,8 @@ std::array<VkVertexInputAttributeDescription, 12> Vertex::getAttributeDescs() {
   return attributeDescs;
 }
 
-std::array<VkVertexInputBindingDescription, 1> GizmoVertex::getBindingDescs() {
-  std::array<VkVertexInputBindingDescription, 1> bindingDescs = {};
+GizmoVertex::BindingDescs GizmoVertex::getBindingDescs() {
+  BindingDescs bindingDescs = {};
 
   bindingDescs[0].binding = 0;
   bindingDescs[0].stride = sizeof(GizmoVertex);
@@ -787,9 +805,8 @@ std::array<VkVertexInputBindingDescription, 1> GizmoVertex::getBindingDescs() {
   return bindingDescs;
 }
 
-std::array<VkVertexInputAttributeDescription, 3>
-GizmoVertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 3> attributeDescs = {};
+GizmoVertex::AttributeDescs GizmoVertex::getAttributeDescs() {
+  AttributeDescs attributeDescs = {};
 
   attributeDescs[0].binding = 0;
   attributeDescs[0].location = 0;
@@ -809,9 +826,8 @@ GizmoVertex::getAttributeDescs() {
   return attributeDescs;
 }
 
-std::array<VkVertexInputBindingDescription, 2>
-LightSourceVertex::getBindingDescs() {
-  std::array<VkVertexInputBindingDescription, 2> bindings = {};
+LightSourceVertex::BindingDescs LightSourceVertex::getBindingDescs() {
+  BindingDescs bindings = {};
   bindings[0].binding = 0;
   bindings[0].stride = sizeof(LightSourceVertex);
   bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
@@ -823,9 +839,8 @@ LightSourceVertex::getBindingDescs() {
   return bindings;
 }
 
-std::array<VkVertexInputAttributeDescription, 2>
-LightSourceVertex::getAttributeDescs() {
-  std::array<VkVertexInputAttributeDescription, 2> attributes = {};
+LightSourceVertex::AttributeDescs LightSourceVertex::getAttributeDescs() {
+  AttributeDescs attributes = {};
   attributes[0].binding = 0;
   attributes[0].location = 0;
   attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
