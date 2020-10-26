@@ -650,7 +650,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   subpassDependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
   subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-  
+
   subpassDependencies[1].srcSubpass = 0;
   subpassDependencies[1].dstSubpass = 2;
   subpassDependencies[1].srcStageMask =
@@ -662,8 +662,7 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
 
   subpassDependencies[2].srcSubpass = 1;
   subpassDependencies[2].dstSubpass = 2;
-  subpassDependencies[2].srcStageMask =
-      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+  subpassDependencies[2].srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
   subpassDependencies[2].dstStageMask =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   subpassDependencies[2].srcAccessMask = 0;
@@ -683,7 +682,8 @@ RenderPass createDeferredRenderPass(const Renderer &_renderer,
   renderPassCreateInfo.pAttachments = attachments;
   renderPassCreateInfo.subpassCount = (uint32_t)std::size(subpasses);
   renderPassCreateInfo.pSubpasses = subpasses;
-  renderPassCreateInfo.dependencyCount = (uint32_t)std::size(subpassDependencies);
+  renderPassCreateInfo.dependencyCount =
+      (uint32_t)std::size(subpassDependencies);
   renderPassCreateInfo.pDependencies = subpassDependencies;
 
   RenderPass renderPass;
