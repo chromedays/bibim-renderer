@@ -1,5 +1,6 @@
 #pragma once
 #include "render.h"
+#include "external/imgui/imgui.h"
 
 namespace bb {
 struct Gizmo {
@@ -80,17 +81,13 @@ struct CommonSceneResources {
 
 struct SceneBase {
   CommonSceneResources *Common;
-  std::string ShaderRootPath = "../src/shaders";
   RenderPassType SceneRenderPassType = RenderPassType::Deferred;
 
   explicit SceneBase(CommonSceneResources *_common) : Common(_common) {}
   virtual ~SceneBase() = default;
   virtual void updateGUI(float _dt) = 0;
   virtual void updateScene(float _dt) = 0;
-  virtual void drawScene() = 0;
-
-  // Utility functions
-  Shader loadShader();
+  virtual void drawScene(VkCommandBuffer _cmd) = 0;
 };
 
 struct ShaderBallScene : SceneBase {
@@ -112,16 +109,24 @@ struct ShaderBallScene : SceneBase {
     uint32_t NumInstances = 30;
     std::vector<InstanceBlock> InstanceData;
     Buffer InstanceBuffer;
+
+    float Angle = -90;
   } ShaderBall;
 
   PBRMaterialSet MaterialSet;
-  int CurrentMaterial = 1;
+
+  struct {
+    EnumArray<PBRMapType, ImTextureID> DefaultMaterialTextureId;
+    std::vector<EnumArray<PBRMapType, ImTextureID>> MaterialTextureIds;
+    int SelectedMaterial = 1;
+    int SelectedShaderBallInstance = -1;
+  } GUI;
 
   explicit ShaderBallScene(CommonSceneResources *_common);
   ~ShaderBallScene() override;
-  void updateGUI(float _dt) override {}
-  void updateScene(float _dt) override {}
-  void drawScene() override {}
+  void updateGUI(float _dt) override;
+  void updateScene(float _dt) override;
+  void drawScene(VkCommandBuffer _cmd) override;
 };
 
 } // namespace bb
