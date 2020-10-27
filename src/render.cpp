@@ -900,7 +900,8 @@ Buffer createStagingBuffer(const Renderer &_renderer,
 Buffer createDeviceLocalBufferFromMemory(const Renderer &_renderer,
                                          VkCommandPool _cmdPool,
                                          VkBufferUsageFlags _usage,
-                                         VkDeviceSize _size, void *_data) {
+                                         VkDeviceSize _size,
+                                         const void *_data) {
   VkBufferUsageFlags usage = _usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   Buffer buffer = createBuffer(_renderer, _size, usage,
                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -1539,6 +1540,61 @@ void destroyStandardPipelineLayout(const Renderer &_renderer,
     vkDestroySampler(_renderer.Device, sampler, nullptr);
   }
   _layout = {};
+}
+
+VkDescriptorPool createStandardDescriptorPool(
+    const Renderer &_renderer, const StandardPipelineLayout &_layout,
+    const EnumArray<DescriptorFrequency, uint32_t> &_numSets) {
+
+  EnumArray<DescriptorFrequency, uint32_t> numTotalSets;
+  uint32_t numAllSets = 0;
+  for (DescriptorFrequency frequency : AllEnums<DescriptorFrequency>) {
+    if (frequency == DescriptorFrequency::PerFrame) {
+      numTotalSets[frequency] = _numSets[frequency];
+    } else {
+      numTotalSets[frequency] =
+          _numSets[frequency] * _numSets[DescriptorFrequency::PerFrame];
+    }
+    numAllSets += numTotalSets[frequency];
+  }
+
+  // Create a descriptor pool corresponding to the standard pipeline layout
+  VkDescriptorPool standardDescriptorPool;
+  {
+    std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
+
+    for (DescriptorFrequency frequency : AllEnums<DescriptorFrequency>) {
+      const DescriptorSetLayout &descriptorSetLayout =
+          _layout.DescriptorSetLayouts[frequency];
+
+      for (auto [type, numDescriptors] :
+           descriptorSetLayout.NumDescriptorsTable) {
+        numDescriptorsTable[type] += numDescriptors * numTotalSets[frequency];
+      }
+    }
+
+    std::vector<VkDescriptorPoolSize> poolSizes;
+    poolSizes.reserve(numDescriptorsTable.size());
+    for (auto [type, num] : numDescriptorsTable) {
+      VkDescriptorPoolSize poolSize = {};
+      poolSize.type = type;
+      poolSize.descriptorCount = num;
+      poolSizes.push_back(poolSize);
+    }
+
+    VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+    descriptorPoolCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolCreateInfo.poolSizeCount = (uint32_t)poolSizes.size();
+    descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
+
+    descriptorPoolCreateInfo.maxSets = numAllSets;
+    BB_VK_ASSERT(vkCreateDescriptorPool(_renderer.Device,
+                                        &descriptorPoolCreateInfo, nullptr,
+                                        &standardDescriptorPool));
+  }
+
+  return standardDescriptorPool;
 }
 
 Frame createFrame(

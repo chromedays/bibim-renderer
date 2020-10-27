@@ -1,4 +1,9 @@
 #pragma once
+// Render Pass Compat
+// - Format
+// - Sample Count
+// - Both are null references (either a null pointer or VK_ATTACHMENT_UNUSED)
+// - Color
 #include "vector_math.h"
 #include "enum_array.h"
 #include "external/volk.h"
@@ -123,7 +128,7 @@ Buffer createStagingBuffer(const Renderer &_renderer, const Buffer &_orgBuffer);
 Buffer createDeviceLocalBufferFromMemory(const Renderer &_renderer,
                                          VkCommandPool _cmdPool,
                                          VkBufferUsageFlags _usage,
-                                         VkDeviceSize _size, void *_data);
+                                         VkDeviceSize _size, const void *_data);
 
 void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
 void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
@@ -271,6 +276,10 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer);
 
 void destroyStandardPipelineLayout(const Renderer &_renderer,
                                    StandardPipelineLayout &_layout);
+
+VkDescriptorPool createStandardDescriptorPool(
+    const Renderer &_renderer, const StandardPipelineLayout &_layout,
+    const EnumArray<DescriptorFrequency, uint32_t> &_numSets);
 
 struct alignas(16) Light {
   Float3 Pos;
