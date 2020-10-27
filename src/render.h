@@ -277,6 +277,11 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer);
 void destroyStandardPipelineLayout(const Renderer &_renderer,
                                    StandardPipelineLayout &_layout);
 
+VkDescriptorPool
+createStandardDescriptorPool(const Renderer &_renderer,
+                             const StandardPipelineLayout &_layout,
+                             const EnumArray<DescriptorFrequency, uint32_t>& _numSets);
+
 struct alignas(16) Light {
   Float3 Pos;
   LightType Type;

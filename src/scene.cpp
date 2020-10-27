@@ -13,6 +13,7 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     : SceneBase(_common) {
   const Renderer &renderer = *Common->Renderer;
   VkCommandPool transientCmdPool = Common->TransientCmdPool;
+  const PBRMaterialSet &materialSet = *Common->MaterialSet;
 
   // Setup plane buffers
   {
@@ -93,13 +94,11 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
   }
 
-  MaterialSet = createPBRMaterialSet(renderer, transientCmdPool);
-
   VkSampler materialImageSampler =
       Common->StandardPipelineLayout->ImmutableSamplers[SamplerType::Nearest];
 
   for (auto mapType : AllEnums<PBRMapType>) {
-    const Image &image = MaterialSet.DefaultMaterial.Maps[mapType];
+    const Image &image = materialSet.DefaultMaterial.Maps[mapType];
     if (image.Handle != VK_NULL_HANDLE) {
       GUI.DefaultMaterialTextureId[mapType] =
           ImGui_ImplVulkan_AddTexture(materialImageSampler, image.View,
@@ -107,7 +106,7 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     }
   }
 
-  for (const PBRMaterial &material : MaterialSet.Materials) {
+  for (const PBRMaterial &material : materialSet.Materials) {
     EnumArray<PBRMapType, ImTextureID> textureIds;
     for (PBRMapType mapType : AllEnums<PBRMapType>) {
       const Image &image = material.Maps[mapType];
@@ -127,8 +126,6 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
 ShaderBallScene::~ShaderBallScene() {
   const Renderer &renderer = *Common->Renderer;
 
-  destroyPBRMaterialSet(renderer, MaterialSet);
-
   destroyBuffer(renderer, ShaderBall.InstanceBuffer);
   destroyBuffer(renderer, ShaderBall.IndexBuffer);
   destroyBuffer(renderer, ShaderBall.VertexBuffer);
@@ -139,6 +136,8 @@ ShaderBallScene::~ShaderBallScene() {
 }
 
 void ShaderBallScene::updateGUI(float _dt) {
+  const PBRMaterialSet &materialSet = *Common->MaterialSet;
+
   if (ImGui::Begin("Shader Balls")) {
     for (size_t i = 0; i < ShaderBall.InstanceData.size(); ++i) {
       std::string label = fmt::format("Shader Ball {}", i);
@@ -153,7 +152,7 @@ void ShaderBallScene::updateGUI(float _dt) {
   if (ImGui::Begin("Material Selector")) {
     for (int i = 0; i < GUI.MaterialTextureIds.size(); ++i) {
 
-      if (ImGui::Selectable(MaterialSet.Materials[i].Name.c_str(),
+      if (ImGui::Selectable(materialSet.Materials[i].Name.c_str(),
                             GUI.SelectedMaterial == i)) {
         GUI.SelectedMaterial = i;
       }
@@ -181,7 +180,6 @@ void ShaderBallScene::updateGUI(float _dt) {
 }
 
 void ShaderBallScene::updateScene(float _dt) {
-
   const Renderer &renderer = *Common->Renderer;
 
   // ShaderBall.Angle += 30.f * dt;

@@ -61,6 +61,7 @@ struct CommonSceneResources {
   VkCommandPool TransientCmdPool;
 
   StandardPipelineLayout *StandardPipelineLayout;
+  PBRMaterialSet *MaterialSet;
 
   SwapChain *SwapChain;
 
@@ -112,8 +113,6 @@ struct ShaderBallScene : SceneBase {
 
     float Angle = -90;
   } ShaderBall;
-
-  PBRMaterialSet MaterialSet;
 
   struct {
     EnumArray<PBRMapType, ImTextureID> DefaultMaterialTextureId;

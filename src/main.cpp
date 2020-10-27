@@ -328,55 +328,12 @@ int main(int _argc, char **_argv) {
                     joinPaths(shaderRootPath, "buffer_visualize.frag.spv")));
 
   PBRMaterialSet materialSet = createPBRMaterialSet(renderer, transientCmdPool);
+  commonSceneResources.MaterialSet = &materialSet;
 
   // Create a descriptor pool corresponding to the standard pipeline layout
-  VkDescriptorPool standardDescriptorPool;
-  {
-    std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
-
-    for (DescriptorFrequency frequency : AllEnums<DescriptorFrequency>) {
-      const DescriptorSetLayout &descriptorSetLayout =
-          gStandardPipelineLayout.DescriptorSetLayouts[frequency];
-
-      uint32_t numDescriptorSets = numFrames;
-      if (frequency == DescriptorFrequency::PerMaterial) {
-        numDescriptorSets *= materialSet.Materials.size();
-      }
-
-      for (auto [type, numDescriptors] :
-           descriptorSetLayout.NumDescriptorsTable) {
-        numDescriptorsTable[type] += numDescriptors * numDescriptorSets;
-      }
-    }
-
-    std::vector<VkDescriptorPoolSize> poolSizes;
-    poolSizes.reserve(numDescriptorsTable.size());
-    for (auto [type, num] : numDescriptorsTable) {
-      VkDescriptorPoolSize poolSize = {};
-      poolSize.type = type;
-      poolSize.descriptorCount = num;
-      poolSizes.push_back(poolSize);
-    }
-
-    VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
-    descriptorPoolCreateInfo.sType =
-        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    descriptorPoolCreateInfo.poolSizeCount = (uint32_t)poolSizes.size();
-    descriptorPoolCreateInfo.pPoolSizes = poolSizes.data();
-
-    const int numPerFrameSets = 1;
-    const int numPerViewSets = 1;
-    const int numPerMaterialSets = materialSet.Materials.size();
-    const int numPerDrawSets = 1;
-
-    descriptorPoolCreateInfo.maxSets =
-        numFrames * (numPerFrameSets + numPerViewSets + numPerMaterialSets +
-                     numPerDrawSets);
-    BB_VK_ASSERT(vkCreateDescriptorPool(renderer.Device,
-                                        &descriptorPoolCreateInfo, nullptr,
-                                        &standardDescriptorPool));
-  }
-
+  VkDescriptorPool standardDescriptorPool = createStandardDescriptorPool(
+      renderer, gStandardPipelineLayout,
+      {numFrames, 1, (uint32_t)materialSet.Materials.size(), 1});
   RenderPass deferredRenderPass;
 
   VkPipeline forwardPipeline;
@@ -886,12 +843,6 @@ int main(int _argc, char **_argv) {
   bool running = true;
 
   Time lastTime = getCurrentTime();
-
-  const Image &testImage =
-      materialSet.Materials.front().Maps[PBRMapType::Albedo];
-  ImTextureID textureId = ImGui_ImplVulkan_AddTexture(
-      gStandardPipelineLayout.ImmutableSamplers[SamplerType::Nearest],
-      testImage.View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   SDL_Event e = {};
   while (running) {
