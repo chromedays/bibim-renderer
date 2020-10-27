@@ -52,6 +52,8 @@ static StandardPipelineLayout gStandardPipelineLayout;
 
 RenderPassType gSceneRenderPassType = RenderPassType::Forward;
 
+static ShaderBallScene *gShaderBallScene;
+
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
                    VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
@@ -992,6 +994,8 @@ int main(int _argc, char **_argv) {
   GUI gui = createGUI(guiParams);
   gui.SelectedMaterialIndex = gCurrentMaterial;
 
+  gShaderBallScene = new ShaderBallScene(&commonSceneResources);
+
   bool running = true;
 
   Time lastTime = getCurrentTime();
@@ -1264,6 +1268,9 @@ int main(int _argc, char **_argv) {
   }
 
   vkDeviceWaitIdle(renderer.Device);
+
+  delete gShaderBallScene;
+  gShaderBallScene = nullptr;
 
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL2_Shutdown();
