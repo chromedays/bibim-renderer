@@ -88,7 +88,7 @@ struct SceneBase {
   virtual ~SceneBase() = default;
   virtual void updateGUI(float _dt) = 0;
   virtual void updateScene(float _dt) = 0;
-  virtual void drawScene(VkCommandBuffer _cmd) = 0;
+  virtual void drawScene(const Frame &_frame) = 0;
 };
 
 struct ShaderBallScene : SceneBase {
@@ -104,8 +104,7 @@ struct ShaderBallScene : SceneBase {
 
   struct {
     Buffer VertexBuffer;
-    Buffer IndexBuffer;
-    uint32_t NumIndices;
+    uint32_t NumVertices;
 
     uint32_t NumInstances = 30;
     std::vector<InstanceBlock> InstanceData;
@@ -125,7 +124,7 @@ struct ShaderBallScene : SceneBase {
   ~ShaderBallScene() override;
   void updateGUI(float _dt) override;
   void updateScene(float _dt) override;
-  void drawScene(VkCommandBuffer _cmd) override;
+  void drawScene(const Frame &_frame) override;
 };
 
 } // namespace bb

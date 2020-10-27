@@ -43,7 +43,7 @@ static LightSources gLightSources;
 
 static StandardPipelineLayout gStandardPipelineLayout;
 
-static ShaderBallScene *gScene;
+static SceneBase *gScene;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
@@ -67,11 +67,6 @@ void recordCommand(VkRenderPass _deferredRenderPass,
   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           gStandardPipelineLayout.Handle, 1, 1,
                           &_frame.ViewDescriptorSet, 0, nullptr);
-
-  vkCmdBindDescriptorSets(
-      cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      gStandardPipelineLayout.Handle, 2, 1,
-      &_frame.MaterialDescriptorSets[gScene->GUI.SelectedMaterial], 0, nullptr);
 
   VkRenderPassBeginInfo deferredRenderPassInfo = {};
   deferredRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -103,7 +98,7 @@ void recordCommand(VkRenderPass _deferredRenderPass,
   {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _gBufferPipeline);
-    gScene->drawScene(cmdBuffer);
+    gScene->drawScene(_frame);
   }
 
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
@@ -122,7 +117,7 @@ void recordCommand(VkRenderPass _deferredRenderPass,
   if (gScene->SceneRenderPassType == RenderPassType::Forward) {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _forwardPipeline);
-    gScene->drawScene(cmdBuffer);
+    gScene->drawScene(_frame);
   }
 
   if (gBufferVisualize.CurrentOption !=

@@ -73,18 +73,10 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
       }
     }
 
-    std::vector<uint32_t> shaderBallIndices;
-    shaderBallIndices.resize(shaderBallVertices.size());
-    std::iota(shaderBallIndices.begin(), shaderBallIndices.end(), 0);
-
     ShaderBall.VertexBuffer = createDeviceLocalBufferFromMemory(
         renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         sizeBytes32(shaderBallVertices), shaderBallVertices.data());
-
-    ShaderBall.IndexBuffer = createDeviceLocalBufferFromMemory(
-        renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        sizeBytes32(shaderBallIndices), shaderBallIndices.data());
-    ShaderBall.NumIndices = shaderBallIndices.size();
+    ShaderBall.NumVertices = shaderBallVertices.size();
 
     ShaderBall.InstanceData.resize(ShaderBall.NumInstances);
     ShaderBall.InstanceBuffer =
@@ -127,7 +119,6 @@ ShaderBallScene::~ShaderBallScene() {
   const Renderer &renderer = *Common->Renderer;
 
   destroyBuffer(renderer, ShaderBall.InstanceBuffer);
-  destroyBuffer(renderer, ShaderBall.IndexBuffer);
   destroyBuffer(renderer, ShaderBall.VertexBuffer);
 
   destroyBuffer(renderer, Plane.IndexBuffer);
@@ -206,20 +197,24 @@ void ShaderBallScene::updateScene(float _dt) {
   }
 }
 
-void ShaderBallScene::drawScene(VkCommandBuffer _cmd) {
-  VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(_cmd, 0, 1, &ShaderBall.VertexBuffer.Handle, &offset);
-  vkCmdBindVertexBuffers(_cmd, 1, 1, &ShaderBall.InstanceBuffer.Handle,
-                         &offset);
-  vkCmdBindIndexBuffer(_cmd, ShaderBall.IndexBuffer.Handle, 0,
-                       VK_INDEX_TYPE_UINT32);
-  vkCmdDrawIndexed(_cmd, ShaderBall.NumIndices, ShaderBall.NumInstances, 0, 0,
-                   0);
+void ShaderBallScene::drawScene(const Frame &_frame) {
+  VkCommandBuffer cmd = _frame.CmdBuffer;
+  const StandardPipelineLayout &standardPipelineLayout =
+      *Common->StandardPipelineLayout;
 
-  vkCmdBindVertexBuffers(_cmd, 0, 1, &Plane.VertexBuffer.Handle, &offset);
-  vkCmdBindVertexBuffers(_cmd, 1, 1, &Plane.InstanceBuffer.Handle, &offset);
-  vkCmdBindIndexBuffer(_cmd, Plane.IndexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
-  vkCmdDrawIndexed(_cmd, Plane.NumIndices, Plane.NumInstances, 0, 0, 0);
+  vkCmdBindDescriptorSets(
+      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, standardPipelineLayout.Handle, 2, 1,
+      &_frame.MaterialDescriptorSets[GUI.SelectedMaterial], 0, nullptr);
+
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &ShaderBall.VertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(cmd, 1, 1, &ShaderBall.InstanceBuffer.Handle, &offset);
+  vkCmdDraw(cmd, ShaderBall.NumVertices, ShaderBall.NumInstances, 0, 0);
+
+  vkCmdBindVertexBuffers(cmd, 0, 1, &Plane.VertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(cmd, 1, 1, &Plane.InstanceBuffer.Handle, &offset);
+  vkCmdBindIndexBuffer(cmd, Plane.IndexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
+  vkCmdDrawIndexed(cmd, Plane.NumIndices, Plane.NumInstances, 0, 0, 0);
 }
 
 } // namespace bb
