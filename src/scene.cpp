@@ -22,27 +22,28 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     Plane.VertexBuffer = createDeviceLocalBufferFromMemory(
         renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         sizeBytes32(planeVertices), planeVertices.data());
-
-    InstanceBlock planeInstanceData = {};
-    planeInstanceData.ModelMat =
-        Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
-    planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
-    Plane.InstanceBuffer = createBuffer(
-        renderer, sizeof(planeInstanceData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-    {
-      void *dst;
-      vkMapMemory(renderer.Device, Plane.InstanceBuffer.Memory, 0,
-                  Plane.InstanceBuffer.Size, 0, &dst);
-      memcpy(dst, &planeInstanceData, sizeof(planeInstanceData));
-      vkUnmapMemory(renderer.Device, Plane.InstanceBuffer.Memory);
-    }
-
     Plane.IndexBuffer = createDeviceLocalBufferFromMemory(
         renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         sizeBytes32(planeIndices), planeIndices.data());
     Plane.NumIndices = planeIndices.size();
+
+    Plane.InstanceData.resize(Plane.NumInstances);
+    InstanceBlock &planeInstanceData = Plane.InstanceData[0];
+    planeInstanceData.ModelMat =
+        Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
+    planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
+    Plane.InstanceBuffer =
+        createBuffer(renderer, sizeBytes32(Plane.InstanceData),
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    {
+      void *dst;
+      vkMapMemory(renderer.Device, Plane.InstanceBuffer.Memory, 0,
+                  Plane.InstanceBuffer.Size, 0, &dst);
+      memcpy(dst, Plane.InstanceData.data(), Plane.InstanceBuffer.Size);
+      vkUnmapMemory(renderer.Device, Plane.InstanceBuffer.Memory);
+    }
   }
 
   // Setup shaderball buffers
@@ -81,21 +82,26 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     ShaderBall.IndexBuffer = createDeviceLocalBufferFromMemory(
         renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         sizeBytes32(shaderBallIndices), shaderBallIndices.data());
+    ShaderBall.NumIndices = shaderBallIndices.size();
 
-    std::vector<InstanceBlock> instanceData(ShaderBall.NumInstances);
-
-    ShaderBall.InstanceBuffer = createBuffer(
-        renderer, sizeBytes32(instanceData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    ShaderBall.InstanceData.resize(ShaderBall.NumInstances);
+    ShaderBall.InstanceBuffer =
+        createBuffer(renderer, sizeBytes32(ShaderBall.InstanceData),
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
   }
+
+  MaterialSet = createPBRMaterialSet(renderer, transientCmdPool);
 }
 
 ShaderBallScene::~ShaderBallScene() {
   const Renderer &renderer = *Common->Renderer;
 
-  destroyBuffer(renderer, ShaderBall.IndexBuffer);
+  destroyPBRMaterialSet(renderer, MaterialSet);
+
   destroyBuffer(renderer, ShaderBall.InstanceBuffer);
+  destroyBuffer(renderer, ShaderBall.IndexBuffer);
   destroyBuffer(renderer, ShaderBall.VertexBuffer);
 
   destroyBuffer(renderer, Plane.IndexBuffer);

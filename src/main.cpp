@@ -42,25 +42,15 @@ static Gizmo gGizmo;
 static GBufferVisualize gBufferVisualize;
 static LightSources gLightSources;
 
-Buffer gPlaneInstanceBuffer;
-Buffer gPlaneVertexBuffer;
-Buffer gPlaneIndexBuffer;
-uint32_t gNumPlaneIndices;
-
-int gCurrentMaterial = 1;
 static StandardPipelineLayout gStandardPipelineLayout;
 
-RenderPassType gSceneRenderPassType = RenderPassType::Forward;
-
-static ShaderBallScene *gShaderBallScene;
+static ShaderBallScene *gScene;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
                    VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
                    VkPipeline _brdfPipeline, VkExtent2D _swapChainExtent,
-                   const Buffer &_vertexBuffer, const Buffer &_instanceBuffer,
-                   const Buffer &_indexBuffer, const Frame &_frame,
-                   uint32_t _numIndices, uint32_t _numInstances) {
+                   const Frame &_frame) {
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -79,10 +69,10 @@ void recordCommand(VkRenderPass _deferredRenderPass,
                           gStandardPipelineLayout.Handle, 1, 1,
                           &_frame.ViewDescriptorSet, 0, nullptr);
 
-  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          gStandardPipelineLayout.Handle, 2, 1,
-                          &_frame.MaterialDescriptorSets[gCurrentMaterial], 0,
-                          nullptr);
+  vkCmdBindDescriptorSets(
+      cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      gStandardPipelineLayout.Handle, 2, 1,
+      &_frame.MaterialDescriptorSets[gScene->CurrentMaterial], 0, nullptr);
 
   VkRenderPassBeginInfo deferredRenderPassInfo = {};
   deferredRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -109,29 +99,32 @@ void recordCommand(VkRenderPass _deferredRenderPass,
   vkCmdBeginRenderPass(cmdBuffer, &deferredRenderPassInfo,
                        VK_SUBPASS_CONTENTS_INLINE);
 
-  if (gSceneRenderPassType == RenderPassType::Deferred)
+  if (gScene->SceneRenderPassType == RenderPassType::Deferred)
   // Draw scene objects
   {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _gBufferPipeline);
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
-    vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Handle, 0,
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1,
+                           &gScene->ShaderBall.VertexBuffer.Handle, &offset);
+    vkCmdBindVertexBuffers(cmdBuffer, 1, 1,
+                           &gScene->ShaderBall.InstanceBuffer.Handle, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, gScene->ShaderBall.IndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
+    vkCmdDrawIndexed(cmdBuffer, gScene->ShaderBall.NumIndices,
+                     gScene->ShaderBall.NumInstances, 0, 0, 0);
 
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gPlaneVertexBuffer.Handle,
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gScene->Plane.VertexBuffer.Handle,
                            &offset);
-    vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &gPlaneInstanceBuffer.Handle,
-                           &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, gPlaneIndexBuffer.Handle, 0,
+    vkCmdBindVertexBuffers(cmdBuffer, 1, 1,
+                           &gScene->Plane.InstanceBuffer.Handle, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, gScene->Plane.IndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmdBuffer, gNumPlaneIndices, 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmdBuffer, gScene->Plane.NumIndices, 1, 0, 0, 0);
   }
 
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
-  if (gSceneRenderPassType == RenderPassType::Deferred &&
+  if (gScene->SceneRenderPassType == RenderPassType::Deferred &&
       gBufferVisualize.CurrentOption ==
           GBufferVisualizingOption::RenderedScene) {
 
@@ -143,23 +136,26 @@ void recordCommand(VkRenderPass _deferredRenderPass,
 
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-  if (gSceneRenderPassType == RenderPassType::Forward) {
+  if (gScene->SceneRenderPassType == RenderPassType::Forward) {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _forwardPipeline);
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &_vertexBuffer.Handle, &offset);
-    vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &_instanceBuffer.Handle, &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, _indexBuffer.Handle, 0,
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1,
+                           &gScene->ShaderBall.VertexBuffer.Handle, &offset);
+    vkCmdBindVertexBuffers(cmdBuffer, 1, 1,
+                           &gScene->ShaderBall.InstanceBuffer.Handle, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, gScene->ShaderBall.IndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmdBuffer, _numIndices, _numInstances, 0, 0, 0);
+    vkCmdDrawIndexed(cmdBuffer, gScene->ShaderBall.NumIndices,
+                     gScene->ShaderBall.NumInstances, 0, 0, 0);
 
-    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gPlaneVertexBuffer.Handle,
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gScene->Plane.VertexBuffer.Handle,
                            &offset);
-    vkCmdBindVertexBuffers(cmdBuffer, 1, 1, &gPlaneInstanceBuffer.Handle,
-                           &offset);
-    vkCmdBindIndexBuffer(cmdBuffer, gPlaneIndexBuffer.Handle, 0,
+    vkCmdBindVertexBuffers(cmdBuffer, 1, 1,
+                           &gScene->Plane.InstanceBuffer.Handle, &offset);
+    vkCmdBindIndexBuffer(cmdBuffer, gScene->Plane.IndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmdBuffer, gNumPlaneIndices, 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmdBuffer, gScene->Plane.NumIndices, 1, 0, 0, 0);
   }
 
   if (gBufferVisualize.CurrentOption !=
@@ -252,33 +248,6 @@ int main(int _argc, char **_argv) {
   commonSceneResources.StandardPipelineLayout = &gStandardPipelineLayout;
 
   initResourceRoot();
-
-  Assimp::Importer importer;
-  const aiScene *shaderBallScene =
-      importer.ReadFile(createAbsolutePath("ShaderBall.fbx"),
-                        aiProcess_Triangulate | aiProcess_CalcTangentSpace);
-  const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
-  std::vector<Vertex> shaderBallVertices;
-  shaderBallVertices.reserve(shaderBallMesh->mNumFaces * 3);
-  for (unsigned int i = 0; i < shaderBallMesh->mNumFaces; ++i) {
-    const aiFace &face = shaderBallMesh->mFaces[i];
-    BB_ASSERT(face.mNumIndices == 3);
-
-    for (int j = 0; j < 3; ++j) {
-      unsigned int vi = face.mIndices[j];
-
-      Vertex v = {};
-      v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[vi]);
-      v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
-      v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
-      v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
-      shaderBallVertices.push_back(v);
-    }
-  }
-
-  std::vector<uint32_t> shaderBallIndices;
-  shaderBallIndices.resize(shaderBallVertices.size());
-  std::iota(shaderBallIndices.begin(), shaderBallIndices.end(), 0);
 
   // Load gizmo model
   std::vector<GizmoVertex> gizmoVertices;
@@ -394,7 +363,7 @@ int main(int _argc, char **_argv) {
   PBRMaterialSet materialSet = createPBRMaterialSet(renderer, transientCmdPool);
 
   // Create a descriptor pool corresponding to the standard pipeline layout
-  VkDescriptorPool descriptorPool;
+  VkDescriptorPool standardDescriptorPool;
   {
     std::unordered_map<VkDescriptorType, uint32_t> numDescriptorsTable;
 
@@ -436,8 +405,9 @@ int main(int _argc, char **_argv) {
     descriptorPoolCreateInfo.maxSets =
         numFrames * (numPerFrameSets + numPerViewSets + numPerMaterialSets +
                      numPerDrawSets);
-    BB_VK_ASSERT(vkCreateDescriptorPool(
-        renderer.Device, &descriptorPoolCreateInfo, nullptr, &descriptorPool));
+    BB_VK_ASSERT(vkCreateDescriptorPool(renderer.Device,
+                                        &descriptorPoolCreateInfo, nullptr,
+                                        &standardDescriptorPool));
   }
 
   RenderPass deferredRenderPass;
@@ -774,34 +744,6 @@ int main(int _argc, char **_argv) {
 
   initReloadableResources();
 
-  std::vector<Vertex> planeVertices;
-  std::vector<uint32_t> planeIndices;
-  generatePlaneMesh(planeVertices, planeIndices);
-  gPlaneVertexBuffer = createDeviceLocalBufferFromMemory(
-      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      sizeBytes32(planeVertices), planeVertices.data());
-  gPlaneIndexBuffer = createDeviceLocalBufferFromMemory(
-      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      sizeBytes32(planeIndices), planeIndices.data());
-  gNumPlaneIndices = planeIndices.size();
-
-  InstanceBlock planeInstanceData = {};
-  planeInstanceData.ModelMat =
-      Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
-  planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
-
-  gPlaneInstanceBuffer = createBuffer(renderer, sizeof(planeInstanceData),
-                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-  {
-    void *dst;
-    vkMapMemory(renderer.Device, gPlaneInstanceBuffer.Memory, 0,
-                gPlaneInstanceBuffer.Size, 0, &dst);
-    memcpy(dst, &planeInstanceData, sizeof(planeInstanceData));
-    vkUnmapMemory(renderer.Device, gPlaneInstanceBuffer.Memory);
-  }
-
   std::vector<LightSourceVertex> lightSourceVertices;
   std::vector<uint32_t> lightSourceIndices;
   {
@@ -825,14 +767,6 @@ int main(int _argc, char **_argv) {
       renderer, sizeof(int) * MAX_NUM_LIGHTS, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-  Buffer shaderBallVertexBuffer = createDeviceLocalBufferFromMemory(
-      renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      sizeBytes32(shaderBallVertices), shaderBallVertices.data());
-
-  Buffer shaderBallIndexBuffer = createDeviceLocalBufferFromMemory(
-      renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      sizeBytes32(shaderBallIndices), shaderBallIndices.data());
 
   gGizmo.VertexBuffer = createDeviceLocalBufferFromMemory(
       renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -871,7 +805,7 @@ int main(int _argc, char **_argv) {
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
     frames.push_back(createFrame(renderer, gStandardPipelineLayout,
-                                 descriptorPool, materialSet,
+                                 standardDescriptorPool, materialSet,
                                  deferredAttachmentImages));
   }
 
@@ -977,12 +911,7 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
-  std::vector<InstanceBlock> instanceData(numInstances);
-
-  Buffer instanceBuffer = createBuffer(renderer, sizeBytes32(instanceData),
-                                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+  gScene = new ShaderBallScene(&commonSceneResources);
 
   FreeLookCamera cam = {};
   Input input = {};
@@ -992,9 +921,7 @@ int main(int _argc, char **_argv) {
       gStandardPipelineLayout.ImmutableSamplers[SamplerType::Nearest];
   guiParams.MaterialSet = &materialSet;
   GUI gui = createGUI(guiParams);
-  gui.SelectedMaterialIndex = gCurrentMaterial;
-
-  gShaderBallScene = new ShaderBallScene(&commonSceneResources);
+  gui.SelectedMaterialIndex = gScene->CurrentMaterial;
 
   bool running = true;
 
@@ -1034,7 +961,7 @@ int main(int _argc, char **_argv) {
     ImGui::NewFrame();
 
     updateGUI(gui);
-    gCurrentMaterial = gui.SelectedMaterialIndex;
+    gScene->CurrentMaterial = gui.SelectedMaterialIndex;
 
     SDL_GetWindowSize(window, &width, &height);
 
@@ -1159,7 +1086,7 @@ int main(int _argc, char **_argv) {
     static int selectedInstanceIndex = -1;
 
     if (ImGui::Begin("Objects")) {
-      for (size_t i = 0; i < instanceData.size(); ++i) {
+      for (size_t i = 0; i < gScene->ShaderBall.InstanceData.size(); ++i) {
         std::string label = fmt::format("Shader Ball {}", i);
         if (ImGui::Selectable(label.c_str(), i == selectedInstanceIndex)) {
           selectedInstanceIndex = i;
@@ -1171,20 +1098,22 @@ int main(int _argc, char **_argv) {
     if (ImGui::Begin("Render Setting")) {
       EnumArray<RenderPassType, const char *> renderPassOptionLabels = {
           "Forward", "Deferred"};
-      if (ImGui::BeginCombo("Scene Render Pass",
-                            renderPassOptionLabels[gSceneRenderPassType])) {
+      if (ImGui::BeginCombo(
+              "Scene Render Pass",
+              renderPassOptionLabels[gScene->SceneRenderPassType])) {
 
         for (auto renderPassType : AllEnums<RenderPassType>) {
           if (ImGui::Selectable(renderPassOptionLabels[renderPassType],
-                                gSceneRenderPassType == renderPassType)) {
-            gSceneRenderPassType = renderPassType;
+                                gScene->SceneRenderPassType ==
+                                    renderPassType)) {
+            gScene->SceneRenderPassType = renderPassType;
             ImGui::SetItemDefaultFocus();
           }
         }
         ImGui::EndCombo();
       }
 
-      if (gSceneRenderPassType == RenderPassType::Deferred) {
+      if (gScene->SceneRenderPassType == RenderPassType::Deferred) {
         if (ImGui::BeginCombo(
                 "Deferred Buffer",
                 gBufferVisualize
@@ -1208,22 +1137,24 @@ int main(int _argc, char **_argv) {
     }
     ImGui::End();
 
-    for (int i = 0; i < instanceData.size(); i++) {
-      instanceData[i].ModelMat =
+    for (int i = 0; i < gScene->ShaderBall.InstanceData.size(); i++) {
+      gScene->ShaderBall.InstanceData[i].ModelMat =
           Mat4::translate({(float)(i * 2), -1, 2}) * Mat4::rotateY(angle)
 #if 1
           * Mat4::rotateX(-90) * Mat4::scale({0.01f, 0.01f, 0.01f})
 #endif
           ;
-      instanceData[i].InvModelMat = instanceData[i].ModelMat.inverse();
+      gScene->ShaderBall.InstanceData[i].InvModelMat =
+          gScene->ShaderBall.InstanceData[i].ModelMat.inverse();
     }
 
     {
       void *data;
-      vkMapMemory(renderer.Device, instanceBuffer.Memory, 0,
-                  instanceBuffer.Size, 0, &data);
-      memcpy(data, instanceData.data(), instanceBuffer.Size);
-      vkUnmapMemory(renderer.Device, instanceBuffer.Memory);
+      vkMapMemory(renderer.Device, gScene->ShaderBall.InstanceBuffer.Memory, 0,
+                  gScene->ShaderBall.InstanceBuffer.Size, 0, &data);
+      memcpy(data, gScene->ShaderBall.InstanceData.data(),
+             gScene->ShaderBall.InstanceBuffer.Size);
+      vkUnmapMemory(renderer.Device, gScene->ShaderBall.InstanceBuffer.Memory);
     }
 
     vkResetCommandPool(renderer.Device, currentFrame.CmdPool,
@@ -1232,9 +1163,7 @@ int main(int _argc, char **_argv) {
     ImGui::Render();
     recordCommand(deferredRenderPass.Handle, currentDeferredFramebuffer,
                   forwardPipeline, gBufferPipeline, brdfPipeline,
-                  swapChain.Extent, shaderBallVertexBuffer, instanceBuffer,
-                  shaderBallIndexBuffer, currentFrame, shaderBallIndices.size(),
-                  numInstances);
+                  swapChain.Extent, currentFrame);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1269,8 +1198,8 @@ int main(int _argc, char **_argv) {
 
   vkDeviceWaitIdle(renderer.Device);
 
-  delete gShaderBallScene;
-  gShaderBallScene = nullptr;
+  delete gScene;
+  gScene = nullptr;
 
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL2_Shutdown();
@@ -1290,7 +1219,7 @@ int main(int _argc, char **_argv) {
     destroyFrame(renderer, frame);
   }
 
-  vkDestroyDescriptorPool(renderer.Device, descriptorPool, nullptr);
+  vkDestroyDescriptorPool(renderer.Device, standardDescriptorPool, nullptr);
   vkDestroyDescriptorPool(renderer.Device, imguiDescriptorPool, nullptr);
 
   destroyBuffer(renderer, gLightSources.InstanceBuffer);
@@ -1298,12 +1227,6 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, gLightSources.VertexBuffer);
   destroyBuffer(renderer, gGizmo.IndexBuffer);
   destroyBuffer(renderer, gGizmo.VertexBuffer);
-  destroyBuffer(renderer, shaderBallIndexBuffer);
-  destroyBuffer(renderer, shaderBallVertexBuffer);
-  destroyBuffer(renderer, instanceBuffer);
-  destroyBuffer(renderer, gPlaneIndexBuffer);
-  destroyBuffer(renderer, gPlaneVertexBuffer);
-  destroyBuffer(renderer, gPlaneInstanceBuffer);
 
   cleanupReloadableResources();
 

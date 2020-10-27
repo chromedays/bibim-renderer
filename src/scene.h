@@ -96,18 +96,26 @@ struct SceneBase {
 struct ShaderBallScene : SceneBase {
   struct {
     Buffer VertexBuffer;
-    Buffer InstanceBuffer;
     Buffer IndexBuffer;
     uint32_t NumIndices;
+
+    uint32_t NumInstances = 1;
+    std::vector<InstanceBlock> InstanceData;
+    Buffer InstanceBuffer;
   } Plane;
 
   struct {
     Buffer VertexBuffer;
-    Buffer InstanceBuffer;
     Buffer IndexBuffer;
     uint32_t NumIndices;
+
     uint32_t NumInstances = 30;
+    std::vector<InstanceBlock> InstanceData;
+    Buffer InstanceBuffer;
   } ShaderBall;
+
+  PBRMaterialSet MaterialSet;
+  int CurrentMaterial = 1;
 
   explicit ShaderBallScene(CommonSceneResources *_common);
   ~ShaderBallScene() override;
