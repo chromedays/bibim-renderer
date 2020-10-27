@@ -464,7 +464,7 @@ int main(int _argc, char **_argv) {
                                      nullptr, &currentImage.View));
     }
 
-    deferredFramebuffers.resize(numFrames);
+    deferredFramebuffers.resize(swapChain.NumColorImages);
     // Create deferred framebuffer
     for (uint32_t i = 0; i < swapChain.NumColorImages; ++i) {
       VkFramebufferCreateInfo fbCreateInfo = {};
