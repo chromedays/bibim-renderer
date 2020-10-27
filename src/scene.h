@@ -139,6 +139,50 @@ struct SceneBase {
   }
 };
 
+struct TriangleScene : SceneBase {
+  Buffer VertexBuffer;
+  uint32_t NumVertices;
+  Buffer InstanceBuffer;
+
+  explicit TriangleScene(CommonSceneResources *_common) : SceneBase(_common) {
+    // clang-format off
+    Vertex vertices[] = {
+        {{0, 1, 5}, {0.5, 1}},
+        {{1, -1, 5}, {1, 0}},
+        {{-1, -1, 5}, {0, 0}}};
+    // clang-format on
+    VertexBuffer = createVertexBuffer(vertices);
+    NumVertices = std::size(vertices);
+    InstanceBuffer = createInstanceBuffer(1);
+    InstanceBlock instanceData[1] = {};
+    instanceData[0].ModelMat = Mat4::identity();
+    instanceData[0].InvModelMat = Mat4::identity();
+    updateInstanceBufferMemory(InstanceBuffer, instanceData);
+  }
+
+  ~TriangleScene() override {
+    const Renderer &renderer = *Common->Renderer;
+    destroyBuffer(renderer, InstanceBuffer);
+    destroyBuffer(renderer, VertexBuffer);
+  }
+  void updateGUI(float _dt) override {}
+  void updateScene(float _dt) override {}
+  void drawScene(const Frame &_frame) override {
+    VkCommandBuffer cmd = _frame.CmdBuffer;
+    const StandardPipelineLayout &standardPipelineLayout =
+        *Common->StandardPipelineLayout;
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            standardPipelineLayout.Handle, 2, 1,
+                            &_frame.MaterialDescriptorSets[0], 0, nullptr);
+
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &VertexBuffer.Handle, &offset);
+    vkCmdBindVertexBuffers(cmd, 1, 1, &InstanceBuffer.Handle, &offset);
+    vkCmdDraw(cmd, NumVertices, 1, 0, 0);
+  }
+};
+
 struct ShaderBallScene : SceneBase {
   struct {
     Buffer VertexBuffer;

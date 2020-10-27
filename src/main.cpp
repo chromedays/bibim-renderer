@@ -43,13 +43,19 @@ static LightSources gLightSources;
 
 static StandardPipelineLayout gStandardPipelineLayout;
 
-static SceneBase *gScene;
+enum class SceneType { Triangle, ShaderBalls, COUNT };
+
+static EnumArray<SceneType, const char *> gSceneLabels = {"Triangle",
+                                                          "Shader Balls"};
+static EnumArray<SceneType, SceneBase *> gScenes;
+static SceneType gCurrentSceneType = SceneType::ShaderBalls;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
                    VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
                    VkPipeline _brdfPipeline, VkExtent2D _swapChainExtent,
                    const Frame &_frame) {
+  SceneBase *currentScene = gScenes[gCurrentSceneType];
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
   cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -93,16 +99,16 @@ void recordCommand(VkRenderPass _deferredRenderPass,
   vkCmdBeginRenderPass(cmdBuffer, &deferredRenderPassInfo,
                        VK_SUBPASS_CONTENTS_INLINE);
 
-  if (gScene->SceneRenderPassType == RenderPassType::Deferred)
+  if (currentScene->SceneRenderPassType == RenderPassType::Deferred)
   // Draw scene objects
   {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _gBufferPipeline);
-    gScene->drawScene(_frame);
+    currentScene->drawScene(_frame);
   }
 
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
-  if (gScene->SceneRenderPassType == RenderPassType::Deferred &&
+  if (currentScene->SceneRenderPassType == RenderPassType::Deferred &&
       gBufferVisualize.CurrentOption ==
           GBufferVisualizingOption::RenderedScene) {
 
@@ -114,10 +120,10 @@ void recordCommand(VkRenderPass _deferredRenderPass,
 
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
-  if (gScene->SceneRenderPassType == RenderPassType::Forward) {
+  if (currentScene->SceneRenderPassType == RenderPassType::Forward) {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _forwardPipeline);
-    gScene->drawScene(_frame);
+    currentScene->drawScene(_frame);
   }
 
   if (gBufferVisualize.CurrentOption !=
@@ -830,8 +836,6 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
-  gScene = new ShaderBallScene(&commonSceneResources);
-
   FreeLookCamera cam = {};
   Input input = {};
 
@@ -866,7 +870,78 @@ int main(int _argc, char **_argv) {
     ImGui_ImplSDL2_NewFrame(window);
     ImGui::NewFrame();
 
-    gScene->updateGUI(dt);
+    if (ImGui::Begin("Scene")) {
+      if (ImGui::BeginCombo("Select Scene", gSceneLabels[gCurrentSceneType])) {
+
+        for (SceneType sceneType : AllEnums<SceneType>) {
+          if (ImGui::Selectable(gSceneLabels[sceneType],
+                                sceneType == gCurrentSceneType)) {
+
+            gCurrentSceneType = sceneType;
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+    }
+    ImGui::End();
+
+    if (!gScenes[gCurrentSceneType]) {
+      switch (gCurrentSceneType) {
+      case SceneType::Triangle:
+        gScenes[gCurrentSceneType] = new TriangleScene(&commonSceneResources);
+        break;
+      case SceneType::ShaderBalls:
+        gScenes[gCurrentSceneType] = new ShaderBallScene(&commonSceneResources);
+        break;
+      }
+    }
+
+    SceneBase *currentScene = gScenes[gCurrentSceneType];
+    
+    if (ImGui::Begin("Render Setting")) {
+      EnumArray<RenderPassType, const char *> renderPassOptionLabels = {
+          "Forward", "Deferred"};
+      if (ImGui::BeginCombo(
+              "Scene Render Pass",
+              renderPassOptionLabels[currentScene->SceneRenderPassType])) {
+
+        for (auto renderPassType : AllEnums<RenderPassType>) {
+          if (ImGui::Selectable(renderPassOptionLabels[renderPassType],
+                                currentScene->SceneRenderPassType ==
+                                    renderPassType)) {
+            currentScene->SceneRenderPassType = renderPassType;
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+
+      if (currentScene->SceneRenderPassType == RenderPassType::Deferred) {
+        if (ImGui::BeginCombo(
+                "Deferred Buffer",
+                gBufferVisualize
+
+                    .OptionLabels[gBufferVisualize.CurrentOption])) {
+
+          for (auto option : AllEnums<GBufferVisualizingOption>) {
+            bool isSelected = (gBufferVisualize.CurrentOption == option);
+
+            if (ImGui::Selectable(gBufferVisualize.OptionLabels[option],
+                                  isSelected)) {
+              gBufferVisualize.CurrentOption = option;
+            }
+
+            if (isSelected)
+              ImGui::SetItemDefaultFocus();
+          }
+          ImGui::EndCombo();
+        }
+      }
+    }
+    ImGui::End();
+
+    currentScene->updateGUI(dt);
 
     SDL_GetWindowSize(window, &width, &height);
 
@@ -924,7 +999,7 @@ int main(int _argc, char **_argv) {
 
     currentFrameIndex = (currentFrameIndex + 1) % (uint32_t)frames.size();
 
-    gScene->updateScene(dt);
+    currentScene->updateScene(dt);
 
     FrameUniformBlock frameUniformBlock = {};
     frameUniformBlock.NumLights = 3;
@@ -984,47 +1059,6 @@ int main(int _argc, char **_argv) {
       vkUnmapMemory(renderer.Device, currentFrame.ViewUniformBuffer.Memory);
     }
 
-    if (ImGui::Begin("Render Setting")) {
-      EnumArray<RenderPassType, const char *> renderPassOptionLabels = {
-          "Forward", "Deferred"};
-      if (ImGui::BeginCombo(
-              "Scene Render Pass",
-              renderPassOptionLabels[gScene->SceneRenderPassType])) {
-
-        for (auto renderPassType : AllEnums<RenderPassType>) {
-          if (ImGui::Selectable(renderPassOptionLabels[renderPassType],
-                                gScene->SceneRenderPassType ==
-                                    renderPassType)) {
-            gScene->SceneRenderPassType = renderPassType;
-            ImGui::SetItemDefaultFocus();
-          }
-        }
-        ImGui::EndCombo();
-      }
-
-      if (gScene->SceneRenderPassType == RenderPassType::Deferred) {
-        if (ImGui::BeginCombo(
-                "Deferred Buffer",
-                gBufferVisualize
-
-                    .OptionLabels[gBufferVisualize.CurrentOption])) {
-
-          for (auto option : AllEnums<GBufferVisualizingOption>) {
-            bool isSelected = (gBufferVisualize.CurrentOption == option);
-
-            if (ImGui::Selectable(gBufferVisualize.OptionLabels[option],
-                                  isSelected)) {
-              gBufferVisualize.CurrentOption = option;
-            }
-
-            if (isSelected)
-              ImGui::SetItemDefaultFocus();
-          }
-          ImGui::EndCombo();
-        }
-      }
-    }
-    ImGui::End();
 
     vkResetCommandPool(renderer.Device, currentFrame.CmdPool,
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
@@ -1067,8 +1101,10 @@ int main(int _argc, char **_argv) {
 
   vkDeviceWaitIdle(renderer.Device);
 
-  delete gScene;
-  gScene = nullptr;
+  for (SceneBase *&scene : gScenes) {
+    delete scene;
+    scene = nullptr;
+  }
 
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL2_Shutdown();
