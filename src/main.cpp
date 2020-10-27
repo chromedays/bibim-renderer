@@ -898,7 +898,7 @@ int main(int _argc, char **_argv) {
     }
 
     SceneBase *currentScene = gScenes[gCurrentSceneType];
-    
+
     if (ImGui::Begin("Render Setting")) {
       EnumArray<RenderPassType, const char *> renderPassOptionLabels = {
           "Forward", "Deferred"};
@@ -1002,26 +1002,12 @@ int main(int _argc, char **_argv) {
     currentScene->updateScene(dt);
 
     FrameUniformBlock frameUniformBlock = {};
-    frameUniformBlock.NumLights = 3;
+    BB_ASSERT(currentScene->Lights.size() <
+              std::size(frameUniformBlock.Lights));
+    frameUniformBlock.NumLights = currentScene->Lights.size();
     gLightSources.NumLights = frameUniformBlock.NumLights;
-    Light *light = &frameUniformBlock.Lights[0];
-    light->Dir = {-1, -1, 0};
-    light->Type = LightType::Directional;
-    light->Color = {0.2347f, 0.2131f, 0.2079f};
-    light->Intensity = 10.f;
-    ++light;
-    light->Pos = {0, 2, 0};
-    light->Type = LightType::Point;
-    light->Color = {1, 0, 0};
-    light->Intensity = 200;
-    ++light;
-    light->Pos = {4, 2, 0};
-    light->Dir = {0, -1, 0};
-    light->Type = LightType::Point;
-    light->Color = {0, 1, 0};
-    light->Intensity = 200;
-    light->InnerCutOff = degToRad(30);
-    light->OuterCutOff = degToRad(25);
+    memcpy(frameUniformBlock.Lights, currentScene->Lights.data(),
+           sizeBytes32(currentScene->Lights));
 
     if (gBufferVisualize.CurrentOption !=
         GBufferVisualizingOption::RenderedScene) {
@@ -1058,7 +1044,6 @@ int main(int _argc, char **_argv) {
       memcpy(data, &viewUniformBlock, sizeof(ViewUniformBlock));
       vkUnmapMemory(renderer.Device, currentFrame.ViewUniformBuffer.Memory);
     }
-
 
     vkResetCommandPool(renderer.Device, currentFrame.CmdPool,
                        VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);

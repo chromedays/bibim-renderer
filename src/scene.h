@@ -83,6 +83,7 @@ struct CommonSceneResources {
 struct SceneBase {
   CommonSceneResources *Common;
   RenderPassType SceneRenderPassType = RenderPassType::Deferred;
+  std::vector<Light> Lights;
 
   explicit SceneBase(CommonSceneResources *_common) : Common(_common) {}
   virtual ~SceneBase() = default;
@@ -145,6 +146,13 @@ struct TriangleScene : SceneBase {
   Buffer InstanceBuffer;
 
   explicit TriangleScene(CommonSceneResources *_common) : SceneBase(_common) {
+    Lights.resize(1);
+    Light *light = &Lights[0];
+    light->Dir = {-1, -1, 0};
+    light->Type = LightType::Directional;
+    light->Color = {0.0347f, 0.0131f, 0.2079f};
+    light->Intensity = 10.f;
+
     // clang-format off
     Vertex vertices[] = {
         {{0, 1, 5}, {0.5, 1}},

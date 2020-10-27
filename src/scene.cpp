@@ -15,6 +15,26 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
   VkCommandPool transientCmdPool = Common->TransientCmdPool;
   const PBRMaterialSet &materialSet = *Common->MaterialSet;
 
+  Lights.resize(3);
+  Light *light = &Lights[0];
+  light->Dir = {-1, -1, 0};
+  light->Type = LightType::Directional;
+  light->Color = {0.2347f, 0.2131f, 0.2079f};
+  light->Intensity = 10.f;
+  ++light;
+  light->Pos = {0, 2, 0};
+  light->Type = LightType::Point;
+  light->Color = {1, 0, 0};
+  light->Intensity = 200;
+  ++light;
+  light->Pos = {4, 2, 0};
+  light->Dir = {0, -1, 0};
+  light->Type = LightType::Point;
+  light->Color = {0, 1, 0};
+  light->Intensity = 200;
+  light->InnerCutOff = degToRad(30);
+  light->OuterCutOff = degToRad(25);
+
   // Setup plane buffers
   {
     std::vector<Vertex> planeVertices;
