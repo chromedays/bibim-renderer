@@ -93,33 +93,6 @@ uint32_t gNumPlaneIndices;
 int gCurrentMaterial = 1;
 static StandardPipelineLayout gStandardPipelineLayout;
 
-/*
-bind frame/view/material descriptor sets
-
-begin deferred render pass
-bind gbuffer pipeline
-
-render shader balls
-render planes
-
-next subpass
-if draw rendered scene
-  bind deferred brdf pipeline
-  render fst
-end deferred render pass
-
-begin forward render pass
-if draw gbuffer
-  bind buffer visualize pipeline
-  draw gbuffer
-bind light source pipeline
-draw light sources
-bind gizmo pipeline
-draw gizmo
-end forward render pass
-
-*/
-
 // Render Pass Compat
 // - Format
 // - Sample Count
@@ -220,8 +193,6 @@ void recordCommand(VkRenderPass _deferredRenderPass,
   vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
   if (gSceneRenderPassType == RenderPassType::Forward) {
-
-#if 1
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _forwardPipeline);
     VkDeviceSize offset = 0;
@@ -238,7 +209,6 @@ void recordCommand(VkRenderPass _deferredRenderPass,
     vkCmdBindIndexBuffer(cmdBuffer, gPlaneIndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cmdBuffer, gNumPlaneIndices, 1, 0, 0, 0);
-#endif
   }
 
   if (gBufferVisualize.CurrentOption !=
