@@ -1,3 +1,6 @@
+#include <type_traits>
+#include <iterator>
+
 namespace bb {
 template <typename... Args> void printLine(Args... args) {
   std::string formatted = fmt::format(args...);
@@ -21,7 +24,12 @@ template <typename... Args> void log(LogLevel level, Args... args) {
   printLine(args...);
 }
 
-template <typename T> uint32_t sizeBytes32(const T &_container) {
-  return (uint32_t)(sizeof(typename T::value_type) * _container.size());
+#define ELEMENT_TYPE(container)                                                \
+  typename std::iterator_traits<decltype(std::cbegin(container))>::value_type
+
+template <typename Container>
+uint32_t sizeBytes32(const Container &_container) {
+  return (uint32_t)(sizeof(ELEMENT_TYPE(_container)) * std::size(_container));
 }
+
 } // namespace bb

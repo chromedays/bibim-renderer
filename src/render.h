@@ -128,7 +128,7 @@ Buffer createStagingBuffer(const Renderer &_renderer, const Buffer &_orgBuffer);
 Buffer createDeviceLocalBufferFromMemory(const Renderer &_renderer,
                                          VkCommandPool _cmdPool,
                                          VkBufferUsageFlags _usage,
-                                         VkDeviceSize _size, void *_data);
+                                         VkDeviceSize _size, const void *_data);
 
 void destroyBuffer(const Renderer &_renderer, Buffer &_buffer);
 void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,

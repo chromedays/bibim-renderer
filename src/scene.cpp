@@ -20,13 +20,8 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     std::vector<Vertex> planeVertices;
     std::vector<uint32_t> planeIndices;
     generatePlaneMesh(planeVertices, planeIndices);
-
-    Plane.VertexBuffer = createDeviceLocalBufferFromMemory(
-        renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        sizeBytes32(planeVertices), planeVertices.data());
-    Plane.IndexBuffer = createDeviceLocalBufferFromMemory(
-        renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        sizeBytes32(planeIndices), planeIndices.data());
+    Plane.VertexBuffer = createVertexBuffer(planeVertices);
+    Plane.IndexBuffer = createIndexBuffer(planeIndices);
     Plane.NumIndices = planeIndices.size();
 
     Plane.InstanceData.resize(Plane.NumInstances);
@@ -34,18 +29,8 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     planeInstanceData.ModelMat =
         Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
     planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
-    Plane.InstanceBuffer =
-        createBuffer(renderer, sizeBytes32(Plane.InstanceData),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-    {
-      void *dst;
-      vkMapMemory(renderer.Device, Plane.InstanceBuffer.Memory, 0,
-                  Plane.InstanceBuffer.Size, 0, &dst);
-      memcpy(dst, Plane.InstanceData.data(), Plane.InstanceBuffer.Size);
-      vkUnmapMemory(renderer.Device, Plane.InstanceBuffer.Memory);
-    }
+    Plane.InstanceBuffer = createInstanceBuffer(Plane.NumInstances);
+    updateInstanceBufferMemory(Plane.InstanceBuffer, Plane.InstanceData);
   }
 
   // Setup shaderball buffers
@@ -73,17 +58,11 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
       }
     }
 
-    ShaderBall.VertexBuffer = createDeviceLocalBufferFromMemory(
-        renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        sizeBytes32(shaderBallVertices), shaderBallVertices.data());
+    ShaderBall.VertexBuffer = createVertexBuffer(shaderBallVertices);
     ShaderBall.NumVertices = shaderBallVertices.size();
 
     ShaderBall.InstanceData.resize(ShaderBall.NumInstances);
-    ShaderBall.InstanceBuffer =
-        createBuffer(renderer, sizeBytes32(ShaderBall.InstanceData),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    ShaderBall.InstanceBuffer = createInstanceBuffer(ShaderBall.NumInstances);
   }
 
   VkSampler materialImageSampler =
@@ -187,14 +166,8 @@ void ShaderBallScene::updateScene(float _dt) {
         ShaderBall.InstanceData[i].ModelMat.inverse();
   }
 
-  {
-    void *data;
-    vkMapMemory(renderer.Device, ShaderBall.InstanceBuffer.Memory, 0,
-                ShaderBall.InstanceBuffer.Size, 0, &data);
-    memcpy(data, ShaderBall.InstanceData.data(),
-           ShaderBall.InstanceBuffer.Size);
-    vkUnmapMemory(renderer.Device, ShaderBall.InstanceBuffer.Memory);
-  }
+  updateInstanceBufferMemory(ShaderBall.InstanceBuffer,
+                             ShaderBall.InstanceData);
 }
 
 void ShaderBallScene::drawScene(const Frame &_frame) {

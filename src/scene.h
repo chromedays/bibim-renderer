@@ -89,6 +89,54 @@ struct SceneBase {
   virtual void updateGUI(float _dt) = 0;
   virtual void updateScene(float _dt) = 0;
   virtual void drawScene(const Frame &_frame) = 0;
+
+  template <typename Container>
+  Buffer createVertexBuffer(const Container &_vertices) const {
+    static_assert(std::is_same_v<ELEMENT_TYPE(_vertices), Vertex>,
+                  "Element type for _vertices is not Vertex!");
+    const Renderer &renderer = *Common->Renderer;
+    VkCommandPool transientCmdPool = Common->TransientCmdPool;
+    Buffer vertexBuffer = createDeviceLocalBufferFromMemory(
+        renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        sizeBytes32(_vertices), std::data(_vertices));
+    return vertexBuffer;
+  }
+
+  template <typename Container>
+  Buffer createIndexBuffer(const Container &_indices) const {
+    static_assert(std::is_same_v<ELEMENT_TYPE(_indices), uint32_t>,
+                  "Element type for _indices is not uint32_t!");
+    const Renderer &renderer = *Common->Renderer;
+    VkCommandPool transientCmdPool = Common->TransientCmdPool;
+    Buffer indexBuffer = createDeviceLocalBufferFromMemory(
+        renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        sizeBytes32(_indices), std::data(_indices));
+    return indexBuffer;
+  }
+
+  Buffer createInstanceBuffer(uint32_t _numInstances) const {
+    const Renderer &renderer = *Common->Renderer;
+    Buffer instanceBuffer =
+        createBuffer(renderer, sizeof(InstanceBlock) * _numInstances,
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    return instanceBuffer;
+  }
+
+  template <typename Container>
+  void updateInstanceBufferMemory(const Buffer &_instanceBuffer,
+                                  const Container &_instanceData) const {
+    static_assert(std::is_same_v<ELEMENT_TYPE(_instanceData), InstanceBlock>,
+                  "Element type for _instanceData is not InstanceBlock!");
+    const Renderer &renderer = *Common->Renderer;
+
+    void *dst;
+    vkMapMemory(renderer.Device, _instanceBuffer.Memory, 0,
+                _instanceBuffer.Size, 0, &dst);
+    memcpy(dst, std::data(_instanceData), _instanceBuffer.Size);
+    vkUnmapMemory(renderer.Device, _instanceBuffer.Memory);
+  }
 };
 
 struct ShaderBallScene : SceneBase {

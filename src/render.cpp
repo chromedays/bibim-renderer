@@ -900,7 +900,8 @@ Buffer createStagingBuffer(const Renderer &_renderer,
 Buffer createDeviceLocalBufferFromMemory(const Renderer &_renderer,
                                          VkCommandPool _cmdPool,
                                          VkBufferUsageFlags _usage,
-                                         VkDeviceSize _size, void *_data) {
+                                         VkDeviceSize _size,
+                                         const void *_data) {
   VkBufferUsageFlags usage = _usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   Buffer buffer = createBuffer(_renderer, _size, usage,
                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
