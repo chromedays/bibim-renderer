@@ -7,6 +7,7 @@
 #include "render.h"
 #include "type_conversion.h"
 #include "resource.h"
+#include "scene.h"
 #include "external/volk.h"
 #include "external/SDL2/SDL.h"
 #include "external/SDL2/SDL_main.h"
@@ -37,53 +38,9 @@ namespace bb {
 constexpr uint32_t numInstances = 30;
 constexpr int numFrames = 2;
 
-struct {
-  VkPipeline Pipeline;
-  Shader VertShader;
-  Shader FragShader;
-  Buffer VertexBuffer;
-  Buffer IndexBuffer;
-  uint32_t NumIndices;
-
-  int ViewportExtent = 100;
-} gGizmo;
-
-enum class GBufferVisualizingOption {
-  Position,
-  Normal,
-  Albedo,
-  MRHA,
-  MaterialIndex,
-  RenderedScene,
-  COUNT
-};
-
-struct {
-  VkPipeline Pipeline;
-  Shader VertShader;
-  Shader FragShader;
-
-  VkExtent2D ViewportExtent;
-
-  StandardPipelineLayout PipelineLayout;
-
-  EnumArray<GBufferVisualizingOption, const char *> OptionLabels = {
-      "Position", "Normal",         "Albedo",
-      "MRHA",     "Material index", "Rendered Scene"};
-  GBufferVisualizingOption CurrentOption =
-      GBufferVisualizingOption::RenderedScene;
-} gBufferVisualize;
-
-struct {
-  VkPipeline Pipeline;
-  Shader VertShader;
-  Shader FragShader;
-  Buffer VertexBuffer;
-  Buffer IndexBuffer;
-  uint32_t NumIndices;
-  Buffer InstanceBuffer;
-  uint32_t NumLights;
-} gLightSources;
+static Gizmo gGizmo;
+static GBufferVisualize gBufferVisualize;
+static LightSources gLightSources;
 
 Buffer gPlaneInstanceBuffer;
 Buffer gPlaneVertexBuffer;
@@ -93,56 +50,7 @@ uint32_t gNumPlaneIndices;
 int gCurrentMaterial = 1;
 static StandardPipelineLayout gStandardPipelineLayout;
 
-// Render Pass Compat
-// - Format
-// - Sample Count
-// - Both are null references (either a null pointer or VK_ATTACHMENT_UNUSED)
-// - Color
-
-enum class RenderPassType { Forward, Deferred, COUNT };
-
 RenderPassType gSceneRenderPassType = RenderPassType::Forward;
-
-// Globals don't own actual resources, but only references of them.
-struct Globals {
-  SDL_Window *Window;
-  Renderer *Renderer;
-  VkCommandPool TransientCmdPool;
-
-  StandardPipelineLayout *StandardPipelineLayout;
-
-  SwapChain *SwapChain;
-
-  VkRenderPass RenderPass;
-  std::vector<VkFramebuffer> *Framebuffers;
-  std::vector<Frame> *Frames;
-  std::vector<FrameSync> *FrameSyncObjects;
-
-  VkPipeline DeferredGBufferPipeline;
-  VkPipeline DeferredBrdfPipeline;
-  VkPipeline ForwardBrdfPipeline;
-
-  EnumArray<GBufferAttachmentType, Image *> GBufferAttachmentImages;
-};
-
-struct SceneBase {
-  Globals *Globals;
-
-  virtual ~SceneBase() = default;
-  virtual void updateGUI(float _dt) = 0;
-  virtual void updateScene(float _dt) = 0;
-  virtual void drawScene() = 0;
-
-  // Utility functions
-  Shader loadShader();
-};
-
-struct ShaderBallScene : SceneBase {
-  ~ShaderBallScene() override {}
-  void updateGUI(float _dt) override {}
-  void updateScene(float _dt) override {}
-  void drawScene() override {}
-};
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
@@ -313,7 +221,7 @@ int main(int _argc, char **_argv) {
   SetProcessDPIAware();
   SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 
-  Globals globals = {};
+  CommonSceneResources commonSceneResources = {};
 
   BB_VK_ASSERT(volkInitialize());
 
@@ -323,10 +231,10 @@ int main(int _argc, char **_argv) {
   SDL_Window *window = SDL_CreateWindow(
       "Bibim Renderer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width,
       height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-  globals.Window = window;
+  commonSceneResources.Window = window;
 
   Renderer renderer = createRenderer(window);
-  globals.Renderer = &renderer;
+  commonSceneResources.Renderer = &renderer;
 
   VkCommandPoolCreateInfo transientCmdPoolCreateInfo = {};
   transientCmdPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -336,10 +244,10 @@ int main(int _argc, char **_argv) {
   VkCommandPool transientCmdPool;
   BB_VK_ASSERT(vkCreateCommandPool(renderer.Device, &transientCmdPoolCreateInfo,
                                    nullptr, &transientCmdPool));
-  globals.TransientCmdPool = transientCmdPool;
+  commonSceneResources.TransientCmdPool = transientCmdPool;
 
   gStandardPipelineLayout = createStandardPipelineLayout(renderer);
-  globals.StandardPipelineLayout = &gStandardPipelineLayout;
+  commonSceneResources.StandardPipelineLayout = &gStandardPipelineLayout;
 
   initResourceRoot();
 
@@ -586,6 +494,11 @@ int main(int _argc, char **_argv) {
 
   SwapChain swapChain;
 
+  commonSceneResources.SwapChain = &swapChain;
+  commonSceneResources.RenderPass = &deferredRenderPass;
+  commonSceneResources.Framebuffers = &deferredFramebuffers;
+  commonSceneResources.GBufferAttachmentImages = &deferredAttachmentImages;
+
   auto initReloadableResources = [&] {
     swapChain = createSwapChain(renderer, width, height, nullptr);
 
@@ -818,6 +731,10 @@ int main(int _argc, char **_argv) {
       gBufferVisualize.Pipeline =
           createPipeline(renderer, pipelineParams, 1, 2);
     }
+
+    commonSceneResources.GBufferPipeline = gBufferPipeline;
+    commonSceneResources.DeferredBrdfPipeline = brdfPipeline;
+    commonSceneResources.ForwardBrdfPipeline = forwardPipeline;
   };
 
   auto cleanupReloadableResources = [&] {
@@ -976,6 +893,9 @@ int main(int _argc, char **_argv) {
                                &syncObject.FrameAvailableFence));
     frameSyncObjects.push_back(syncObject);
   }
+
+  commonSceneResources.Frames = &frames;
+  commonSceneResources.FrameSyncObjects = &frameSyncObjects;
 
   // Important : You need to delete every cmd used by swapchain
   // through queue. Dont forget to add it here too when you add another cmd.

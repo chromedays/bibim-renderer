@@ -1,4 +1,9 @@
 #pragma once
+// Render Pass Compat
+// - Format
+// - Sample Count
+// - Both are null references (either a null pointer or VK_ATTACHMENT_UNUSED)
+// - Color
 #include "vector_math.h"
 #include "enum_array.h"
 #include "external/volk.h"
