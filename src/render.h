@@ -166,8 +166,6 @@ struct RenderPass {
 // 1 - Depth Attachment (swapChain.DepthFormat, VK_SAMPLE_COUNT_1_BIT)
 // clang-format on
 
-RenderPass createForwardRenderPass(const Renderer &_renderer,
-                                   const SwapChain &_swapChain);
 RenderPass createDeferredRenderPass(const Renderer &_renderer,
                                     const SwapChain &_swapChain);
 
