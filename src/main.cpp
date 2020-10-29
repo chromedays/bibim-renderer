@@ -473,7 +473,7 @@ int main(int _argc, char **_argv) {
           attachments[DeferredAttachmentType::HDR];
       hdrAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
       hdrAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-      hdrAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      hdrAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       hdrAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
       hdrAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
       hdrAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
