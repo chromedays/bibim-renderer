@@ -859,7 +859,7 @@ Image createImageFromFile(const Renderer &_renderer,
   imageCreateInfo.extent.depth = 1;
   imageCreateInfo.mipLevels = 1;
   imageCreateInfo.arrayLayers = 1;
-  imageCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
   imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   imageCreateInfo.usage =
@@ -960,7 +960,7 @@ Image createImageFromFile(const Renderer &_renderer,
   imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   imageViewCreateInfo.image = result.Handle;
   imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  imageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
   imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
   imageViewCreateInfo.subresourceRange.levelCount = 1;
