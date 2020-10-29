@@ -19,7 +19,7 @@ void main() {
     float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
     vec3 normal;
     if (uEnableNormalMap != 0) {
-        normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+        normal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
     } else {
         normal = normalize(vNormalWorld);
     }

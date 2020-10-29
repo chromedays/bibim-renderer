@@ -23,7 +23,7 @@ void main()
 
     outPosWorld = vPosWorld;
     if (uEnableNormalMap != 0) {
-        outNormal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_NEAREST]), vUV).xyz * 2 - 1);
+        outNormal = vTBN * (texture(sampler2D(uMaterialTextures[TEX_NORMAL], uSamplers[SMP_LINEAR]), vUV).xyz * 2 - 1);
     } else {
         outNormal = vNormalWorld;
     }
