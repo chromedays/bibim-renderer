@@ -499,136 +499,6 @@ void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain) {
   _swapChain = {};
 }
 
-RenderPass createDeferredRenderPass(const Renderer &_renderer,
-                                    const SwapChain &_swapChain) {
-  VkAttachmentDescription gBufferColorAttachment = {};
-  gBufferColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  gBufferColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  gBufferColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  gBufferColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  gBufferColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  gBufferColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  gBufferColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  gBufferColorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-  VkAttachmentDescription brdfColorAttachment = {};
-  brdfColorAttachment.format = _swapChain.ColorFormat;
-  brdfColorAttachment.samples = _swapChain.NumColorSamples;
-  brdfColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  brdfColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  brdfColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  brdfColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  brdfColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  brdfColorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-  VkAttachmentDescription depthAttachment = {};
-  depthAttachment.format = _swapChain.DepthFormat;
-  depthAttachment.samples = _swapChain.NumDepthSamples;
-  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  depthAttachment.finalLayout =
-      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-  std::vector<VkAttachmentReference> gBufferColorAttachmentRefs;
-  gBufferColorAttachmentRefs.reserve(EnumCount<GBufferAttachmentType>);
-
-  std::vector<VkAttachmentReference> brdfInputAttachmentRefs;
-  brdfInputAttachmentRefs.reserve(EnumCount<GBufferAttachmentType>);
-
-  for (auto type : AllEnums<GBufferAttachmentType>) {
-    VkAttachmentReference attachmentRef = {};
-
-    attachmentRef.attachment = (uint32_t)type + 2;
-    attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    gBufferColorAttachmentRefs.push_back(attachmentRef);
-
-    attachmentRef.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    brdfInputAttachmentRefs.push_back(attachmentRef);
-  }
-
-  VkAttachmentReference brdfColorAttachmentRef = {};
-  brdfColorAttachmentRef.attachment = 0;
-  brdfColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-  VkAttachmentReference gBufferDepthAttachmentRef = {};
-  gBufferDepthAttachmentRef.attachment = 1;
-  gBufferDepthAttachmentRef.layout =
-      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-  VkSubpassDescription subpasses[3] = {};
-  subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpasses[0].colorAttachmentCount = gBufferColorAttachmentRefs.size();
-  subpasses[0].pColorAttachments = gBufferColorAttachmentRefs.data();
-  subpasses[0].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
-
-  subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpasses[1].colorAttachmentCount = 1;
-  subpasses[1].pColorAttachments = &brdfColorAttachmentRef;
-  subpasses[1].inputAttachmentCount = brdfInputAttachmentRefs.size();
-  subpasses[1].pInputAttachments = brdfInputAttachmentRefs.data();
-  subpasses[1].pDepthStencilAttachment = nullptr;
-
-  subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpasses[2].colorAttachmentCount = 1;
-  subpasses[2].pColorAttachments = &brdfColorAttachmentRef;
-  subpasses[2].pDepthStencilAttachment = &gBufferDepthAttachmentRef;
-
-  VkSubpassDependency subpassDependencies[3] = {};
-  subpassDependencies[0].srcSubpass = 0;
-  subpassDependencies[0].dstSubpass = 1;
-  subpassDependencies[0].srcStageMask =
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependencies[0].dstStageMask =
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-  subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-
-  subpassDependencies[1].srcSubpass = 0;
-  subpassDependencies[1].dstSubpass = 2;
-  subpassDependencies[1].srcStageMask =
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependencies[1].dstStageMask =
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-  subpassDependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-
-  subpassDependencies[2].srcSubpass = 1;
-  subpassDependencies[2].dstSubpass = 2;
-  subpassDependencies[2].srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-  subpassDependencies[2].dstStageMask =
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  subpassDependencies[2].srcAccessMask = 0;
-  subpassDependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-  VkRenderPassCreateInfo renderPassCreateInfo = {};
-  renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-
-  VkAttachmentDescription attachments[] = {
-      brdfColorAttachment, // 1 lighting pass
-      depthAttachment,        gBufferColorAttachment, gBufferColorAttachment,
-      gBufferColorAttachment, gBufferColorAttachment,
-      gBufferColorAttachment, // 5 gBuffer pass with 1 depth
-  };
-
-  renderPassCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
-  renderPassCreateInfo.pAttachments = attachments;
-  renderPassCreateInfo.subpassCount = (uint32_t)std::size(subpasses);
-  renderPassCreateInfo.pSubpasses = subpasses;
-  renderPassCreateInfo.dependencyCount =
-      (uint32_t)std::size(subpassDependencies);
-  renderPassCreateInfo.pDependencies = subpassDependencies;
-
-  RenderPass renderPass;
-  BB_VK_ASSERT(vkCreateRenderPass(_renderer.Device, &renderPassCreateInfo,
-                                  nullptr, &renderPass.Handle));
-
-  return renderPass;
-}
-
 Vertex::BindingDescs Vertex::getBindingDescs() {
   BindingDescs bindingDescs = {};
   // Vertex
@@ -898,6 +768,60 @@ void copyBuffer(const Renderer &_renderer, VkCommandPool _cmdPool,
                        &cmdBuffer);
 }
 
+Image createImage(const Renderer &_renderer, const ImageParams &_params) {
+  Image image = {};
+
+  VkImageCreateInfo imageCreateInfo = {};
+  imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageCreateInfo.extent.width = _params.Width;
+  imageCreateInfo.extent.height = _params.Height;
+  imageCreateInfo.extent.depth = 1;
+  imageCreateInfo.mipLevels = 1;
+  imageCreateInfo.arrayLayers = 1;
+  imageCreateInfo.format = _params.Format;
+  imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageCreateInfo.usage = _params.Usage;
+  imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+  BB_VK_ASSERT(vkCreateImage(_renderer.Device, &imageCreateInfo, nullptr,
+                             &image.Handle));
+
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(_renderer.Device, image.Handle,
+                               &memRequirements);
+
+  VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
+  textureImageMemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
+  textureImageMemoryAllocateInfo.memoryTypeIndex =
+      findMemoryType(_renderer, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  BB_VK_ASSERT(vkAllocateMemory(_renderer.Device,
+                                &textureImageMemoryAllocateInfo, nullptr,
+                                &image.Memory));
+
+  BB_VK_ASSERT(
+      vkBindImageMemory(_renderer.Device, image.Handle, image.Memory, 0));
+
+  VkImageViewCreateInfo imageViewCreateInfo = {};
+  imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  imageViewCreateInfo.image = image.Handle;
+  imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  imageViewCreateInfo.format = _params.Format;
+  imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+  imageViewCreateInfo.subresourceRange.levelCount = 1;
+  imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+  imageViewCreateInfo.subresourceRange.layerCount = 1;
+  BB_VK_ASSERT(vkCreateImageView(_renderer.Device, &imageViewCreateInfo,
+                                 nullptr, &image.View));
+
+  return image;
+}
+
 Image createImageFromFile(const Renderer &_renderer,
                           VkCommandPool _transientCmdPool,
                           const std::string &_filePath) {
@@ -1116,8 +1040,7 @@ void destroyShader(const Renderer &_renderer, Shader &_shader) {
 }
 
 VkPipeline createPipeline(const Renderer &_renderer,
-                          const PipelineParams &_params,
-                          uint32_t _numColorBlend, uint32_t _subpass) {
+                          const PipelineParams &_params) {
   std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
   shaderStages.reserve(_params.NumShaders);
   for (int i = 0; i < _params.NumShaders; ++i) {
@@ -1212,7 +1135,7 @@ VkPipeline createPipeline(const Renderer &_renderer,
   colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
 
   std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachmentStates(
-      _numColorBlend, colorBlendAttachmentState);
+      _params.Blend.NumColorBlends, colorBlendAttachmentState);
 
   VkPipelineColorBlendStateCreateInfo colorBlendState = {};
   colorBlendState.sType =
@@ -1240,7 +1163,7 @@ VkPipeline createPipeline(const Renderer &_renderer,
   pipelineCreateInfo.pDynamicState = nullptr;
   pipelineCreateInfo.layout = _params.PipelineLayout;
   pipelineCreateInfo.renderPass = _params.RenderPass;
-  pipelineCreateInfo.subpass = _subpass;
+  pipelineCreateInfo.subpass = _params.Subpass;
   pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
   pipelineCreateInfo.basePipelineIndex = -1;
 
@@ -1397,16 +1320,15 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
 
   // Create descriptor set layouts with the predefined metadata
   {
-    EnumArray<DescriptorFrequency,
-              std::unordered_map<VkDescriptorType, uint32_t>>
-        meta = {{
+    EnumArray<DescriptorFrequency, std::vector<DescriptorBinding>>
+        bindingsTable = {{
             // PerFrame
             {
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
                 {VK_DESCRIPTOR_TYPE_SAMPLER,
                  (uint32_t)layout.ImmutableSamplers.size()},
-                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 EnumCount<GBufferAttachmentType>},
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, numGBufferAttachments},
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
             },
             // PerView
             {
@@ -1425,7 +1347,7 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
 
       uint32_t numBindings = 0;
 
-      for (auto [descriptorType, numDescriptors] : meta[frequency]) {
+      for (auto [descriptorType, numDescriptors] : bindingsTable[frequency]) {
         VkDescriptorSetLayoutBinding &binding = bindings[numBindings++];
         binding.descriptorType = descriptorType;
         binding.descriptorCount = numDescriptors;
@@ -1440,8 +1362,11 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
       BB_VK_ASSERT(vkCreateDescriptorSetLayout(
           _renderer.Device, &descriptorSetLayoutCreateInfo, nullptr,
           &layout.DescriptorSetLayouts[frequency].Handle));
-      layout.DescriptorSetLayouts[frequency].NumDescriptorsTable =
-          std::move(meta[frequency]);
+      std::copy(bindingsTable[frequency].begin(),
+                bindingsTable[frequency].end(),
+                layout.DescriptorSetLayouts[frequency].Bindings);
+      layout.DescriptorSetLayouts[frequency].NumBindings =
+          bindingsTable[frequency].size();
     }
   }
 
@@ -1503,9 +1428,10 @@ VkDescriptorPool createStandardDescriptorPool(
       const DescriptorSetLayout &descriptorSetLayout =
           _layout.DescriptorSetLayouts[frequency];
 
-      for (auto [type, numDescriptors] :
-           descriptorSetLayout.NumDescriptorsTable) {
-        numDescriptorsTable[type] += numDescriptors * numTotalSets[frequency];
+      for (uint32_t i = 0; i < descriptorSetLayout.NumBindings; ++i) {
+        const DescriptorBinding &binding = descriptorSetLayout.Bindings[i];
+        numDescriptorsTable[binding.Type] +=
+            binding.NumDescriptors * numTotalSets[frequency];
       }
     }
 
@@ -1537,7 +1463,8 @@ Frame createFrame(
     const Renderer &_renderer,
     const StandardPipelineLayout &_standardPipelineLayout,
     VkDescriptorPool _descriptorPool, const PBRMaterialSet &_materialSet,
-    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
+    const VkImageView (&_gbufferAttachments)[numGBufferAttachments],
+    VkImageView _hdrAttachment) {
   Frame frame = {};
 
   // Allocate descriptor sets
@@ -1589,7 +1516,6 @@ Frame createFrame(
 
   // Link descriptor sets to actual resources
   {
-
     std::vector<VkWriteDescriptorSet> writeInfos;
     VkWriteDescriptorSet writeInfo = {};
     writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1665,7 +1591,8 @@ Frame createFrame(
     vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(),
                            writeInfos.data(), 0, nullptr);
 
-    writeGBuffersToDescriptorSet(_renderer, frame, _deferredAttachmentImages);
+    linkExternalAttachmentsToDescriptorSet(_renderer, frame,
+                                           _gbufferAttachments, _hdrAttachment);
   }
 
   {
@@ -1697,31 +1624,34 @@ void destroyFrame(const Renderer &_renderer, Frame &_frame) {
   _frame = {};
 }
 
-void writeGBuffersToDescriptorSet(
+void linkExternalAttachmentsToDescriptorSet(
     const Renderer &_renderer, Frame &_frame,
-    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages) {
-  // uGbuffer
+    const VkImageView (&_gbufferAttachments)[numGBufferAttachments],
+    VkImageView _hdrAttachment) {
   std::vector<VkWriteDescriptorSet> writeInfos;
-  std::array<VkDescriptorImageInfo, EnumCount<GBufferAttachmentType>>
-      gBufferImageInfos;
 
-  int i = 0;
-  for (const Image &image : _deferredAttachmentImages) {
-    VkDescriptorImageInfo &imageInfo = gBufferImageInfos[i++];
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = image.View;
+  VkDescriptorImageInfo gbufferImageInfos[numGBufferAttachments] = {};
+  for (size_t i = 0; i < numGBufferAttachments; ++i) {
+    gbufferImageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    gbufferImageInfos[i].imageView = _gbufferAttachments[i];
   }
 
-  {
-    VkWriteDescriptorSet writeInfo = {};
-    writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeInfo.dstSet = _frame.FrameDescriptorSet;
-    writeInfo.dstBinding = 2; // 2 in standard_sets.glsl
-    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    writeInfo.descriptorCount = EnumCount<GBufferAttachmentType>;
-    writeInfo.pImageInfo = gBufferImageInfos.data();
-    writeInfos.push_back(writeInfo);
-  }
+  VkWriteDescriptorSet writeInfo = {};
+  writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writeInfo.dstSet = _frame.FrameDescriptorSet;
+  writeInfo.dstBinding = 2;
+  writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  writeInfo.descriptorCount = std::size(gbufferImageInfos);
+  writeInfo.pImageInfo = gbufferImageInfos;
+  writeInfos.push_back(writeInfo);
+
+  VkDescriptorImageInfo hdrImageInfo = {};
+  hdrImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  hdrImageInfo.imageView = _hdrAttachment;
+  writeInfo.dstBinding = 3;
+  writeInfo.descriptorCount = 1;
+  writeInfo.pImageInfo = &hdrImageInfo;
+  writeInfos.push_back(writeInfo);
 
   vkUpdateDescriptorSets(_renderer.Device, writeInfos.size(), writeInfos.data(),
                          0, nullptr);

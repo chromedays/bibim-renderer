@@ -56,28 +56,10 @@ enum class RenderPassType { Forward, Deferred, COUNT };
 // CommonSceneResources doesn't own actual resources, but only references of
 // them.
 struct CommonSceneResources {
-  SDL_Window *Window;
   Renderer *Renderer;
   VkCommandPool TransientCmdPool;
-
   StandardPipelineLayout *StandardPipelineLayout;
   PBRMaterialSet *MaterialSet;
-
-  SwapChain *SwapChain;
-
-  RenderPass *RenderPass;
-  std::vector<VkFramebuffer> *Framebuffers;
-  EnumArray<GBufferAttachmentType, Image> *GBufferAttachmentImages;
-
-  VkPipeline GBufferPipeline;
-  VkPipeline DeferredBrdfPipeline;
-  VkPipeline ForwardBrdfPipeline;
-
-  std::vector<Frame> *Frames;
-  std::vector<FrameSync> *FrameSyncObjects;
-
-  Gizmo *Gizmo;
-  GBufferVisualize *GBufferVisualize;
 };
 
 struct SceneBase {
