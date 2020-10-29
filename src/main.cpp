@@ -43,12 +43,12 @@ static LightSources gLightSources;
 
 static StandardPipelineLayout gStandardPipelineLayout;
 
-enum class SceneType { Triangle, ShaderBalls, COUNT };
+enum class SceneType { Triangle, ShaderBalls, GLTF, COUNT };
 
-static EnumArray<SceneType, const char *> gSceneLabels = {"Triangle",
-                                                          "Shader Balls"};
+static EnumArray<SceneType, const char *> gSceneLabels = {
+    "Triangle", "Shader Balls", "GLTF"};
 static EnumArray<SceneType, SceneBase *> gScenes;
-static SceneType gCurrentSceneType = SceneType::ShaderBalls;
+static SceneType gCurrentSceneType = SceneType::GLTF;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
@@ -589,6 +589,8 @@ int main(int _argc, char **_argv) {
       subpasses[DeferredSubpassType::Overlay].colorAttachmentCount = 1;
       subpasses[DeferredSubpassType::Overlay].pColorAttachments =
           &finalColorAttachmentRef;
+      subpasses[DeferredSubpassType::Overlay].pDepthStencilAttachment =
+          &depthAttachmentRef;
 
       VkSubpassDependency subpassDependencies[6] = {};
       subpassDependencies[0].srcSubpass =
@@ -1145,6 +1147,9 @@ int main(int _argc, char **_argv) {
         break;
       case SceneType::ShaderBalls:
         gScenes[gCurrentSceneType] = new ShaderBallScene(&commonSceneResources);
+        break;
+      case SceneType::GLTF:
+        gScenes[gCurrentSceneType] = new GLTFScene(&commonSceneResources);
         break;
       }
     }

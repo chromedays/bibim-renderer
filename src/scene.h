@@ -198,12 +198,25 @@ struct ShaderBallScene : SceneBase {
   struct {
     EnumArray<PBRMapType, ImTextureID> DefaultMaterialTextureId;
     std::vector<EnumArray<PBRMapType, ImTextureID>> MaterialTextureIds;
-    int SelectedMaterial = 1;
+    int SelectedMaterial = 0;
     int SelectedShaderBallInstance = -1;
   } GUI;
 
   explicit ShaderBallScene(CommonSceneResources *_common);
   ~ShaderBallScene() override;
+  void updateGUI(float _dt) override;
+  void updateScene(float _dt) override;
+  void drawScene(const Frame &_frame) override;
+};
+
+struct GLTFScene : SceneBase {
+  Buffer VertexBuffer;
+  Buffer IndexBuffer;
+  uint32_t NumIndices;
+  Buffer InstanceBuffer;
+
+  explicit GLTFScene(CommonSceneResources *_common);
+  ~GLTFScene() override;
   void updateGUI(float _dt) override;
   void updateScene(float _dt) override;
   void drawScene(const Frame &_frame) override;
