@@ -64,14 +64,32 @@ void destroySwapChain(const Renderer &_renderer, SwapChain &_swapChain);
 
 enum class LightType : int { Point = 0, Spot, Directional };
 
-enum class GBufferAttachmentType {
-  Position,
-  Normal,
-  Albedo,
-  MRAH,
-  MaterialIndex,
+enum class DeferredAttachmentType {
+  Color,
+  Depth,
+  GBufferPosition,
+  GBufferNormal,
+  GBufferAlbedo,
+  GBufferMRAH,
+  GBufferMaterialIndex,
+  HDR,
   COUNT
 };
+constexpr uint32_t numGBufferAttachments =
+    (uint32_t)DeferredAttachmentType::HDR -
+    (uint32_t)DeferredAttachmentType::GBufferPosition;
+
+enum class DeferredSubpassType {
+  GBufferWrite,
+  Lighting,
+  ForwardLighting,
+  HDR,
+  Overlay,
+  COUNT
+};
+
+constexpr VkFormat gbufferAttachmentFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+constexpr VkFormat hdrAttachmentFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
 
 struct InstanceBlock {
   Mat4 ModelMat;
@@ -140,6 +158,14 @@ struct Image {
   VkImageView View;
 };
 
+struct ImageParams {
+  VkFormat Format;
+  uint32_t Width;
+  uint32_t Height;
+  VkImageUsageFlags Usage;
+};
+
+Image createImage(const Renderer &_renderer, const ImageParams &_params);
 Image createImageFromFile(const Renderer &_renderer,
                           VkCommandPool _transientCmdPool,
                           const std::string &_filePath);
@@ -159,17 +185,6 @@ void destroyShader(const Renderer &_renderer, Shader &_shader);
 struct RenderPass {
   VkRenderPass Handle;
 };
-
-// clang-format off
-// All render passes' first and second attachments' format and sampel should be following:
-// 0 - Color Attachment (swapChain.ColorFormat, VK_SAMPLE_COUNT_1_BIT)
-// 1 - Depth Attachment (swapChain.DepthFormat, VK_SAMPLE_COUNT_1_BIT)
-// clang-format on
-
-RenderPass createForwardRenderPass(const Renderer &_renderer,
-                                   const SwapChain &_swapChain);
-RenderPass createDeferredRenderPass(const Renderer &_renderer,
-                                    const SwapChain &_swapChain);
 
 struct PipelineParams {
   const Shader **Shaders;
@@ -204,16 +219,17 @@ struct PipelineParams {
   } DepthStencil;
 
   struct {
-    uint32_t NumAttachments;
+    uint32_t NumColorBlends;
   } Blend;
+
+  uint32_t Subpass;
 
   VkPipelineLayout PipelineLayout;
   VkRenderPass RenderPass;
 };
 
 VkPipeline createPipeline(const Renderer &_renderer,
-                          const PipelineParams &_params,
-                          uint32_t _numColorBlend = 1, uint32_t _subpass = 0);
+                          const PipelineParams &_params);
 enum class PBRMapType {
   Albedo,
   Metallic,
@@ -258,9 +274,17 @@ enum class DescriptorFrequency {
 
 enum class SamplerType { Nearest, Linear, COUNT };
 
+struct DescriptorBinding {
+  VkDescriptorType Type;
+  uint32_t NumDescriptors;
+};
+
+constexpr uint32_t maxNumDescriptorBindings = 16;
+
 struct DescriptorSetLayout {
   VkDescriptorSetLayout Handle;
-  std::unordered_map<VkDescriptorType, uint32_t> NumDescriptorsTable;
+  DescriptorBinding Bindings[maxNumDescriptorBindings];
+  uint32_t NumBindings;
 };
 
 struct StandardPipelineLayout {
@@ -296,6 +320,8 @@ struct FrameUniformBlock {
   int NumLights;
   Light Lights[MAX_NUM_LIGHTS];
   int VisualizedGBufferAttachmentIndex;
+  int EnableToneMapping;
+  float Exposure;
 };
 
 struct ViewUniformBlock {
@@ -327,13 +353,14 @@ Frame createFrame(
     const Renderer &_renderer,
     const StandardPipelineLayout &_standardPipelineLayout,
     VkDescriptorPool _descriptorPool, const PBRMaterialSet &_materialSet,
-    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
-
+    const VkImageView (&_gbufferAttachments)[numGBufferAttachments],
+    VkImageView _hdrAttachment);
 void destroyFrame(const Renderer &_renderer, Frame &_frame);
 
-void writeGBuffersToDescriptorSet(
+void linkExternalAttachmentsToDescriptorSet(
     const Renderer &_renderer, Frame &_frame,
-    EnumArray<GBufferAttachmentType, Image> &_deferredAttachmentImages);
+    const VkImageView (&_gbufferAttachments)[numGBufferAttachments],
+    VkImageView _hdrAttachment);
 
 void generatePlaneMesh(std::vector<Vertex> &_vertices,
                        std::vector<uint32_t> &_indices);

@@ -53,8 +53,8 @@ static SceneType gCurrentSceneType = SceneType::ShaderBalls;
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
                    VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
-                   VkPipeline _brdfPipeline, VkExtent2D _swapChainExtent,
-                   const Frame &_frame) {
+                   VkPipeline _brdfPipeline, VkPipeline _hdrToneMappingPipeline,
+                   VkExtent2D _swapChainExtent, const Frame &_frame) {
   SceneBase *currentScene = gScenes[gCurrentSceneType];
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
@@ -74,34 +74,18 @@ void recordCommand(VkRenderPass _deferredRenderPass,
                           gStandardPipelineLayout.Handle, 1, 1,
                           &_frame.ViewDescriptorSet, 0, nullptr);
 
-  VkRenderPassBeginInfo deferredRenderPassInfo = {};
-  deferredRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  deferredRenderPassInfo.renderPass = _deferredRenderPass;
-  deferredRenderPassInfo.framebuffer = _deferredFramebuffer;
-  deferredRenderPassInfo.renderArea.offset = {0, 0};
-  deferredRenderPassInfo.renderArea.extent = _swapChainExtent;
-
-  VkClearValue
-      deferredRenderPassClearValues[(EnumCount<GBufferAttachmentType> + 2)] =
-          {}; // +1 for depth, 1 for lighting pass
-  deferredRenderPassClearValues[0].color = {0, 0, 0, 1};  // Lighting pass
-  deferredRenderPassClearValues[1].depthStencil = {0, 0}; // Depth
-  deferredRenderPassClearValues[2].color = {0, 0, 0, 1};  // Position
-  deferredRenderPassClearValues[3].color = {0, 0, 0, 1};  // Normal
-  deferredRenderPassClearValues[4].color = {0, 0, 0, 1};  // Albedo
-  deferredRenderPassClearValues[5].color = {0, 0, 0, 1};  // MRAH
-  deferredRenderPassClearValues[6].color = {0, 0, 0, 1};  // Material index
-  deferredRenderPassInfo.clearValueCount =
-      (uint32_t)std::size(deferredRenderPassClearValues);
-  deferredRenderPassInfo.pClearValues = deferredRenderPassClearValues;
-
   VkRenderPassBeginInfo renderPassInfo = {};
-  vkCmdBeginRenderPass(cmdBuffer, &deferredRenderPassInfo,
-                       VK_SUBPASS_CONTENTS_INLINE);
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassInfo.renderPass = _deferredRenderPass;
+  renderPassInfo.framebuffer = _deferredFramebuffer;
+  renderPassInfo.renderArea.offset = {0, 0};
+  renderPassInfo.renderArea.extent = _swapChainExtent;
+  EnumArray<DeferredAttachmentType, VkClearValue> clearValues = {};
+  renderPassInfo.clearValueCount = clearValues.size();
+  renderPassInfo.pClearValues = clearValues.data();
+  vkCmdBeginRenderPass(cmdBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-  if (currentScene->SceneRenderPassType == RenderPassType::Deferred)
-  // Draw scene objects
-  {
+  if (currentScene->SceneRenderPassType == RenderPassType::Deferred) {
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       _gBufferPipeline);
     currentScene->drawScene(_frame);
@@ -134,6 +118,13 @@ void recordCommand(VkRenderPass _deferredRenderPass,
 
     vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
   }
+
+  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    _hdrToneMappingPipeline);
+  vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+
+  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
 
   // Draw light sources and gizmo
   {
@@ -168,10 +159,9 @@ void recordCommand(VkRenderPass _deferredRenderPass,
                            offsets);
     vkCmdBindIndexBuffer(cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
-
-    vkCmdDrawIndexed(cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
   }
 
+  vkCmdDrawIndexed(cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuffer);
 
   vkCmdEndRenderPass(cmdBuffer);
@@ -197,7 +187,6 @@ int main(int _argc, char **_argv) {
   SDL_Window *window = SDL_CreateWindow(
       "Bibim Renderer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width,
       height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-  commonSceneResources.Window = window;
 
   Renderer renderer = createRenderer(window);
   commonSceneResources.Renderer = &renderer;
@@ -307,6 +296,13 @@ int main(int _argc, char **_argv) {
       renderer,
       createAbsolutePath(joinPaths(shaderRootPath, "forward_brdf.frag.spv")));
 
+  Shader hdrToneMappingVertShader = createShaderFromFile(
+      renderer, createAbsolutePath(
+                    joinPaths(shaderRootPath, "hdr_tone_mapping.vert.spv")));
+  Shader hdrToneMappingFragShader = createShaderFromFile(
+      renderer, createAbsolutePath(
+                    joinPaths(shaderRootPath, "hdr_tone_mapping.frag.spv")));
+
   gGizmo.VertShader = createShaderFromFile(
       renderer,
       createAbsolutePath(joinPaths(shaderRootPath, "gizmo.vert.spv")));
@@ -340,9 +336,7 @@ int main(int _argc, char **_argv) {
   VkPipeline forwardPipeline;
   VkPipeline gBufferPipeline;
   VkPipeline brdfPipeline;
-
-  std::vector<VkFramebuffer> deferredFramebuffers;
-  EnumArray<GBufferAttachmentType, Image> deferredAttachmentImages;
+  VkPipeline hdrToneMappingPipeline;
 
   PipelineParams forwardPipelineParams = {};
   const Shader *forwardShaders[] = {&forwardBrdfVertShader,
@@ -357,6 +351,9 @@ int main(int _argc, char **_argv) {
       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   forwardPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
   forwardPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+  forwardPipelineParams.Blend.NumColorBlends = 1;
+  forwardPipelineParams.Subpass =
+      (uint32_t)DeferredSubpassType::ForwardLighting;
   forwardPipelineParams.DepthStencil.DepthTestEnable = true;
   forwardPipelineParams.DepthStencil.DepthWriteEnable = true;
   forwardPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
@@ -373,6 +370,8 @@ int main(int _argc, char **_argv) {
       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   gBufferPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
   gBufferPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+  gBufferPipelineParams.Blend.NumColorBlends = numGBufferAttachments;
+  gBufferPipelineParams.Subpass = (uint32_t)DeferredSubpassType::GBufferWrite;
   gBufferPipelineParams.DepthStencil.DepthTestEnable = true;
   gBufferPipelineParams.DepthStencil.DepthWriteEnable = true;
   gBufferPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
@@ -385,16 +384,31 @@ int main(int _argc, char **_argv) {
       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   brdfPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
   brdfPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+  brdfPipelineParams.Blend.NumColorBlends = 1;
+  brdfPipelineParams.Subpass = (uint32_t)DeferredSubpassType::Lighting;
   brdfPipelineParams.DepthStencil.DepthTestEnable = true;
   brdfPipelineParams.DepthStencil.DepthWriteEnable = true;
   brdfPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
 
-  SwapChain swapChain;
+  PipelineParams hdrToneMappingPipelineParams = {};
+  const Shader *hdrToneMappingShaders[] = {&hdrToneMappingVertShader,
+                                           &hdrToneMappingFragShader};
+  hdrToneMappingPipelineParams.Shaders = hdrToneMappingShaders;
+  hdrToneMappingPipelineParams.NumShaders = std::size(hdrToneMappingShaders);
+  hdrToneMappingPipelineParams.InputAssembly.Topology =
+      VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  hdrToneMappingPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+  hdrToneMappingPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+  hdrToneMappingPipelineParams.Blend.NumColorBlends = 1;
+  hdrToneMappingPipelineParams.Subpass = (uint32_t)DeferredSubpassType::HDR;
+  hdrToneMappingPipelineParams.DepthStencil.DepthTestEnable = false;
+  hdrToneMappingPipelineParams.DepthStencil.DepthWriteEnable = false;
+  hdrToneMappingPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
 
-  commonSceneResources.SwapChain = &swapChain;
-  commonSceneResources.RenderPass = &deferredRenderPass;
-  commonSceneResources.Framebuffers = &deferredFramebuffers;
-  commonSceneResources.GBufferAttachmentImages = &deferredAttachmentImages;
+  SwapChain swapChain;
+  std::vector<VkFramebuffer> deferredFramebuffers;
+  Image gbufferAttachmentImages[numGBufferAttachments] = {};
+  Image hdrAttachmentImage = {};
 
   auto initReloadableResources = [&] {
     swapChain = createSwapChain(renderer, width, height, nullptr);
@@ -402,67 +416,290 @@ int main(int _argc, char **_argv) {
     gBufferVisualize.ViewportExtent.width = width;
     gBufferVisualize.ViewportExtent.height = height;
 
-    deferredRenderPass = createDeferredRenderPass(renderer, swapChain);
+    // clang-format off
+    // All render passes' first and second attachments' format and sampel should be following:
+    // 0 - Color Attachment (swapChain.ColorFormat, VK_SAMPLE_COUNT_1_BIT)
+    // 1 - Depth Attachment (swapChain.DepthFormat, VK_SAMPLE_COUNT_1_BIT)
+    // clang-format on
+    // Create deferred render pass
+    {
+      EnumArray<DeferredAttachmentType, VkAttachmentDescription> attachments =
+          {};
+      VkAttachmentDescription &colorAttachment =
+          attachments[DeferredAttachmentType::Color];
+      colorAttachment.format = swapChain.ColorFormat;
+      colorAttachment.samples = swapChain.NumColorSamples;
+      colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+      colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+      colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    VkImageCreateInfo gBufferAttachmentImageCreateInfo = {};
-    gBufferAttachmentImageCreateInfo.sType =
-        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    gBufferAttachmentImageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-    gBufferAttachmentImageCreateInfo.extent.width = swapChain.Extent.width;
-    gBufferAttachmentImageCreateInfo.extent.height = swapChain.Extent.height;
-    gBufferAttachmentImageCreateInfo.extent.depth = 1;
-    gBufferAttachmentImageCreateInfo.mipLevels = 1;
-    gBufferAttachmentImageCreateInfo.arrayLayers = 1;
-    // gBufferAttachmentImageCreateInfo.format = swapChain.ColorFormat;
-    gBufferAttachmentImageCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    gBufferAttachmentImageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    gBufferAttachmentImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    gBufferAttachmentImageCreateInfo.usage =
-        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-        VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-    gBufferAttachmentImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    gBufferAttachmentImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    gBufferAttachmentImageCreateInfo.flags = 0;
+      VkAttachmentDescription &depthAttachment =
+          attachments[DeferredAttachmentType::Depth];
+      depthAttachment.format = swapChain.DepthFormat;
+      depthAttachment.samples = swapChain.NumDepthSamples;
+      depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+      depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+      depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      depthAttachment.finalLayout =
+          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-    for (GBufferAttachmentType type : AllEnums<GBufferAttachmentType>) {
-      Image &currentImage = deferredAttachmentImages[type];
-      BB_VK_ASSERT(vkCreateImage(renderer.Device,
-                                 &gBufferAttachmentImageCreateInfo, nullptr,
-                                 &currentImage.Handle));
+      VkAttachmentDescription gbufferColorAttachment = {};
+      gbufferColorAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+      gbufferColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+      gbufferColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+      gbufferColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+      gbufferColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      gbufferColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      gbufferColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      gbufferColorAttachment.finalLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-      VkMemoryRequirements memRequirements;
-      vkGetImageMemoryRequirements(renderer.Device, currentImage.Handle,
-                                   &memRequirements);
+      attachments[DeferredAttachmentType::GBufferPosition] =
+          gbufferColorAttachment;
+      attachments[DeferredAttachmentType::GBufferNormal] =
+          gbufferColorAttachment;
+      attachments[DeferredAttachmentType::GBufferAlbedo] =
+          gbufferColorAttachment;
+      attachments[DeferredAttachmentType::GBufferMRAH] = gbufferColorAttachment;
+      attachments[DeferredAttachmentType::GBufferMaterialIndex] =
+          gbufferColorAttachment;
 
-      VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
-      textureImageMemoryAllocateInfo.sType =
-          VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-      textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
-      textureImageMemoryAllocateInfo.memoryTypeIndex =
-          findMemoryType(renderer, memRequirements.memoryTypeBits,
-                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      VkAttachmentDescription &hdrAttachment =
+          attachments[DeferredAttachmentType::HDR];
+      hdrAttachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+      hdrAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+      hdrAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      hdrAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+      hdrAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+      hdrAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      hdrAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      hdrAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-      BB_VK_ASSERT(vkAllocateMemory(renderer.Device,
-                                    &textureImageMemoryAllocateInfo, nullptr,
-                                    &currentImage.Memory));
+      VkAttachmentReference finalColorAttachmentRef = {
+          (uint32_t)DeferredAttachmentType::Color,
+          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      };
 
-      BB_VK_ASSERT(vkBindImageMemory(renderer.Device, currentImage.Handle,
-                                     currentImage.Memory, 0));
+      VkAttachmentReference depthAttachmentRef = {
+          (uint32_t)DeferredAttachmentType::Depth,
+          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+      };
 
-      VkImageViewCreateInfo imageViewCreateInfo = {};
-      imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-      imageViewCreateInfo.image = currentImage.Handle;
-      imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      imageViewCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      imageViewCreateInfo.subresourceRange.aspectMask =
-          VK_IMAGE_ASPECT_COLOR_BIT;
-      imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-      imageViewCreateInfo.subresourceRange.levelCount = 1;
-      imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-      imageViewCreateInfo.subresourceRange.layerCount = 1;
-      BB_VK_ASSERT(vkCreateImageView(renderer.Device, &imageViewCreateInfo,
-                                     nullptr, &currentImage.View));
+      VkAttachmentReference gbufferReadonlyAttachmentRefs[] = {
+          {
+              (uint32_t)DeferredAttachmentType::GBufferPosition,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferNormal,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferAlbedo,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferMRAH,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferMaterialIndex,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+          },
+      };
+
+      VkAttachmentReference gbufferColorAttachmentRefs[] = {
+          {
+              (uint32_t)DeferredAttachmentType::GBufferPosition,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferNormal,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferAlbedo,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferMRAH,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          },
+          {
+              (uint32_t)DeferredAttachmentType::GBufferMaterialIndex,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          },
+      };
+
+      VkAttachmentReference hdrColorAttachmentRef = {
+          (uint32_t)DeferredAttachmentType::HDR,
+          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      };
+
+      VkAttachmentReference hdrReadonlyAttachmentRef = {
+          (uint32_t)DeferredAttachmentType::HDR,
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      };
+
+      EnumArray<DeferredSubpassType, VkSubpassDescription> subpasses = {};
+
+      subpasses[DeferredSubpassType::GBufferWrite].pipelineBindPoint =
+          VK_PIPELINE_BIND_POINT_GRAPHICS;
+      subpasses[DeferredSubpassType::GBufferWrite].colorAttachmentCount =
+          std::size(gbufferColorAttachmentRefs);
+      subpasses[DeferredSubpassType::GBufferWrite].pColorAttachments =
+          gbufferColorAttachmentRefs;
+      subpasses[DeferredSubpassType::GBufferWrite].pDepthStencilAttachment =
+          &depthAttachmentRef;
+
+      subpasses[DeferredSubpassType::Lighting].pipelineBindPoint =
+          VK_PIPELINE_BIND_POINT_GRAPHICS;
+      subpasses[DeferredSubpassType::Lighting].inputAttachmentCount =
+          std::size(gbufferReadonlyAttachmentRefs);
+      subpasses[DeferredSubpassType::Lighting].pInputAttachments =
+          gbufferReadonlyAttachmentRefs;
+      subpasses[DeferredSubpassType::Lighting].colorAttachmentCount = 1;
+      subpasses[DeferredSubpassType::Lighting].pColorAttachments =
+          &hdrColorAttachmentRef;
+
+      subpasses[DeferredSubpassType::ForwardLighting].pipelineBindPoint =
+          VK_PIPELINE_BIND_POINT_GRAPHICS;
+      subpasses[DeferredSubpassType::ForwardLighting].colorAttachmentCount = 1;
+      subpasses[DeferredSubpassType::ForwardLighting].pColorAttachments =
+          &hdrColorAttachmentRef;
+      subpasses[DeferredSubpassType::ForwardLighting].pDepthStencilAttachment =
+          &depthAttachmentRef;
+
+      subpasses[DeferredSubpassType::HDR].pipelineBindPoint =
+          VK_PIPELINE_BIND_POINT_GRAPHICS;
+      subpasses[DeferredSubpassType::HDR].inputAttachmentCount = 1;
+      subpasses[DeferredSubpassType::HDR].pInputAttachments =
+          &hdrReadonlyAttachmentRef;
+      subpasses[DeferredSubpassType::HDR].colorAttachmentCount = 1;
+      subpasses[DeferredSubpassType::HDR].pColorAttachments =
+          &finalColorAttachmentRef;
+
+      subpasses[DeferredSubpassType::Overlay].pipelineBindPoint =
+          VK_PIPELINE_BIND_POINT_GRAPHICS;
+      subpasses[DeferredSubpassType::Overlay].colorAttachmentCount = 1;
+      subpasses[DeferredSubpassType::Overlay].pColorAttachments =
+          &finalColorAttachmentRef;
+
+      VkSubpassDependency subpassDependencies[6] = {};
+      subpassDependencies[0].srcSubpass =
+          (uint32_t)DeferredSubpassType::GBufferWrite;
+      subpassDependencies[0].dstSubpass =
+          (uint32_t)DeferredSubpassType::Lighting;
+      subpassDependencies[0].srcStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[0].dstStageMask =
+          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      subpassDependencies[0].srcAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      subpassDependencies[0].dstAccessMask =
+          VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+
+      subpassDependencies[1].srcSubpass =
+          (uint32_t)DeferredSubpassType::GBufferWrite;
+      subpassDependencies[1].dstSubpass =
+          (uint32_t)DeferredSubpassType::ForwardLighting;
+      subpassDependencies[1].srcStageMask =
+          VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+      subpassDependencies[1].dstStageMask =
+          VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+      subpassDependencies[1].srcAccessMask =
+          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+      subpassDependencies[1].dstAccessMask =
+          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+      subpassDependencies[2].srcSubpass =
+          (uint32_t)DeferredSubpassType::Lighting;
+      subpassDependencies[2].dstSubpass =
+          (uint32_t)DeferredSubpassType::ForwardLighting;
+      subpassDependencies[2].srcStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[2].dstStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[2].srcAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      subpassDependencies[2].dstAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+      subpassDependencies[3].srcSubpass =
+          (uint32_t)DeferredSubpassType::Lighting;
+      subpassDependencies[3].dstSubpass = (uint32_t)DeferredSubpassType::HDR;
+      subpassDependencies[3].srcStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[3].dstStageMask =
+          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      subpassDependencies[3].srcAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      subpassDependencies[3].dstAccessMask =
+          VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+
+      subpassDependencies[4].srcSubpass =
+          (uint32_t)DeferredSubpassType::ForwardLighting;
+      subpassDependencies[4].dstSubpass = (uint32_t)DeferredSubpassType::HDR;
+      subpassDependencies[4].srcStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[4].dstStageMask =
+          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      subpassDependencies[4].srcAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      subpassDependencies[4].dstAccessMask =
+          VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+
+      subpassDependencies[5].srcSubpass = (uint32_t)DeferredSubpassType::HDR;
+      subpassDependencies[5].dstSubpass =
+          (uint32_t)DeferredSubpassType::Overlay;
+      subpassDependencies[5].srcStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[5].dstStageMask =
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      subpassDependencies[5].srcAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      subpassDependencies[5].dstAccessMask =
+          VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+      VkRenderPassCreateInfo renderPassCreateInfo = {};
+      renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+      renderPassCreateInfo.attachmentCount = attachments.size();
+      renderPassCreateInfo.pAttachments = attachments.data();
+      renderPassCreateInfo.subpassCount = subpasses.size();
+      renderPassCreateInfo.pSubpasses = subpasses.data();
+      renderPassCreateInfo.dependencyCount =
+          (uint32_t)std::size(subpassDependencies);
+      renderPassCreateInfo.pDependencies = subpassDependencies;
+
+      BB_VK_ASSERT(vkCreateRenderPass(renderer.Device, &renderPassCreateInfo,
+                                      nullptr, &deferredRenderPass.Handle));
     }
+
+    for (Image &image : gbufferAttachmentImages) {
+      ImageParams params = {};
+      params.Format = gbufferAttachmentFormat;
+      params.Width = swapChain.Extent.width;
+      params.Height = swapChain.Extent.height;
+      params.Usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                     VK_IMAGE_USAGE_SAMPLED_BIT |
+                     VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+      image = createImage(renderer, params);
+    }
+
+    ImageParams hdrImageParams = {};
+    hdrImageParams.Format = hdrAttachmentFormat;
+    hdrImageParams.Width = swapChain.Extent.width;
+    hdrImageParams.Height = swapChain.Extent.height;
+    hdrImageParams.Usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                           VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+    hdrAttachmentImage = createImage(renderer, hdrImageParams);
 
     deferredFramebuffers.resize(swapChain.NumColorImages);
     // Create deferred framebuffer
@@ -470,17 +707,14 @@ int main(int _argc, char **_argv) {
       VkFramebufferCreateInfo fbCreateInfo = {};
       fbCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
       fbCreateInfo.renderPass = deferredRenderPass.Handle;
-      VkImageView attachments[] = {
-          swapChain.ColorImageViews[i],
-          swapChain.DepthImageView,
-          deferredAttachmentImages[GBufferAttachmentType::Position].View,
-          deferredAttachmentImages[GBufferAttachmentType::Normal].View,
-          deferredAttachmentImages[GBufferAttachmentType::Albedo].View,
-          deferredAttachmentImages[GBufferAttachmentType::MRAH].View,
-          deferredAttachmentImages[GBufferAttachmentType::MaterialIndex].View,
+      EnumArray<DeferredAttachmentType, VkImageView> attachments = {
+          swapChain.ColorImageViews[i],    swapChain.DepthImageView,
+          gbufferAttachmentImages[0].View, gbufferAttachmentImages[1].View,
+          gbufferAttachmentImages[2].View, gbufferAttachmentImages[3].View,
+          gbufferAttachmentImages[4].View, hdrAttachmentImage.View,
       };
-      fbCreateInfo.attachmentCount = (uint32_t)std::size(attachments);
-      fbCreateInfo.pAttachments = attachments;
+      fbCreateInfo.attachmentCount = attachments.size();
+      fbCreateInfo.pAttachments = attachments.data();
       fbCreateInfo.width = swapChain.Extent.width;
       fbCreateInfo.height = swapChain.Extent.height;
       fbCreateInfo.layers = 1;
@@ -494,20 +728,26 @@ int main(int _argc, char **_argv) {
     forwardPipelineParams.Viewport.ScissorExtent = {
         (int)swapChain.Extent.width, (int)swapChain.Extent.height};
     forwardPipelineParams.RenderPass = deferredRenderPass.Handle;
-    forwardPipeline = createPipeline(renderer, forwardPipelineParams, 1, 2);
+    forwardPipeline = createPipeline(renderer, forwardPipelineParams);
     gBufferPipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
                                              (float)swapChain.Extent.height};
     gBufferPipelineParams.Viewport.ScissorExtent = {
         (int)swapChain.Extent.width, (int)swapChain.Extent.height};
     gBufferPipelineParams.RenderPass = deferredRenderPass.Handle;
-    gBufferPipeline = createPipeline(renderer, gBufferPipelineParams,
-                                     EnumCount<GBufferAttachmentType>, 0);
+    gBufferPipeline = createPipeline(renderer, gBufferPipelineParams);
     brdfPipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
                                           (float)swapChain.Extent.height};
     brdfPipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
                                                  (int)swapChain.Extent.height};
     brdfPipelineParams.RenderPass = deferredRenderPass.Handle;
-    brdfPipeline = createPipeline(renderer, brdfPipelineParams, 1, 1);
+    brdfPipeline = createPipeline(renderer, brdfPipelineParams);
+    hdrToneMappingPipelineParams.Viewport.Extent = {
+        (float)swapChain.Extent.width, (float)swapChain.Extent.height};
+    hdrToneMappingPipelineParams.Viewport.ScissorExtent = {
+        (int)swapChain.Extent.width, (int)swapChain.Extent.height};
+    hdrToneMappingPipelineParams.RenderPass = deferredRenderPass.Handle;
+    hdrToneMappingPipeline =
+        createPipeline(renderer, hdrToneMappingPipelineParams);
 
     // Gizmo Pipeline
     {
@@ -541,12 +781,15 @@ int main(int _argc, char **_argv) {
       pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
       pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
 
+      pipelineParams.Blend.NumColorBlends = 1;
+      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
+
       pipelineParams.DepthStencil.DepthTestEnable = true;
       pipelineParams.DepthStencil.DepthWriteEnable = true;
       pipelineParams.PipelineLayout = forwardPipelineParams.PipelineLayout;
       pipelineParams.RenderPass = deferredRenderPass.Handle;
 
-      gGizmo.Pipeline = createPipeline(renderer, pipelineParams, 1, 2);
+      gGizmo.Pipeline = createPipeline(renderer, pipelineParams);
     }
 
     // Light Sources Pipeline
@@ -579,10 +822,13 @@ int main(int _argc, char **_argv) {
       pipelineParams.DepthStencil.DepthTestEnable = true;
       pipelineParams.DepthStencil.DepthWriteEnable = true;
 
+      pipelineParams.Blend.NumColorBlends = 1;
+      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
+
       pipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
       pipelineParams.RenderPass = deferredRenderPass.Handle;
 
-      gLightSources.Pipeline = createPipeline(renderer, pipelineParams, 1, 2);
+      gLightSources.Pipeline = createPipeline(renderer, pipelineParams);
     }
 
     // Buffer visualizer
@@ -620,18 +866,16 @@ int main(int _argc, char **_argv) {
       pipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
       pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
 
+      pipelineParams.Blend.NumColorBlends = 1;
+      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::ForwardLighting;
+
       pipelineParams.DepthStencil.DepthTestEnable = false;
       pipelineParams.DepthStencil.DepthWriteEnable = false;
       pipelineParams.PipelineLayout = brdfPipelineParams.PipelineLayout;
       pipelineParams.RenderPass = deferredRenderPass.Handle;
 
-      gBufferVisualize.Pipeline =
-          createPipeline(renderer, pipelineParams, 1, 2);
+      gBufferVisualize.Pipeline = createPipeline(renderer, pipelineParams);
     }
-
-    commonSceneResources.GBufferPipeline = gBufferPipeline;
-    commonSceneResources.DeferredBrdfPipeline = brdfPipeline;
-    commonSceneResources.ForwardBrdfPipeline = forwardPipeline;
   };
 
   auto cleanupReloadableResources = [&] {
@@ -644,7 +888,8 @@ int main(int _argc, char **_argv) {
     vkDestroyPipeline(renderer.Device, gBufferVisualize.Pipeline, nullptr);
     gBufferVisualize.Pipeline = VK_NULL_HANDLE;
 
-    for (Image &image : deferredAttachmentImages) {
+    destroyImage(renderer, hdrAttachmentImage);
+    for (Image &image : gbufferAttachmentImages) {
       destroyImage(renderer, image);
     }
 
@@ -653,6 +898,7 @@ int main(int _argc, char **_argv) {
     }
     deferredFramebuffers.clear();
 
+    vkDestroyPipeline(renderer.Device, hdrToneMappingPipeline, nullptr);
     vkDestroyPipeline(renderer.Device, forwardPipeline, nullptr);
     vkDestroyPipeline(renderer.Device, gBufferPipeline, nullptr);
     vkDestroyPipeline(renderer.Device, brdfPipeline, nullptr);
@@ -729,9 +975,13 @@ int main(int _argc, char **_argv) {
 
   std::vector<Frame> frames;
   for (int i = 0; i < numFrames; ++i) {
+    VkImageView gbufferAttachments[numGBufferAttachments] = {};
+    for (uint32_t i = 0; i < numGBufferAttachments; ++i) {
+      gbufferAttachments[i] = gbufferAttachmentImages[i].View;
+    }
     frames.push_back(createFrame(renderer, gStandardPipelineLayout,
                                  standardDescriptorPool, materialSet,
-                                 deferredAttachmentImages));
+                                 gbufferAttachments, hdrAttachmentImage.View));
   }
 
   std::vector<FrameSync> frameSyncObjects;
@@ -754,9 +1004,6 @@ int main(int _argc, char **_argv) {
                                &syncObject.FrameAvailableFence));
     frameSyncObjects.push_back(syncObject);
   }
-
-  commonSceneResources.Frames = &frames;
-  commonSceneResources.FrameSyncObjects = &frameSyncObjects;
 
   // Important : You need to delete every cmd used by swapchain
   // through queue. Dont forget to add it here too when you add another cmd.
@@ -781,7 +1028,12 @@ int main(int _argc, char **_argv) {
     initReloadableResources();
 
     for (Frame &frame : frames) {
-      writeGBuffersToDescriptorSet(renderer, frame, deferredAttachmentImages);
+      VkImageView gbufferAttachments[numGBufferAttachments] = {};
+      for (uint32_t i = 0; i < numGBufferAttachments; ++i) {
+        gbufferAttachments[i] = gbufferAttachmentImages[i].View;
+      }
+      linkExternalAttachmentsToDescriptorSet(
+          renderer, frame, gbufferAttachments, hdrAttachmentImage.View);
     }
   };
 
@@ -1015,20 +1267,28 @@ int main(int _argc, char **_argv) {
           (int)gBufferVisualize.CurrentOption;
     }
 
-    {
+    static bool enableNormalMap;
+    static bool enableToneMapping;
+    static float exposure = 1.f;
+    if (ImGui::Begin("Settings")) {
+      ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
+      ImGui::Checkbox("Enable Tone Mapping", &enableToneMapping);
+      if (enableToneMapping) {
+        ImGui::SliderFloat("Exposure", &exposure, 0.1f, 10.f);
+      }
+    }
+    ImGui::End();
 
+    frameUniformBlock.EnableToneMapping = enableToneMapping;
+    frameUniformBlock.Exposure = exposure;
+
+    {
       void *data;
       vkMapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory, 0,
                   sizeof(FrameUniformBlock), 0, &data);
       memcpy(data, &frameUniformBlock, sizeof(FrameUniformBlock));
       vkUnmapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory);
     }
-
-    static bool enableNormalMap;
-    if (ImGui::Begin("Settings")) {
-      ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
-    }
-    ImGui::End();
 
     ViewUniformBlock viewUniformBlock = {};
     viewUniformBlock.ViewMat = cam.getViewMatrix();
@@ -1051,7 +1311,7 @@ int main(int _argc, char **_argv) {
     ImGui::Render();
     recordCommand(deferredRenderPass.Handle, currentDeferredFramebuffer,
                   forwardPipeline, gBufferPipeline, brdfPipeline,
-                  swapChain.Extent, currentFrame);
+                  hdrToneMappingPipeline, swapChain.Extent, currentFrame);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1130,6 +1390,8 @@ int main(int _argc, char **_argv) {
   destroyShader(renderer, gLightSources.FragShader);
   destroyShader(renderer, gGizmo.VertShader);
   destroyShader(renderer, gGizmo.FragShader);
+  destroyShader(renderer, hdrToneMappingFragShader);
+  destroyShader(renderer, hdrToneMappingVertShader);
   destroyShader(renderer, brdfVertShader);
   destroyShader(renderer, brdfFragShader);
   destroyShader(renderer, gBufferVertShader);
