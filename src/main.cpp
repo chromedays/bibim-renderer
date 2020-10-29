@@ -119,6 +119,13 @@ void recordCommand(VkRenderPass _deferredRenderPass,
     vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
   }
 
+  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    _hdrToneMappingPipeline);
+  vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+
+  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+
   // Draw light sources and gizmo
   {
     VkDeviceSize offsets[2] = {};
@@ -152,16 +159,9 @@ void recordCommand(VkRenderPass _deferredRenderPass,
                            offsets);
     vkCmdBindIndexBuffer(cmdBuffer, gGizmo.IndexBuffer.Handle, 0,
                          VK_INDEX_TYPE_UINT32);
-
-    vkCmdDrawIndexed(cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
   }
 
-  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
-  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    _hdrToneMappingPipeline);
-  vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
-
-  vkCmdNextSubpass(cmdBuffer, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdDrawIndexed(cmdBuffer, gGizmo.NumIndices, 1, 0, 0, 0);
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuffer);
 
   vkCmdEndRenderPass(cmdBuffer);
@@ -782,7 +782,7 @@ int main(int _argc, char **_argv) {
       pipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
 
       pipelineParams.Blend.NumColorBlends = 1;
-      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::ForwardLighting;
+      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
 
       pipelineParams.DepthStencil.DepthTestEnable = true;
       pipelineParams.DepthStencil.DepthWriteEnable = true;
@@ -823,7 +823,7 @@ int main(int _argc, char **_argv) {
       pipelineParams.DepthStencil.DepthWriteEnable = true;
 
       pipelineParams.Blend.NumColorBlends = 1;
-      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::ForwardLighting;
+      pipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
 
       pipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
       pipelineParams.RenderPass = deferredRenderPass.Handle;
@@ -1267,20 +1267,28 @@ int main(int _argc, char **_argv) {
           (int)gBufferVisualize.CurrentOption;
     }
 
-    {
+    static bool enableNormalMap;
+    static bool enableToneMapping;
+    static float exposure = 1.f;
+    if (ImGui::Begin("Settings")) {
+      ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
+      ImGui::Checkbox("Enable Tone Mapping", &enableToneMapping);
+      if (enableToneMapping) {
+        ImGui::SliderFloat("Exposure", &exposure, 0.1f, 10.f);
+      }
+    }
+    ImGui::End();
 
+    frameUniformBlock.EnableToneMapping = enableToneMapping;
+    frameUniformBlock.Exposure = exposure;
+
+    {
       void *data;
       vkMapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory, 0,
                   sizeof(FrameUniformBlock), 0, &data);
       memcpy(data, &frameUniformBlock, sizeof(FrameUniformBlock));
       vkUnmapMemory(renderer.Device, currentFrame.FrameUniformBuffer.Memory);
     }
-
-    static bool enableNormalMap;
-    if (ImGui::Begin("Settings")) {
-      ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
-    }
-    ImGui::End();
 
     ViewUniformBlock viewUniformBlock = {};
     viewUniformBlock.ViewMat = cam.getViewMatrix();

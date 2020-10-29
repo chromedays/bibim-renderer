@@ -320,6 +320,8 @@ struct FrameUniformBlock {
   int NumLights;
   Light Lights[MAX_NUM_LIGHTS];
   int VisualizedGBufferAttachmentIndex;
+  int EnableToneMapping;
+  float Exposure;
 };
 
 struct ViewUniformBlock {

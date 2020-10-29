@@ -250,6 +250,8 @@ VkSurfaceFormatKHR SwapChainSupportDetails::chooseSurfaceFormat() const {
     }
   }
 
+  // TODO(ilgwon): Perform gamma correction manually in shader if the format is
+  // not SRGB
   return Formats[0];
 }
 
