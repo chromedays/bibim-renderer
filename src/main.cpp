@@ -589,6 +589,8 @@ int main(int _argc, char **_argv) {
       subpasses[DeferredSubpassType::Overlay].colorAttachmentCount = 1;
       subpasses[DeferredSubpassType::Overlay].pColorAttachments =
           &finalColorAttachmentRef;
+      subpasses[DeferredSubpassType::Overlay].pDepthStencilAttachment =
+          &depthAttachmentRef;
 
       VkSubpassDependency subpassDependencies[6] = {};
       subpassDependencies[0].srcSubpass =
