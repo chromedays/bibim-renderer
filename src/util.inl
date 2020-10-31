@@ -32,4 +32,18 @@ uint32_t sizeBytes32(const Container &_container) {
   return (uint32_t)(sizeof(ELEMENT_TYPE(_container)) * std::size(_container));
 }
 
+template <typename Fn>
+ScopeGuard<Fn>::ScopeGuard(const Fn &_func) : Func(_func), Active(true) {}
+template <typename Fn>
+ScopeGuard<Fn>::ScopeGuard(Fn &&_func) : Func(std::move(_func)), Active(true) {}
+template <typename Fn>
+ScopeGuard<Fn>::ScopeGuard(ScopeGuard &&_other)
+    : Func(std::move(other.Func)), Active(_other.Active) {
+  other.Active = false;
+}
+template <typename Fn> ScopeGuard<Fn>::~ScopeGuard() {
+  if (Active)
+    Func();
+}
+
 } // namespace bb
