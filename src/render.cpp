@@ -1002,7 +1002,9 @@ Shader createShaderFromFile(const Renderer &_renderer,
     BB_ASSERT(false);
   }
 
-  FILE *f = fopen(_filePath.c_str(), "rb");
+  std::string fileAbsPath = createShaderPath(_filePath);
+
+  FILE *f = fopen(fileAbsPath.c_str(), "rb");
   BB_ASSERT(f);
   fseek(f, 0, SEEK_END);
   long fileSize = ftell(f);
@@ -1225,7 +1227,7 @@ PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
 
   {
     WIN32_FIND_DATA fileFindData;
-    std::string pbrRoot = createAbsolutePath("pbr/*");
+    std::string pbrRoot = createCommonResourcePath("pbr/*");
     HANDLE findHandle = FindFirstFileA(pbrRoot.c_str(), &fileFindData);
 
     do {
@@ -1234,7 +1236,7 @@ PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
           (fileFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
         PBRMaterial material = createPBRMaterialFromFiles(
             _renderer, _cmdPool,
-            createAbsolutePath(joinPaths("pbr", fileFindData.cFileName)));
+            createCommonResourcePath(joinPaths("pbr", fileFindData.cFileName)));
 
         if (strcmp(fileFindData.cFileName, "default") == 0) {
           materialSet.DefaultMaterial = std::move(material);

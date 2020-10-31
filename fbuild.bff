@@ -170,11 +170,20 @@ ForEach (.Project_Config in .Project_Configs)
         .Dest = '$CompilerOutputPath$\$ConfigName$\'
     }
 
+    Copy('$ProjectName$-$ConfigName$-CopyConfigToml')
+    {
+        .Source = 'config_dev.toml'
+        .Dest = '$CompilerOutputPath$\$ConfigName$\config.toml'
+    }
+
     Executable('$ProjectName$-$ConfigName$-Exe')
     {
         .Libraries = {'$ProjectName$-$ConfigName$-Obj'}
         .LinkerOutput = .CompilerOutputPath + '\$ConfigName$\$ProjectName$.exe'
-        .PreBuildDependencies = '$ProjectName$-$ConfigName$-CopyDLL'
+        .PreBuildDependencies = {
+            '$ProjectName$-$ConfigName$-CopyDLL',
+            '$ProjectName$-$ConfigName$-CopyConfigToml'
+        }
     }
 
     {

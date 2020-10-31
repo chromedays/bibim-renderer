@@ -1,11 +1,13 @@
 #include "resource.h"
 #include "util.h"
 #include "external/SDL2/SDL.h"
+#include "external/toml.h"
 #include <string_view>
 
 namespace bb {
 
-static std::string gResourceRoot;
+static std::string gCommonResourceRoot;
+static std::string gShaderRoot;
 
 static bool isSeparator(char _ch) { return (_ch == '\\') || (_ch == '/'); }
 
@@ -71,19 +73,6 @@ static std::string simplifyPath(std::string_view _path) {
   return result;
 }
 
-std::string createAbsolutePath(std::string_view _relPath) {
-  std::string absPathRaw = gResourceRoot;
-  if (!_relPath.empty()) {
-    absPathRaw += nativePathSeparator;
-    absPathRaw += trimSeparators(_relPath);
-  }
-  replaceSeparatorsWithNative(absPathRaw);
-
-  std::string result = simplifyPath(absPathRaw);
-
-  return result;
-}
-
 bool isAbsolutePath(std::string_view _path) {
   return (_path.length() >= 2) && (_path[1] == ':');
 }
@@ -97,39 +86,65 @@ std::string joinPaths(std::string_view _a, std::string_view _b) {
   joined += nativePathSeparator;
   joined += _b;
   replaceSeparatorsWithNative(joined);
+  joined = simplifyPath(joined);
   return joined;
 }
 
 std::string getFileName(std::string_view _path) {
-  std::string absPath = createAbsolutePath(_path);
-
-  int i = (int)absPath.length() - 1;
+  int i = (int)_path.length() - 1;
   for (; i >= 0; --i) {
-    if (isSeparator(absPath[i])) {
+    if (isSeparator(_path[i])) {
       break;
     }
   }
 
-  std::string fileName = absPath.substr(i + 1);
+  std::string fileName(_path.substr(i + 1));
 
   return fileName;
 }
 
 void initResourceRoot() {
-  char *rawResourceRoot = SDL_GetBasePath();
-
-  gResourceRoot = rawResourceRoot;
-  if (!endsWith(gResourceRoot, nativePathSeparator)) {
-    gResourceRoot += nativePathSeparator;
+  std::string exeDir;
+  {
+    char *temp = SDL_GetBasePath();
+    exeDir = temp;
+    SDL_free(temp);
   }
-  gResourceRoot += "..";
-  gResourceRoot += nativePathSeparator;
-  gResourceRoot += "..";
-  gResourceRoot += nativePathSeparator;
-  gResourceRoot += "resources";
-  gResourceRoot = simplifyPath(gResourceRoot);
 
-  SDL_free(rawResourceRoot);
+  if (!endsWith(exeDir, nativePathSeparator)) {
+    exeDir += nativePathSeparator;
+  }
+
+  std::string configPath = exeDir + "config.toml";
+  FILE *configFile = fopen(configPath.c_str(), "r");
+  toml_table_t *config = toml_parse_file(configFile, nullptr, 0);
+  fclose(configFile);
+
+  toml_table_t *tomlResourcePath = toml_table_in(config, "resource_path");
+  auto getString = [&](toml_table_t *_table, const char *_key) {
+    toml_raw_t raw = toml_raw_in(_table, _key);
+    char *cstr;
+    toml_rtos(raw, &cstr);
+    std::string str = cstr;
+    free(cstr);
+    return str;
+  };
+
+  gCommonResourceRoot =
+      joinPaths(exeDir, getString(tomlResourcePath, "common_root"));
+  gShaderRoot = joinPaths(exeDir, getString(tomlResourcePath, "shader_root"));
+
+  toml_free(config);
+}
+
+std::string createCommonResourcePath(std::string_view _relPath) {
+  std::string absPath = joinPaths(gCommonResourceRoot, _relPath);
+  return absPath;
+}
+
+std::string createShaderPath(std::string_view _relPath) {
+  std::string absPath = joinPaths(gShaderRoot, _relPath);
+  return absPath;
 }
 
 } // namespace bb

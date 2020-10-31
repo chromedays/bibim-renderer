@@ -57,7 +57,7 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
   {
     Assimp::Importer importer;
     const aiScene *shaderBallScene =
-        importer.ReadFile(createAbsolutePath("ShaderBall.fbx"),
+        importer.ReadFile(createCommonResourcePath("ShaderBall.fbx"),
                           aiProcess_Triangulate | aiProcess_CalcTangentSpace);
     const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
     std::vector<Vertex> shaderBallVertices;
