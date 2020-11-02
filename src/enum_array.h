@@ -92,6 +92,6 @@ template <typename E> struct EnumCountImpl {
 };
 
 template <typename E>
-static constexpr auto EnumCount = typename EnumCountImpl<E>::Value;
+static constexpr auto EnumCount = EnumCountImpl<E>::Value;
 
 } // namespace bb
