@@ -33,6 +33,11 @@
     BB_ASSERT(__result__ == VK_SUCCESS);                                       \
   } while (0)
 
+#define BB_DO_STRING_JOIN(a, b) a##b
+#define BB_STRING_JOIN(a, b) BB_DO_STRING_JOIN(a, b)
+#define BB_DEFER(code)                                                         \
+  bb::ScopeGuard BB_STRING_JOIN(scope_guard_, __LINE__)([&]() { code; })
+
 namespace bb {
 
 enum class LogLevel { Info, Warning, Error };
@@ -56,6 +61,19 @@ bool endsWith(const std::string &_str, const std::string &_suffix);
 bool contains(const std::string &_str, char _subchar);
 bool contains(const std::string &_str, const char *_substr);
 bool contains(const std::string &_str, const std::string &_substr);
+
+template <typename Fn> struct ScopeGuard {
+  Fn Func;
+  bool Active;
+
+  ScopeGuard(const Fn &_func);
+  ScopeGuard(Fn &&_func);
+  ScopeGuard(ScopeGuard &&_other);
+  ~ScopeGuard();
+  ScopeGuard(const ScopeGuard &) = delete;
+  ScopeGuard &operator=(const ScopeGuard &) = delete;
+  ScopeGuard &operator=(ScopeGuard &&) = delete;
+};
 
 } // namespace bb
 

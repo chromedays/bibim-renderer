@@ -212,7 +212,7 @@ int main(int _argc, char **_argv) {
   {
     Assimp::Importer importer;
     const aiScene *gizmoScene = importer.ReadFile(
-        createAbsolutePath("gizmo.obj"), aiProcess_Triangulate);
+        createCommonResourcePath("gizmo.obj"), aiProcess_Triangulate);
 
     {
       size_t numVertices = 0;
@@ -275,54 +275,32 @@ int main(int _argc, char **_argv) {
     }
   }
 
-  std::string shaderRootPath = "../src/shaders";
+  Shader gBufferVertShader = createShaderFromFile(renderer, "gbuffer.vert.spv");
+  Shader gBufferFragShader = createShaderFromFile(renderer, "gbuffer.frag.spv");
 
-  Shader gBufferVertShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "gbuffer.vert.spv")));
-  Shader gBufferFragShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "gbuffer.frag.spv")));
+  Shader brdfVertShader = createShaderFromFile(renderer, "brdf.vert.spv");
+  Shader brdfFragShader = createShaderFromFile(renderer, "brdf.frag.spv");
 
-  Shader brdfVertShader = createShaderFromFile(
-      renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.vert.spv")));
-  Shader brdfFragShader = createShaderFromFile(
-      renderer, createAbsolutePath(joinPaths(shaderRootPath, "brdf.frag.spv")));
+  Shader forwardBrdfVertShader =
+      createShaderFromFile(renderer, "forward_brdf.vert.spv");
+  Shader forwardBrdfFragShader =
+      createShaderFromFile(renderer, "forward_brdf.frag.spv");
 
-  Shader forwardBrdfVertShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "forward_brdf.vert.spv")));
-  Shader forwardBrdfFragShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "forward_brdf.frag.spv")));
+  Shader hdrToneMappingVertShader =
+      createShaderFromFile(renderer, "hdr_tone_mapping.vert.spv");
+  Shader hdrToneMappingFragShader =
+      createShaderFromFile(renderer, "hdr_tone_mapping.frag.spv");
 
-  Shader hdrToneMappingVertShader = createShaderFromFile(
-      renderer, createAbsolutePath(
-                    joinPaths(shaderRootPath, "hdr_tone_mapping.vert.spv")));
-  Shader hdrToneMappingFragShader = createShaderFromFile(
-      renderer, createAbsolutePath(
-                    joinPaths(shaderRootPath, "hdr_tone_mapping.frag.spv")));
+  gGizmo.VertShader = createShaderFromFile(renderer, "gizmo.vert.spv");
+  gGizmo.FragShader = createShaderFromFile(renderer, "gizmo.frag.spv");
 
-  gGizmo.VertShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "gizmo.vert.spv")));
-  gGizmo.FragShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "gizmo.frag.spv")));
+  gLightSources.VertShader = createShaderFromFile(renderer, "light.vert.spv");
+  gLightSources.FragShader = createShaderFromFile(renderer, "light.frag.spv");
 
-  gLightSources.VertShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "light.vert.spv")));
-  gLightSources.FragShader = createShaderFromFile(
-      renderer,
-      createAbsolutePath(joinPaths(shaderRootPath, "light.frag.spv")));
-
-  gBufferVisualize.VertShader = createShaderFromFile(
-      renderer, createAbsolutePath(
-                    joinPaths(shaderRootPath, "buffer_visualize.vert.spv")));
-  gBufferVisualize.FragShader = createShaderFromFile(
-      renderer, createAbsolutePath(
-                    joinPaths(shaderRootPath, "buffer_visualize.frag.spv")));
+  gBufferVisualize.VertShader =
+      createShaderFromFile(renderer, "buffer_visualize.vert.spv");
+  gBufferVisualize.FragShader =
+      createShaderFromFile(renderer, "buffer_visualize.frag.spv");
 
   PBRMaterialSet materialSet = createPBRMaterialSet(renderer, transientCmdPool);
   commonSceneResources.MaterialSet = &materialSet;

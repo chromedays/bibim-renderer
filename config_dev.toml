@@ -1,0 +1,3 @@
+[resource_path]
+common_root = "../../resources"
+shader_root = "../../src/shaders"
