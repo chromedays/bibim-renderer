@@ -998,24 +998,21 @@ Shader createShaderFromFile(const Renderer &_renderer,
     result.Stage = VK_SHADER_STAGE_FRAGMENT_BIT;
   } else if (endsWith(_filePath, ".geom.spv")) {
     result.Stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-  } else {
+  } else if (endsWith(_filePath, ".comp.spv")) {
+    result.Stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  }  else {
     BB_ASSERT(false);
   }
 
   std::string fileAbsPath = createShaderPath(_filePath);
 
-  FILE *f = fopen(fileAbsPath.c_str(), "rb");
-  BB_ASSERT(f);
-  fseek(f, 0, SEEK_END);
-  long fileSize = ftell(f);
-  rewind(f);
-  uint8_t *contents = new uint8_t[fileSize];
-  fread(contents, sizeof(*contents), fileSize, f);
+  FileData fileData = readEntireFile(fileAbsPath);
+  BB_DEFER(destroyFileData(fileData));
 
   VkShaderModuleCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = fileSize;
-  createInfo.pCode = (uint32_t *)contents;
+  createInfo.codeSize = fileData.Size;
+  createInfo.pCode = (uint32_t *)fileData.Contents;
 
   BB_VK_ASSERT(vkCreateShaderModule(_renderer.Device, &createInfo, nullptr,
                                     &result.Handle));
@@ -1031,9 +1028,6 @@ Shader createShaderFromFile(const Renderer &_renderer,
     BB_VK_ASSERT(vkSetDebugUtilsObjectNameEXT(_renderer.Device, &nameInfo));
   }
 #endif
-
-  delete[] contents;
-  fclose(f);
 
   return result;
 }

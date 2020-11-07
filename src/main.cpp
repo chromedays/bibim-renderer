@@ -1104,7 +1104,6 @@ int main(int _argc, char **_argv) {
 
     if (ImGui::Begin("Scene")) {
       if (ImGui::BeginCombo("Select Scene", gSceneLabels[gCurrentSceneType])) {
-
         for (SceneType sceneType : AllEnums<SceneType>) {
           if (ImGui::Selectable(gSceneLabels[sceneType],
                                 sceneType == gCurrentSceneType)) {

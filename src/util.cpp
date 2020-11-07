@@ -51,4 +51,24 @@ bool contains(const std::string &_str, const std::string &_substr) {
   return _str.find(_substr) != std::string::npos;
 }
 
+FileData readEntireFile(std::string_view _filePath) {
+  FILE *f = fopen(_filePath.data(), "rb");
+  BB_ASSERT(f);
+  BB_DEFER(fclose(f));
+
+  FileData data = {};
+  fseek(f, 0, SEEK_END);
+  data.Size = ftell(f);
+  rewind(f);
+  data.Contents = new uint8_t[data.Size];
+  fread(data.Contents, sizeof(*data.Contents), data.Size, f);
+  return data;
+}
+
+void destroyFileData(FileData& _fileData)
+{
+  delete[] _fileData.Contents;
+  _fileData = {};
+}
+
 } // namespace bb

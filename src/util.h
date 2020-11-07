@@ -75,6 +75,14 @@ template <typename Fn> struct ScopeGuard {
   ScopeGuard &operator=(ScopeGuard &&) = delete;
 };
 
+struct FileData {
+  uint32_t Size;
+  uint8_t* Contents;
+};
+
+FileData readEntireFile(std::string_view _filePath);
+void destroyFileData(FileData& _fileData);
+
 } // namespace bb
 
 #include "util.inl"
