@@ -1132,6 +1132,7 @@ int main(int _argc, char **_argv) {
     std::string envFilePath =
         createCommonResourcePath("env/Newport_Loft/Newport_Loft_Ref.hdr");
     gSky.EnvMap = createImageFromFile(renderer, transientCmdPool, envFilePath);
+    BB_ASSERT(gSky.EnvMap.Handle != VK_NULL_HANDLE);
 
     VkDescriptorBufferInfo bufferInfos[numFrames] = {};
     VkDescriptorImageInfo imageInfos[numFrames] = {};
