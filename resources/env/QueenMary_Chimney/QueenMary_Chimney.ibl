@@ -1,0 +1,53 @@
+[Header]
+ICOfile = "QueenMary_Chimney_thumb.jpg"
+PREVIEWfile = "QueenMary_Chimney_preview.jpg"
+Name = "Queen Mary Chimney"
+Author = "Blochi"
+Location = "Long Beach"
+Comment = "Upper Deck at Night, Close to Bridge, deep night with lotsa colors"
+GEOlat = 33.7532119749999990
+GEOlong = -118.1904220580555600
+Link = "http://www.hdrlabs.com/sibl/archive.html"
+Date = "2010:05:05"
+Time = "22:00:00"
+Height = 1.600000
+
+[Background]
+BGfile = "QueenMary_Chimney_8k.jpg"
+BGmap = 1
+BGu = 0.000000
+BGv = 0.000000
+BGheight = 4096
+
+[Enviroment]
+EVfile = "QueenMary_Chimney_Env.hdr"
+EVmap = 1
+EVu = 0.000000
+EVv = 0.000000
+EVheight = 180
+EVmulti = 1.200000
+EVgamma = 1.800000
+
+[Reflection]
+REFfile = "QueenMary_Chimney_Ref.hdr"
+REFmap = 1
+REFu = 0.000000
+REFv = 0.000000
+REFheight = 1800
+REFmulti = 1.200000
+REFgamma = 1.800000
+
+[Light1]
+LIGHTname = "NearSpot"
+LIGHTcolor = 166,182,255
+LIGHTmulti = 1.0
+LIGHTu = 0.354000
+LIGHTv = 0.408000 
+
+[Light2]
+LIGHTname = "FarSpot"
+LIGHTcolor = 166,182,255
+LIGHTmulti = 0.6
+LIGHTu = 0.060000
+LIGHTv = 0.488000
+
