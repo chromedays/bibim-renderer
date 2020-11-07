@@ -42,6 +42,8 @@ layout (set = SET_VIEW, binding = 0) uniform ViewData {
     int uEnableNormalMap;
 };
 
+layout (set = SET_VIEW, binding = 1) uniform texture2D uEnvMap;
+
 layout (set = SET_MATERIAL, binding = 0) uniform texture2D uMaterialTextures[6];
 #define TEX_ALBEDO    0
 #define TEX_METALLIC  1

@@ -129,6 +129,8 @@ Settings
     'buffer_visualize.frag',
     'hdr_tone_mapping.vert',
     'hdr_tone_mapping.frag',
+    'sky.vert',
+    'sky.frag',
 }
 
 ForEach (.Shader in .Shaders)

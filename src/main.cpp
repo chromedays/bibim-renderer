@@ -41,6 +41,19 @@ static Gizmo gGizmo;
 static GBufferVisualize gBufferVisualize;
 static LightSources gLightSources;
 
+struct {
+  Shader VertShader;
+  Shader FragShader;
+  VkPipeline Pipeline;
+
+  Buffer VertexBuffer;
+  Buffer IndexBuffer;
+
+  Image EnvMap;
+
+  std::vector<VkDescriptorSet> ViewDescriptorSets;
+} gSky;
+
 static StandardPipelineLayout gStandardPipelineLayout;
 
 enum class SceneType { Triangle, ShaderBalls, COUNT };
@@ -54,7 +67,8 @@ void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
                    VkPipeline _forwardPipeline, VkPipeline _gBufferPipeline,
                    VkPipeline _brdfPipeline, VkPipeline _hdrToneMappingPipeline,
-                   VkExtent2D _swapChainExtent, const Frame &_frame) {
+                   VkExtent2D _swapChainExtent, const Frame &_frame,
+                   uint32_t _frameIndex) {
   SceneBase *currentScene = gScenes[gCurrentSceneType];
 
   VkCommandBufferBeginInfo cmdBeginInfo = {};
@@ -109,6 +123,24 @@ void recordCommand(VkRenderPass _deferredRenderPass,
                       _forwardPipeline);
     currentScene->drawScene(_frame);
   }
+
+  // Draws skybox
+  {
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            gStandardPipelineLayout.Handle, 1, 1,
+                            &gSky.ViewDescriptorSets[_frameIndex], 0, nullptr);
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      gSky.Pipeline);
+    VkDeviceSize offsets[1] = {};
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &gSky.VertexBuffer.Handle, offsets);
+    vkCmdBindIndexBuffer(cmdBuffer, gSky.IndexBuffer.Handle, 0,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmdBuffer, 36, 1, 0, 0, 0);
+  }
+
+  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          gStandardPipelineLayout.Handle, 1, 1,
+                          &_frame.ViewDescriptorSet, 0, nullptr);
 
   if (gBufferVisualize.CurrentOption !=
       GBufferVisualizingOption::RenderedScene) {
@@ -302,13 +334,17 @@ int main(int _argc, char **_argv) {
   gBufferVisualize.FragShader =
       createShaderFromFile(renderer, "buffer_visualize.frag.spv");
 
+  gSky.VertShader = createShaderFromFile(renderer, "sky.vert.spv");
+  gSky.FragShader = createShaderFromFile(renderer, "sky.frag.spv");
+
   PBRMaterialSet materialSet = createPBRMaterialSet(renderer, transientCmdPool);
   commonSceneResources.MaterialSet = &materialSet;
 
   // Create a descriptor pool corresponding to the standard pipeline layout
   VkDescriptorPool standardDescriptorPool = createStandardDescriptorPool(
       renderer, gStandardPipelineLayout,
-      {numFrames, 1, (uint32_t)materialSet.Materials.size(), 1});
+      {numFrames, 2, (uint32_t)materialSet.Materials.size(), 1});
+
   RenderPass deferredRenderPass;
 
   VkPipeline forwardPipeline;
@@ -382,6 +418,24 @@ int main(int _argc, char **_argv) {
   hdrToneMappingPipelineParams.DepthStencil.DepthTestEnable = false;
   hdrToneMappingPipelineParams.DepthStencil.DepthWriteEnable = false;
   hdrToneMappingPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
+
+  PipelineParams skyPipelineParams = {};
+  const Shader *skyShaders[] = {&gSky.VertShader, &gSky.FragShader};
+  skyPipelineParams.Shaders = skyShaders;
+  skyPipelineParams.NumShaders = std::size(skyShaders);
+  skyPipelineParams.VertexInput.Bindings = SkyVertex::Bindings.data();
+  skyPipelineParams.VertexInput.NumBindings = SkyVertex::Bindings.size();
+  skyPipelineParams.VertexInput.Attributes = SkyVertex::Attributes.data();
+  skyPipelineParams.VertexInput.NumAttributes = SkyVertex::Attributes.size();
+  skyPipelineParams.InputAssembly.Topology =
+      VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  skyPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+  skyPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+  skyPipelineParams.DepthStencil.DepthTestEnable = true;
+  skyPipelineParams.DepthStencil.DepthWriteEnable = false;
+  skyPipelineParams.Blend.NumColorBlends = 1;
+  skyPipelineParams.Subpass = (uint32_t)DeferredSubpassType::ForwardLighting;
+  skyPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
 
   SwapChain swapChain;
   std::vector<VkFramebuffer> deferredFramebuffers;
@@ -728,6 +782,12 @@ int main(int _argc, char **_argv) {
     hdrToneMappingPipelineParams.RenderPass = deferredRenderPass.Handle;
     hdrToneMappingPipeline =
         createPipeline(renderer, hdrToneMappingPipelineParams);
+    skyPipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                         (float)swapChain.Extent.height};
+    skyPipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                                (int)swapChain.Extent.height};
+    skyPipelineParams.RenderPass = deferredRenderPass.Handle;
+    gSky.Pipeline = createPipeline(renderer, skyPipelineParams);
 
     // Gizmo Pipeline
     {
@@ -859,6 +919,9 @@ int main(int _argc, char **_argv) {
   };
 
   auto cleanupReloadableResources = [&] {
+    vkDestroyPipeline(renderer.Device, gSky.Pipeline, nullptr);
+    gSky.Pipeline = VK_NULL_HANDLE;
+
     vkDestroyPipeline(renderer.Device, gLightSources.Pipeline, nullptr);
     gLightSources.Pipeline = VK_NULL_HANDLE;
 
@@ -927,6 +990,68 @@ int main(int _argc, char **_argv) {
       sizeBytes32(gizmoIndices), gizmoIndices.data());
   gGizmo.NumIndices = gizmoIndices.size();
 
+  {
+    //clang-format off
+    SkyVertex skyboxVertices[8] = {
+        {{-1, -1, -1}}, {{-1, -1, 1}}, {{1, -1, 1}}, {{1, -1, -1}},
+
+        {{-1, 1, -1}},  {{-1, 1, 1}},  {{1, 1, 1}},  {{1, 1, -1}},
+    };
+
+    uint32_t skyboxIndices[36] = {
+        // Top
+        4,
+        7,
+        6,
+        6,
+        5,
+        4,
+        // Bottom
+        1,
+        2,
+        3,
+        3,
+        0,
+        1,
+        // Front
+        7,
+        4,
+        0,
+        0,
+        3,
+        7,
+        // Back
+        5,
+        6,
+        2,
+        2,
+        1,
+        5,
+        // Left
+        4,
+        5,
+        1,
+        1,
+        0,
+        4,
+        // Right
+        6,
+        7,
+        3,
+        3,
+        2,
+        6,
+    };
+    //clang-format on
+
+    gSky.VertexBuffer = createDeviceLocalBufferFromMemory(
+        renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        sizeof(skyboxVertices), skyboxVertices);
+    gSky.IndexBuffer = createDeviceLocalBufferFromMemory(
+        renderer, transientCmdPool, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        sizeof(skyboxIndices), skyboxIndices);
+  }
+
   // Imgui descriptor pool and descriptor sets
   VkDescriptorPool imguiDescriptorPool = {};
   {
@@ -983,6 +1108,62 @@ int main(int _argc, char **_argv) {
     BB_VK_ASSERT(vkCreateFence(renderer.Device, &fenceCreateInfo, nullptr,
                                &syncObject.FrameAvailableFence));
     frameSyncObjects.push_back(syncObject);
+  }
+
+  // Allocate and update descriptor set for skybox
+  {
+    gSky.ViewDescriptorSets.resize(numFrames);
+    VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+    descriptorSetAllocInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocInfo.descriptorPool = standardDescriptorPool;
+    descriptorSetAllocInfo.descriptorSetCount = numFrames;
+    VkDescriptorSetLayout layouts[numFrames];
+    for (VkDescriptorSetLayout &layout : layouts) {
+      layout = gStandardPipelineLayout
+                   .DescriptorSetLayouts[DescriptorFrequency::PerView]
+                   .Handle;
+    }
+    descriptorSetAllocInfo.pSetLayouts = layouts;
+    BB_VK_ASSERT(vkAllocateDescriptorSets(renderer.Device,
+                                          &descriptorSetAllocInfo,
+                                          gSky.ViewDescriptorSets.data()));
+
+    std::string envFilePath =
+        createCommonResourcePath("env/Newport_Loft/Newport_Loft_Ref.hdr");
+    gSky.EnvMap = createImageFromFile(renderer, transientCmdPool, envFilePath);
+
+    VkDescriptorBufferInfo bufferInfos[numFrames] = {};
+    VkDescriptorImageInfo imageInfos[numFrames] = {};
+    std::vector<VkWriteDescriptorSet> writeInfos;
+
+    for (int i = 0; i < numFrames; ++i) {
+      VkWriteDescriptorSet writeInfo = {};
+      writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writeInfo.dstSet = gSky.ViewDescriptorSets[i];
+      writeInfo.dstBinding = 0;
+      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      writeInfo.descriptorCount = 1;
+      bufferInfos[i].buffer = frames[i].ViewUniformBuffer.Handle;
+      bufferInfos[i].range = VK_WHOLE_SIZE;
+      writeInfo.pBufferInfo = &bufferInfos[i];
+      writeInfos.push_back(writeInfo);
+    }
+
+    for (int i = 0; i < numFrames; ++i) {
+      VkWriteDescriptorSet writeInfo = {};
+      writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writeInfo.dstSet = gSky.ViewDescriptorSets[i];
+      writeInfo.dstBinding = 1;
+      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      writeInfo.descriptorCount = 1;
+      imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[i].imageView = gSky.EnvMap.View;
+      writeInfo.pImageInfo = &imageInfos[i];
+      writeInfos.push_back(writeInfo);
+    }
+    vkUpdateDescriptorSets(renderer.Device, std::size(writeInfos),
+                           writeInfos.data(), 0, nullptr);
   }
 
   // Important : You need to delete every cmd used by swapchain
@@ -1290,7 +1471,8 @@ int main(int _argc, char **_argv) {
     ImGui::Render();
     recordCommand(deferredRenderPass.Handle, currentDeferredFramebuffer,
                   forwardPipeline, gBufferPipeline, brdfPipeline,
-                  hdrToneMappingPipeline, swapChain.Extent, currentFrame);
+                  hdrToneMappingPipeline, swapChain.Extent, currentFrame,
+                  currentFrameIndex);
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1334,6 +1516,8 @@ int main(int _argc, char **_argv) {
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
 
+  destroyImage(renderer, gSky.EnvMap);
+
   for (FrameSync &frameSyncObject : frameSyncObjects) {
     vkDestroyFence(renderer.Device, frameSyncObject.FrameAvailableFence,
                    nullptr);
@@ -1356,6 +1540,8 @@ int main(int _argc, char **_argv) {
   destroyBuffer(renderer, gLightSources.VertexBuffer);
   destroyBuffer(renderer, gGizmo.IndexBuffer);
   destroyBuffer(renderer, gGizmo.VertexBuffer);
+  destroyBuffer(renderer, gSky.IndexBuffer);
+  destroyBuffer(renderer, gSky.VertexBuffer);
 
   cleanupReloadableResources();
 
@@ -1365,6 +1551,8 @@ int main(int _argc, char **_argv) {
 
   vkDestroyCommandPool(renderer.Device, transientCmdPool, nullptr);
 
+  destroyShader(renderer, gSky.VertShader);
+  destroyShader(renderer, gSky.FragShader);
   destroyShader(renderer, gLightSources.VertShader);
   destroyShader(renderer, gLightSources.FragShader);
   destroyShader(renderer, gGizmo.VertShader);

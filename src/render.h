@@ -133,6 +133,13 @@ struct LightSourceVertex {
   VERTEX_ATTRIBUTES_DECL(2);
 };
 
+struct SkyVertex {
+  Float3 Pos;
+
+  VERTEX_BINDINGS_DECL(1);
+  VERTEX_ATTRIBUTES_DECL(1);
+};
+
 struct Buffer {
   VkBuffer Handle;
   VkDeviceMemory Memory;

@@ -662,6 +662,25 @@ LightSourceVertex::AttributeDescs LightSourceVertex::getAttributeDescs() {
   return attributes;
 }
 
+SkyVertex::BindingDescs SkyVertex::getBindingDescs() {
+  BindingDescs bindings = {};
+  bindings[0].binding = 0;
+  bindings[0].stride = sizeof(SkyVertex);
+  bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  return bindings;
+}
+
+SkyVertex::AttributeDescs SkyVertex::getAttributeDescs() {
+  AttributeDescs attributes = {};
+  attributes[0].binding = 0;
+  attributes[0].location = 0;
+  attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributes[0].offset = offsetof(SkyVertex, Pos);
+
+  return attributes;
+}
+
 Buffer createBuffer(const Renderer &_renderer, VkDeviceSize _size,
                     VkBufferUsageFlags _usage,
                     VkMemoryPropertyFlags _properties) {
@@ -824,6 +843,26 @@ Image createImage(const Renderer &_renderer, const ImageParams &_params) {
   return image;
 }
 
+static uint32_t getFormatSize(VkFormat _format) {
+  uint32_t size;
+
+  switch (_format) {
+  case VK_FORMAT_R8G8B8A8_UNORM:
+    size = 4;
+    break;
+  case VK_FORMAT_R16G16B16A16_SFLOAT:
+    size = 8;
+    break;
+  case VK_FORMAT_R32G32B32A32_SFLOAT:
+    size = 16;
+    break;
+  default:
+    BB_VK_ASSERT(false);
+  }
+
+  return size;
+}
+
 Image createImageFromFile(const Renderer &_renderer,
                           VkCommandPool _transientCmdPool,
                           const std::string &_filePath) {
@@ -831,12 +870,25 @@ Image createImageFromFile(const Renderer &_renderer,
 
   Int2 textureDims = {};
   int numChannels;
-  stbi_uc *pixels = stbi_load(_filePath.c_str(), &textureDims.X, &textureDims.Y,
-                              &numChannels, STBI_rgb_alpha);
-  if (!pixels)
-    return {};
+  VkFormat format;
+  void *pixels;
 
-  VkDeviceSize textureSize = textureDims.X * textureDims.Y * 4;
+  if (endsWith(_filePath, ".hdr")) {
+    format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    pixels = stbi_loadf(_filePath.c_str(), &textureDims.X, &textureDims.Y,
+                        &numChannels, STBI_rgb_alpha);
+  } else {
+    format = VK_FORMAT_R8G8B8A8_UNORM;
+    pixels = stbi_load(_filePath.c_str(), &textureDims.X, &textureDims.Y,
+                       &numChannels, STBI_rgb_alpha);
+  }
+
+  if (!pixels) {
+    return {};
+  }
+
+  uint32_t bytesPerPixel = getFormatSize(format);
+  VkDeviceSize textureSize = textureDims.X * textureDims.Y * bytesPerPixel;
 
   Buffer textureStagingBuffer =
       createBuffer(_renderer, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -859,7 +911,7 @@ Image createImageFromFile(const Renderer &_renderer,
   imageCreateInfo.extent.depth = 1;
   imageCreateInfo.mipLevels = 1;
   imageCreateInfo.arrayLayers = 1;
-  imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  imageCreateInfo.format = format;
   imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   imageCreateInfo.usage =
@@ -960,7 +1012,7 @@ Image createImageFromFile(const Renderer &_renderer,
   imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   imageViewCreateInfo.image = result.Handle;
   imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  imageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  imageViewCreateInfo.format = format;
   imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
   imageViewCreateInfo.subresourceRange.levelCount = 1;
@@ -1000,7 +1052,7 @@ Shader createShaderFromFile(const Renderer &_renderer,
     result.Stage = VK_SHADER_STAGE_GEOMETRY_BIT;
   } else if (endsWith(_filePath, ".comp.spv")) {
     result.Stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  }  else {
+  } else {
     BB_ASSERT(false);
   }
 
@@ -1331,6 +1383,7 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
             // PerView
             {
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
             },
             // PerMaterial
             {
