@@ -991,58 +991,34 @@ int main(int _argc, char **_argv) {
   gGizmo.NumIndices = gizmoIndices.size();
 
   {
-    //clang-format off
+    // clang-format off
     SkyVertex skyboxVertices[8] = {
-        {{-1, -1, -1}}, {{-1, -1, 1}}, {{1, -1, 1}}, {{1, -1, -1}},
+        {{-1, -1, -1}},
+        {{-1, -1,  1}},
+        {{ 1, -1,  1}},
+        {{ 1, -1, -1}},
 
-        {{-1, 1, -1}},  {{-1, 1, 1}},  {{1, 1, 1}},  {{1, 1, -1}},
+        {{-1,  1, -1}},
+        {{-1,  1,  1}},
+        {{ 1,  1,  1}},
+        {{ 1,  1, -1}},
     };
 
     uint32_t skyboxIndices[36] = {
         // Top
-        4,
-        7,
-        6,
-        6,
-        5,
-        4,
+        4, 7, 6, 6, 5, 4,
         // Bottom
-        1,
-        2,
-        3,
-        3,
-        0,
-        1,
+        1, 2, 3, 3, 0, 1,
         // Front
-        7,
-        4,
-        0,
-        0,
-        3,
-        7,
+        7, 4, 0, 0, 3, 7,
         // Back
-        5,
-        6,
-        2,
-        2,
-        1,
-        5,
+        5, 6, 2, 2, 1, 5,
         // Left
-        4,
-        5,
-        1,
-        1,
-        0,
-        4,
+        4, 5, 1, 1, 0, 4,
         // Right
-        6,
-        7,
-        3,
-        3,
-        2,
-        6,
+        6, 7, 3, 3, 2, 6,
     };
-    //clang-format on
+    // clang-format on
 
     gSky.VertexBuffer = createDeviceLocalBufferFromMemory(
         renderer, transientCmdPool, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
