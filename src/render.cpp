@@ -1185,6 +1185,26 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
   // TODO(ilgwon): Convert _rootPath to absolute path if it's not already.
   PBRMaterial result = {};
   result.Name = getFileName(_rootPath);
+
+  ImageLoader loader;
+  BB_DEFER(destroyImageLoader(loader));
+
+  enqueueImageLoadTask(loader, _renderer, joinPaths(_rootPath, "albedo.png"),
+                       result.Maps[PBRMapType::Albedo]);
+  enqueueImageLoadTask(loader, _renderer, joinPaths(_rootPath, "metallic.png"),
+                       result.Maps[PBRMapType::Metallic]);
+  enqueueImageLoadTask(loader, _renderer, joinPaths(_rootPath, "roughness.png"),
+                       result.Maps[PBRMapType::Roughness]);
+  enqueueImageLoadTask(loader, _renderer, joinPaths(_rootPath, "ao.png"),
+                       result.Maps[PBRMapType::AO]);
+  enqueueImageLoadTask(loader, _renderer, joinPaths(_rootPath, "normal.png"),
+                       result.Maps[PBRMapType::Normal]);
+  enqueueImageLoadTask(loader, _renderer, joinPaths(_rootPath, "height.png"),
+                       result.Maps[PBRMapType::Height]);
+
+  finalizeAllImageLoads(loader, _renderer, _transientCmdPool);
+
+#if 0
   result.Maps[PBRMapType::Albedo] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "albedo.png"));
   result.Maps[PBRMapType::Metallic] = createImageFromFile(
@@ -1197,6 +1217,7 @@ PBRMaterial createPBRMaterialFromFiles(const Renderer &_renderer,
       _renderer, _transientCmdPool, joinPaths(_rootPath, "normal.png"));
   result.Maps[PBRMapType::Height] = createImageFromFile(
       _renderer, _transientCmdPool, joinPaths(_rootPath, "height.png"));
+#endif
 
 #if BB_DEBUG
   EnumArray<PBRMapType, std::string> labels = {
