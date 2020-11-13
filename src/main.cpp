@@ -917,6 +917,9 @@ int main(int _argc, char **_argv) {
     vkDestroyPipeline(renderer.Device, gBufferVisualize.Pipeline, nullptr);
     gBufferVisualize.Pipeline = VK_NULL_HANDLE;
 
+    vkDestroyPipeline(renderer.Device, gTBN.Pipeline, nullptr);
+    gTBN.Pipeline = VK_NULL_HANDLE;
+
     destroyImage(renderer, hdrAttachmentImage);
     for (Image &image : gbufferAttachmentImages) {
       destroyImage(renderer, image);
