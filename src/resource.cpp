@@ -1,8 +1,15 @@
 #include "resource.h"
 #include "util.h"
+#include "vector_math.h"
+#include "render.h"
+#include "type_conversion.h"
+#include "external/stb_image.h"
 #include "external/SDL2/SDL.h"
 #include "external/toml.h"
 #include <string_view>
+#ifdef BB_WINDOWS
+#include <Windows.h>
+#endif
 
 namespace bb {
 
@@ -145,6 +152,217 @@ std::string createCommonResourcePath(std::string_view _relPath) {
 std::string createShaderPath(std::string_view _relPath) {
   std::string absPath = joinPaths(gShaderRoot, _relPath);
   return absPath;
+}
+
+void runImageLoadTask(ImageLoadFromFileTask &_task) {
+  int numChannels;
+  stbi_uc *pixels = stbi_load(_task.FilePath.c_str(), &_task.ImageDims.X,
+                              &_task.ImageDims.Y, &numChannels, STBI_rgb_alpha);
+  if (!pixels) {
+    return;
+  }
+
+  BB_DEFER(stbi_image_free(pixels));
+
+  VkDeviceSize textureSize = _task.ImageDims.X * _task.ImageDims.Y * 4;
+  const Renderer &renderer = *_task.Renderer;
+
+  _task.StagingBuffer =
+      createBuffer(renderer, textureSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  {
+    void *data;
+    vkMapMemory(renderer.Device, _task.StagingBuffer.Memory, 0, textureSize, 0,
+                &data);
+    memcpy(data, pixels, textureSize);
+    vkUnmapMemory(renderer.Device, _task.StagingBuffer.Memory);
+  }
+
+  Image *targetImage = _task.TargetImage;
+
+  VkImageCreateInfo imageCreateInfo = {};
+  imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageCreateInfo.extent.width = (uint32_t)_task.ImageDims.X;
+  imageCreateInfo.extent.height = (uint32_t)_task.ImageDims.Y;
+  imageCreateInfo.extent.depth = 1;
+  imageCreateInfo.mipLevels = 1;
+  imageCreateInfo.arrayLayers = 1;
+  imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageCreateInfo.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageCreateInfo.flags = 0;
+
+  BB_VK_ASSERT(vkCreateImage(renderer.Device, &imageCreateInfo, nullptr,
+                             &targetImage->Handle));
+
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(renderer.Device, targetImage->Handle,
+                               &memRequirements);
+
+  VkMemoryAllocateInfo textureImageMemoryAllocateInfo = {};
+  textureImageMemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  textureImageMemoryAllocateInfo.allocationSize = memRequirements.size;
+  textureImageMemoryAllocateInfo.memoryTypeIndex =
+      findMemoryType(renderer, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  BB_VK_ASSERT(vkAllocateMemory(renderer.Device,
+                                &textureImageMemoryAllocateInfo, nullptr,
+                                &targetImage->Memory));
+
+  BB_VK_ASSERT(vkBindImageMemory(renderer.Device, targetImage->Handle,
+                                 targetImage->Memory, 0));
+}
+
+void destroyImageLoader(ImageLoader &_loader) {
+  for (ImageLoadFromFileTask *task : _loader.Tasks) {
+    delete task;
+  }
+  _loader.Tasks.clear();
+}
+
+void enqueueImageLoadTask(ImageLoader &_loader, const Renderer &_renderer,
+                          std::string_view _filePath, Image &_targetImage) {
+  ImageLoadFromFileTask *task = new ImageLoadFromFileTask();
+  task->Renderer = &_renderer;
+  task->FilePath = _filePath;
+  task->TargetImage = &_targetImage;
+
+  _loader.Tasks.push_back(task);
+}
+
+void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
+                           VkCommandPool _cmdPool) {
+  std::vector<HANDLE> threads;
+  std::vector<DWORD> threadIds;
+  threads.resize(_loader.Tasks.size());
+  threadIds.resize(_loader.Tasks.size());
+
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  int numCPUs = sysinfo.dwNumberOfProcessors;
+  int batch = MAXIMUM_WAIT_OBJECTS;
+
+  for (size_t i = 0; i < _loader.Tasks.size(); ++i) {
+    threads[i % batch] = CreateThread(
+        nullptr, 0,
+        [](LPVOID _param) -> DWORD {
+          ImageLoadFromFileTask *task = (ImageLoadFromFileTask *)_param;
+          runImageLoadTask(*task);
+          return 0;
+        },
+        _loader.Tasks[i], 0, &threadIds[i % batch]);
+    if ((i + 1) % batch == 0) {
+      WaitForMultipleObjects(batch, threads.data(), TRUE, INFINITE);
+    } else if (i == _loader.Tasks.size() - 1) {
+      WaitForMultipleObjects((i + 1) % batch, threads.data(), TRUE, INFINITE);
+    }
+  }
+
+  for (size_t i = 0; i < _loader.Tasks.size(); ++i) {
+    ImageLoadFromFileTask &task = *_loader.Tasks[i];
+    if (task.TargetImage->Handle == VK_NULL_HANDLE) {
+      continue;
+    }
+
+    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmdBufferAllocInfo.commandPool = _cmdPool;
+    cmdBufferAllocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer cmdBuffer;
+    BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
+                                          &cmdBuffer));
+
+    VkCommandBufferBeginInfo cmdBeginInfo = {};
+    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
+    VkImageMemoryBarrier barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.image = task.TargetImage->Handle;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &barrier);
+    VkBufferImageCopy region = {};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = int2ToExtent3D(task.ImageDims);
+    vkCmdCopyBufferToImage(cmdBuffer, task.StagingBuffer.Handle,
+                           task.TargetImage->Handle,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdBuffer;
+    BB_VK_ASSERT(
+        vkQueueSubmit(_renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
+    BB_VK_ASSERT(vkQueueWaitIdle(_renderer.Queue));
+    vkFreeCommandBuffers(_renderer.Device, _cmdPool, 1, &cmdBuffer);
+
+    destroyBuffer(_renderer, task.StagingBuffer);
+
+    VkImageViewCreateInfo imageViewCreateInfo = {};
+    imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    imageViewCreateInfo.image = task.TargetImage->Handle;
+    imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    imageViewCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+    imageViewCreateInfo.subresourceRange.levelCount = 1;
+    imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+    imageViewCreateInfo.subresourceRange.layerCount = 1;
+    BB_VK_ASSERT(vkCreateImageView(_renderer.Device, &imageViewCreateInfo,
+                                   nullptr, &task.TargetImage->View));
+  }
+
+  for (HANDLE thread : threads) {
+    CloseHandle(thread);
+  }
+
+  for (ImageLoadFromFileTask *task : _loader.Tasks) {
+    delete task;
+  }
+  _loader.Tasks.clear();
 }
 
 } // namespace bb
