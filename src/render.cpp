@@ -118,7 +118,6 @@ Renderer createRenderer(SDL_Window *_window) {
   BB_VK_ASSERT(vkEnumeratePhysicalDevices(result.Instance, &numPhysicalDevices,
                                           physicalDevices.data()));
 
-
   std::vector<const char *> deviceExtensions = {
       VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 

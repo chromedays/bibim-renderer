@@ -129,13 +129,11 @@ void recordCommand(VkRenderPass _deferredRenderPass,
 
   // Draw light sources and gizmo
   {
-    if(gTBN.IsEnabled)
-    {
-        vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      gTBN.Pipeline);
-        currentScene->drawScene(_frame);
+    if (gTBN.IsEnabled) {
+      vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        gTBN.Pipeline);
+      currentScene->drawScene(_frame);
     }
-
 
     VkDeviceSize offsets[2] = {};
     VkBuffer vertexBuffers[2] = {gLightSources.VertexBuffer.Handle,
@@ -300,17 +298,11 @@ int main(int _argc, char **_argv) {
   Shader hdrToneMappingFragShader =
       createShaderFromFile(renderer, "hdr_tone_mapping.frag.spv");
 
-
   gTBN.IsSupported = renderer.PhysicalDeviceFeatures.geometryShader == VK_TRUE;
 
-  gTBN.VertShader = 
-      createShaderFromFile(renderer, "tbn.vert.spv");
-  gTBN.GeomShader = 
-      createShaderFromFile(renderer, "tbn.geom.spv");
-  gTBN.FragShader = 
-      createShaderFromFile(renderer, "tbn.frag.spv");
-
-
+  gTBN.VertShader = createShaderFromFile(renderer, "tbn.vert.spv");
+  gTBN.GeomShader = createShaderFromFile(renderer, "tbn.geom.spv");
+  gTBN.FragShader = createShaderFromFile(renderer, "tbn.frag.spv");
 
   gGizmo.VertShader = createShaderFromFile(renderer, "gizmo.vert.spv");
   gGizmo.FragShader = createShaderFromFile(renderer, "gizmo.frag.spv");
@@ -795,41 +787,38 @@ int main(int _argc, char **_argv) {
 
     // TBN visualization pipeline
     {
-        PipelineParams tbnPipelineParams = {};
-        const Shader *tbnShaders[] = {&gTBN.VertShader, &gTBN.GeomShader, &gTBN.FragShader};
+      PipelineParams tbnPipelineParams = {};
+      const Shader *tbnShaders[] = {&gTBN.VertShader, &gTBN.GeomShader,
+                                    &gTBN.FragShader};
 
-        tbnPipelineParams.Shaders = tbnShaders;
-        tbnPipelineParams.NumShaders = std::size(tbnShaders);
-        tbnPipelineParams.InputAssembly.Topology =
-            VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+      tbnPipelineParams.Shaders = tbnShaders;
+      tbnPipelineParams.NumShaders = std::size(tbnShaders);
+      tbnPipelineParams.InputAssembly.Topology =
+          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
+      auto bindings = Vertex::getBindingDescs();
+      auto attributes = Vertex::getAttributeDescs();
+      tbnPipelineParams.VertexInput.Bindings = bindings.data();
+      tbnPipelineParams.VertexInput.NumBindings = bindings.size();
+      tbnPipelineParams.VertexInput.Attributes = attributes.data();
+      tbnPipelineParams.VertexInput.NumAttributes = attributes.size();
 
-        auto bindings = Vertex::getBindingDescs();
-        auto attributes = Vertex::getAttributeDescs();
-        tbnPipelineParams.VertexInput.Bindings = bindings.data();
-        tbnPipelineParams.VertexInput.NumBindings = bindings.size();
-        tbnPipelineParams.VertexInput.Attributes = attributes.data();
-        tbnPipelineParams.VertexInput.NumAttributes = attributes.size();
+      tbnPipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                           (float)swapChain.Extent.height};
+      tbnPipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                                  (int)swapChain.Extent.height};
+      tbnPipelineParams.RenderPass = deferredRenderPass.Handle;
 
+      tbnPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+      tbnPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+      tbnPipelineParams.Blend.NumColorBlends = 1;
 
+      tbnPipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
+      tbnPipelineParams.DepthStencil.DepthTestEnable = true;
+      tbnPipelineParams.DepthStencil.DepthWriteEnable = false;
+      tbnPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
 
-        tbnPipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
-                                             (float)swapChain.Extent.height};
-        tbnPipelineParams.Viewport.ScissorExtent = {
-            (int)swapChain.Extent.width, (int)swapChain.Extent.height};
-        tbnPipelineParams.RenderPass = deferredRenderPass.Handle;
-
-        tbnPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
-        tbnPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
-        tbnPipelineParams.Blend.NumColorBlends = 1;
-
-
-        tbnPipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
-        tbnPipelineParams.DepthStencil.DepthTestEnable = true;
-        tbnPipelineParams.DepthStencil.DepthWriteEnable = false;
-        tbnPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
-
-        gTBN.Pipeline = createPipeline(renderer, tbnPipelineParams);
+      gTBN.Pipeline = createPipeline(renderer, tbnPipelineParams);
     }
 
     // Light Sources Pipeline
@@ -1314,7 +1303,7 @@ int main(int _argc, char **_argv) {
       ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
       ImGui::Checkbox("Enable Tone Mapping", &enableToneMapping);
 
-      if(gTBN.IsSupported){
+      if (gTBN.IsSupported) {
         ImGui::Checkbox("Enable TBN", &gTBN.IsEnabled);
       }
       if (enableToneMapping) {
