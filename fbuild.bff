@@ -129,6 +129,9 @@ Settings
     'buffer_visualize.frag',
     'hdr_tone_mapping.vert',
     'hdr_tone_mapping.frag',
+    'tbn.vert',
+    'tbn.geom',
+    'tbn.frag',
 }
 
 ForEach (.Shader in .Shaders)
