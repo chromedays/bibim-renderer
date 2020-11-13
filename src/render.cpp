@@ -1246,6 +1246,8 @@ PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
                                     VkCommandPool _cmdPool) {
   PBRMaterialSet materialSet = {};
 
+  std::vector<std::string> pbrDirs;
+
   {
     WIN32_FIND_DATA fileFindData;
     std::string pbrRoot = createCommonResourcePath("pbr/*");
@@ -1255,6 +1257,10 @@ PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
       if ((strcmp(fileFindData.cFileName, ".") != 0) &&
           (strcmp(fileFindData.cFileName, "..") != 0) &&
           (fileFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+
+        pbrDirs.push_back(
+            createCommonResourcePath(joinPaths("pbr", fileFindData.cFileName)));
+#if 0
         PBRMaterial material = createPBRMaterialFromFiles(
             _renderer, _cmdPool,
             createCommonResourcePath(joinPaths("pbr", fileFindData.cFileName)));
@@ -1264,10 +1270,49 @@ PBRMaterialSet createPBRMaterialSet(const Renderer &_renderer,
         } else {
           materialSet.Materials.push_back(std::move(material));
         }
+#endif
       }
     } while (FindNextFileA(findHandle, &fileFindData));
     FindClose(findHandle);
   }
+
+  ImageLoader loader;
+  BB_DEFER(destroyImageLoader(loader));
+
+  materialSet.Materials.resize(pbrDirs.size());
+  for (size_t i = 0; i < materialSet.Materials.size(); ++i) {
+    PBRMaterial &material = materialSet.Materials[i];
+
+    material.Name = getFileName(pbrDirs[i]);
+
+    enqueueImageLoadTask(loader, _renderer, joinPaths(pbrDirs[i], "albedo.png"),
+                         material.Maps[PBRMapType::Albedo]);
+    enqueueImageLoadTask(loader, _renderer,
+                         joinPaths(pbrDirs[i], "metallic.png"),
+                         material.Maps[PBRMapType::Metallic]);
+    enqueueImageLoadTask(loader, _renderer,
+                         joinPaths(pbrDirs[i], "roughness.png"),
+                         material.Maps[PBRMapType::Roughness]);
+    enqueueImageLoadTask(loader, _renderer, joinPaths(pbrDirs[i], "ao.png"),
+                         material.Maps[PBRMapType::AO]);
+    enqueueImageLoadTask(loader, _renderer, joinPaths(pbrDirs[i], "normal.png"),
+                         material.Maps[PBRMapType::Normal]);
+    enqueueImageLoadTask(loader, _renderer, joinPaths(pbrDirs[i], "height.png"),
+                         material.Maps[PBRMapType::Height]);
+  }
+
+  finalizeAllImageLoads(loader, _renderer, _cmdPool);
+
+  for (size_t i = 0; i < materialSet.Materials.size(); ++i) {
+    PBRMaterial &material = materialSet.Materials[i];
+    if (material.Name == "default") {
+      std::swap(material, materialSet.Materials.back());
+      break;
+    }
+  }
+
+  materialSet.DefaultMaterial = materialSet.Materials.back();
+  materialSet.Materials.pop_back();
 
   return materialSet;
 }

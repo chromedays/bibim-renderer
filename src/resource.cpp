@@ -172,7 +172,6 @@ void runImageLoadTask(ImageLoadFromFileTask &_task) {
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-
   {
     void *data;
     vkMapMemory(renderer.Device, _task.StagingBuffer.Memory, 0, textureSize, 0,
@@ -246,18 +245,26 @@ void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
   threads.resize(_loader.Tasks.size());
   threadIds.resize(_loader.Tasks.size());
 
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  int numCPUs = sysinfo.dwNumberOfProcessors;
+  int batch = MAXIMUM_WAIT_OBJECTS;
+
   for (size_t i = 0; i < _loader.Tasks.size(); ++i) {
-    threads[i] = CreateThread(
+    threads[i % batch] = CreateThread(
         nullptr, 0,
         [](LPVOID _param) -> DWORD {
           ImageLoadFromFileTask *task = (ImageLoadFromFileTask *)_param;
           runImageLoadTask(*task);
           return 0;
         },
-        _loader.Tasks[i], 0, &threadIds[i]);
+        _loader.Tasks[i], 0, &threadIds[i % batch]);
+    if ((i + 1) % batch == 0) {
+      WaitForMultipleObjects(batch, threads.data(), TRUE, INFINITE);
+    } else if (i == _loader.Tasks.size() - 1) {
+      WaitForMultipleObjects((i + 1) % batch, threads.data(), TRUE, INFINITE);
+    }
   }
-
-  WaitForMultipleObjects(threads.size(), threads.data(), TRUE, INFINITE);
 
   for (size_t i = 0; i < _loader.Tasks.size(); ++i) {
     ImageLoadFromFileTask &task = *_loader.Tasks[i];
