@@ -198,7 +198,7 @@ struct ShaderBallScene : SceneBase {
   struct {
     EnumArray<PBRMapType, ImTextureID> DefaultMaterialTextureId;
     std::vector<EnumArray<PBRMapType, ImTextureID>> MaterialTextureIds;
-    int SelectedMaterial = 1;
+    int SelectedMaterial = 0;
     int SelectedShaderBallInstance = -1;
   } GUI;
 
