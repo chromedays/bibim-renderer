@@ -266,26 +266,27 @@ void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
     }
   }
 
+  VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
+  cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdBufferAllocInfo.commandPool = _cmdPool;
+  cmdBufferAllocInfo.commandBufferCount = 1;
+
+  VkCommandBuffer cmd;
+  BB_VK_ASSERT(
+      vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo, &cmd));
+
+  VkCommandBufferBeginInfo cmdBeginInfo = {};
+  cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  BB_VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
   for (size_t i = 0; i < _loader.Tasks.size(); ++i) {
     ImageLoadFromFileTask &task = *_loader.Tasks[i];
     if (task.TargetImage->Handle == VK_NULL_HANDLE) {
       continue;
     }
 
-    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {};
-    cmdBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmdBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdBufferAllocInfo.commandPool = _cmdPool;
-    cmdBufferAllocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer cmdBuffer;
-    BB_VK_ASSERT(vkAllocateCommandBuffers(_renderer.Device, &cmdBufferAllocInfo,
-                                          &cmdBuffer));
-
-    VkCommandBufferBeginInfo cmdBeginInfo = {};
-    cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmdBuffer, &cmdBeginInfo));
     VkImageMemoryBarrier barrier = {};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -302,7 +303,7 @@ void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                          nullptr, 1, &barrier);
     VkBufferImageCopy region = {};
@@ -315,7 +316,7 @@ void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
     region.imageSubresource.layerCount = 1;
     region.imageOffset = {0, 0, 0};
     region.imageExtent = int2ToExtent3D(task.ImageDims);
-    vkCmdCopyBufferToImage(cmdBuffer, task.StagingBuffer.Handle,
+    vkCmdCopyBufferToImage(cmd, task.StagingBuffer.Handle,
                            task.TargetImage->Handle,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -325,19 +326,27 @@ void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
                          0, nullptr, 1, &barrier);
-    BB_VK_ASSERT(vkEndCommandBuffer(cmdBuffer));
+  }
 
-    VkSubmitInfo submitInfo = {};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmdBuffer;
-    BB_VK_ASSERT(
-        vkQueueSubmit(_renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
-    BB_VK_ASSERT(vkQueueWaitIdle(_renderer.Queue));
-    vkFreeCommandBuffers(_renderer.Device, _cmdPool, 1, &cmdBuffer);
+  BB_VK_ASSERT(vkEndCommandBuffer(cmd));
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &cmd;
+  BB_VK_ASSERT(vkQueueSubmit(_renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
+  BB_VK_ASSERT(vkQueueWaitIdle(_renderer.Queue));
+  vkFreeCommandBuffers(_renderer.Device, _cmdPool, 1, &cmd);
+
+  for (size_t i = 0; i < _loader.Tasks.size(); ++i) {
+    ImageLoadFromFileTask &task = *_loader.Tasks[i];
+
+    if (task.TargetImage->Handle == VK_NULL_HANDLE) {
+      continue;
+    }
 
     destroyBuffer(_renderer, task.StagingBuffer);
 
@@ -362,6 +371,7 @@ void finalizeAllImageLoads(ImageLoader &_loader, const Renderer &_renderer,
   for (ImageLoadFromFileTask *task : _loader.Tasks) {
     delete task;
   }
+
   _loader.Tasks.clear();
 }
 
