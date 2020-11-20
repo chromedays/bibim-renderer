@@ -131,6 +131,9 @@ Settings
     'hdr_tone_mapping.frag',
     'sky.vert',
     'sky.frag',
+    'tbn.vert',
+    'tbn.geom',
+    'tbn.frag',
 }
 
 ForEach (.Shader in .Shaders)

@@ -39,6 +39,7 @@ constexpr int numFrames = 2;
 
 static Gizmo gGizmo;
 static GBufferVisualize gBufferVisualize;
+static TBNVisualize gTBN;
 static LightSources gLightSources;
 
 struct {
@@ -160,6 +161,12 @@ void recordCommand(VkRenderPass _deferredRenderPass,
 
   // Draw light sources and gizmo
   {
+    if (gTBN.IsEnabled) {
+      vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        gTBN.Pipeline);
+      currentScene->drawScene(_frame);
+    }
+
     VkDeviceSize offsets[2] = {};
     VkBuffer vertexBuffers[2] = {gLightSources.VertexBuffer.Handle,
                                  gLightSources.InstanceBuffer.Handle};
@@ -322,6 +329,12 @@ int main(int _argc, char **_argv) {
       createShaderFromFile(renderer, "hdr_tone_mapping.vert.spv");
   Shader hdrToneMappingFragShader =
       createShaderFromFile(renderer, "hdr_tone_mapping.frag.spv");
+
+  gTBN.IsSupported = renderer.PhysicalDeviceFeatures.geometryShader == VK_TRUE;
+
+  gTBN.VertShader = createShaderFromFile(renderer, "tbn.vert.spv");
+  gTBN.GeomShader = createShaderFromFile(renderer, "tbn.geom.spv");
+  gTBN.FragShader = createShaderFromFile(renderer, "tbn.frag.spv");
 
   gGizmo.VertShader = createShaderFromFile(renderer, "gizmo.vert.spv");
   gGizmo.FragShader = createShaderFromFile(renderer, "gizmo.frag.spv");
@@ -832,6 +845,42 @@ int main(int _argc, char **_argv) {
       gGizmo.Pipeline = createPipeline(renderer, pipelineParams);
     }
 
+    // TBN visualization pipeline
+    {
+      PipelineParams tbnPipelineParams = {};
+      const Shader *tbnShaders[] = {&gTBN.VertShader, &gTBN.GeomShader,
+                                    &gTBN.FragShader};
+
+      tbnPipelineParams.Shaders = tbnShaders;
+      tbnPipelineParams.NumShaders = std::size(tbnShaders);
+      tbnPipelineParams.InputAssembly.Topology =
+          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+      auto bindings = Vertex::getBindingDescs();
+      auto attributes = Vertex::getAttributeDescs();
+      tbnPipelineParams.VertexInput.Bindings = bindings.data();
+      tbnPipelineParams.VertexInput.NumBindings = bindings.size();
+      tbnPipelineParams.VertexInput.Attributes = attributes.data();
+      tbnPipelineParams.VertexInput.NumAttributes = attributes.size();
+
+      tbnPipelineParams.Viewport.Extent = {(float)swapChain.Extent.width,
+                                           (float)swapChain.Extent.height};
+      tbnPipelineParams.Viewport.ScissorExtent = {(int)swapChain.Extent.width,
+                                                  (int)swapChain.Extent.height};
+      tbnPipelineParams.RenderPass = deferredRenderPass.Handle;
+
+      tbnPipelineParams.Rasterizer.PolygonMode = VK_POLYGON_MODE_FILL;
+      tbnPipelineParams.Rasterizer.CullMode = VK_CULL_MODE_BACK_BIT;
+      tbnPipelineParams.Blend.NumColorBlends = 1;
+
+      tbnPipelineParams.Subpass = (uint32_t)DeferredSubpassType::Overlay;
+      tbnPipelineParams.DepthStencil.DepthTestEnable = true;
+      tbnPipelineParams.DepthStencil.DepthWriteEnable = false;
+      tbnPipelineParams.PipelineLayout = gStandardPipelineLayout.Handle;
+
+      gTBN.Pipeline = createPipeline(renderer, tbnPipelineParams);
+    }
+
     // Light Sources Pipeline
     {
       PipelineParams pipelineParams = {};
@@ -930,6 +979,9 @@ int main(int _argc, char **_argv) {
 
     vkDestroyPipeline(renderer.Device, gBufferVisualize.Pipeline, nullptr);
     gBufferVisualize.Pipeline = VK_NULL_HANDLE;
+
+    vkDestroyPipeline(renderer.Device, gTBN.Pipeline, nullptr);
+    gTBN.Pipeline = VK_NULL_HANDLE;
 
     destroyImage(renderer, hdrAttachmentImage);
     for (Image &image : gbufferAttachmentImages) {
@@ -1410,6 +1462,10 @@ int main(int _argc, char **_argv) {
     if (ImGui::Begin("Settings")) {
       ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
       ImGui::Checkbox("Enable Tone Mapping", &enableToneMapping);
+
+      if (gTBN.IsSupported) {
+        ImGui::Checkbox("Enable TBN", &gTBN.IsEnabled);
+      }
       if (enableToneMapping) {
         ImGui::SliderFloat("Exposure", &exposure, 0.1f, 10.f);
       }
@@ -1544,6 +1600,9 @@ int main(int _argc, char **_argv) {
   destroyShader(renderer, forwardBrdfFragShader);
   destroyShader(renderer, gBufferVisualize.VertShader);
   destroyShader(renderer, gBufferVisualize.FragShader);
+  destroyShader(renderer, gTBN.VertShader);
+  destroyShader(renderer, gTBN.GeomShader);
+  destroyShader(renderer, gTBN.FragShader);
   destroyRenderer(renderer);
 
   SDL_DestroyWindow(window);

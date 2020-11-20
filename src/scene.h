@@ -14,6 +14,16 @@ struct Gizmo {
   int ViewportExtent = 100;
 };
 
+struct TBNVisualize {
+  VkPipeline Pipeline;
+  Shader VertShader;
+  Shader GeomShader;
+  Shader FragShader;
+
+  bool IsSupported = false;
+  bool IsEnabled = false;
+};
+
 enum class GBufferVisualizingOption {
   Position,
   Normal,
@@ -188,7 +198,7 @@ struct ShaderBallScene : SceneBase {
     Buffer VertexBuffer;
     uint32_t NumVertices;
 
-    uint32_t NumInstances = 30;
+    uint32_t NumInstances = 1;
     std::vector<InstanceBlock> InstanceData;
     Buffer InstanceBuffer;
 

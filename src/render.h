@@ -28,6 +28,8 @@ struct Renderer {
   VkSurfaceKHR Surface;
   VkDevice Device;
   VkPhysicalDevice PhysicalDevice;
+  VkPhysicalDeviceFeatures PhysicalDeviceFeatures;
+
   SwapChainSupportDetails
       SwapChainSupportDetails; // TODO(ilgwon): I'm not sure if this field has
                                // to belong to Renderer, because it's value
