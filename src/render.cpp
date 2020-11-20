@@ -118,14 +118,12 @@ Renderer createRenderer(SDL_Window *_window) {
   BB_VK_ASSERT(vkEnumeratePhysicalDevices(result.Instance, &numPhysicalDevices,
                                           physicalDevices.data()));
 
-  VkPhysicalDeviceFeatures deviceFeatures = {};
-
   std::vector<const char *> deviceExtensions = {
       VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
   for (VkPhysicalDevice currentPhysicalDevice : physicalDevices) {
     if (checkPhysicalDevice(currentPhysicalDevice, result.Surface,
-                            deviceExtensions, &deviceFeatures,
+                            deviceExtensions, &result.PhysicalDeviceFeatures,
                             &result.QueueFamilyIndex,
                             &result.SwapChainSupportDetails)) {
       result.PhysicalDevice = currentPhysicalDevice;
@@ -148,7 +146,7 @@ Renderer createRenderer(SDL_Window *_window) {
   deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
   deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
   deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
-  deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+  deviceCreateInfo.pEnabledFeatures = &result.PhysicalDeviceFeatures;
 
   BB_VK_ASSERT(vkCreateDevice(result.PhysicalDevice, &deviceCreateInfo, nullptr,
                               &result.Device));
