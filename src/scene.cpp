@@ -235,18 +235,8 @@ SponzaScene::SponzaScene(CommonSceneResources *_common)
 
     MeshGroups.resize(sponzaScene->mNumMeshes);
 
-    uint32_t offset = 0;
-
-    for(unsigned i = 0; i < sponzaScene->mNumMeshes; i++)
-    {
-      aiMesh* currentMesh = sponzaScene->mMeshes[i];
-
-      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies = currentMesh->mNumFaces * 3;
-      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].Offset = offset;
-
-      offset += MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies;
-    }
-
+    
+    uint32_t indexOffset = 0;
     std::vector<Vertex>* vertices = new std::vector<Vertex>;
     std::vector<uint32_t>* indices = new std::vector<uint32_t>;
 
@@ -255,6 +245,11 @@ SponzaScene::SponzaScene(CommonSceneResources *_common)
     {
       aiMesh* currentMesh = sponzaScene->mMeshes[i];
       uint32_t currntVerticesIndex = vertices->size();
+
+      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies = currentMesh->mNumFaces * 3;
+      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].Offset = indexOffset;
+
+      indexOffset += MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies;
 
       for(unsigned j = 0; j < currentMesh->mNumVertices; j++)
       {
