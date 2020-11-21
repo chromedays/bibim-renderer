@@ -219,4 +219,31 @@ struct ShaderBallScene : SceneBase {
   void drawScene(const Frame &_frame) override;
 };
 
+struct SponzaScene : SceneBase {
+  struct {
+    Buffer VertexBuffer;
+    uint32_t NumVertices;
+    Buffer IndexBuffer;
+    uint32_t NumIndices;
+
+    uint32_t NumInstances = 1;
+    std::vector<InstanceBlock> InstanceData;
+    Buffer InstanceBuffer;
+  } Sponza;
+
+  struct Mesh{
+    uint32_t Index;
+    uint32_t NumIndies;
+    uint32_t Offset;
+  };
+
+  std::vector<Mesh> MeshGroups;
+
+  explicit SponzaScene(CommonSceneResources *_common);
+  ~SponzaScene() override;
+  void updateGUI(float _dt) override;
+  void updateScene(float _dt) override;
+  void drawScene(const Frame &_frame) override;
+};
+
 } // namespace bb

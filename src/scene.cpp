@@ -210,4 +210,150 @@ void ShaderBallScene::drawScene(const Frame &_frame) {
   vkCmdDrawIndexed(cmd, Plane.NumIndices, Plane.NumInstances, 0, 0, 0);
 }
 
+
+SponzaScene::SponzaScene(CommonSceneResources *_common)
+    : SceneBase(_common) {
+  const Renderer &renderer = *Common->Renderer;
+  VkCommandPool transientCmdPool = Common->TransientCmdPool;
+  const PBRMaterialSet &materialSet = *Common->MaterialSet;
+
+
+  Lights.resize(1);
+  Light *light = &Lights[0];
+  light->Dir = {-1, -1, 0};
+  light->Type = LightType::Directional;
+  light->Color = {1.0f, 1.0f, 1.0f};
+  light->Intensity = 10.f;
+
+  // Setup buffers
+  {
+    Assimp::Importer importer;
+    const aiScene *sponzaScene =
+        importer.ReadFile(createCommonResourcePath("sponza_crytek//sponza.obj"),
+                          aiProcess_Triangulate | aiProcess_CalcTangentSpace);
+
+
+    MeshGroups.resize(sponzaScene->mNumMeshes);
+
+    uint32_t offset = 0;
+
+    for(unsigned i = 0; i < sponzaScene->mNumMeshes; i++)
+    {
+      aiMesh* currentMesh = sponzaScene->mMeshes[i];
+
+      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies = currentMesh->mNumFaces * 3;
+      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].Offset = offset;
+
+      offset += MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies;
+    }
+
+    std::vector<Vertex>* vertices = new std::vector<Vertex>;
+    std::vector<uint32_t>* indices = new std::vector<uint32_t>;
+
+    // Build vertex chunk
+    for(unsigned i = 0; i < sponzaScene->mNumMeshes; i++)
+    {
+      aiMesh* currentMesh = sponzaScene->mMeshes[i];
+      uint32_t currntVerticesIndex = vertices->size();
+
+      for(unsigned j = 0; j < currentMesh->mNumVertices; j++)
+      {
+        Vertex v = {};
+        v.Pos = aiVector3DToFloat3(currentMesh->mVertices[j]);
+        v.UV = aiVector3DToFloat2(currentMesh->mTextureCoords[0][j]);
+        v.Normal = aiVector3DToFloat3(currentMesh->mNormals[j]);
+        v.Tangent = aiVector3DToFloat3(currentMesh->mTangents[j]);
+
+        vertices->push_back(v);
+      }
+
+      for(unsigned j = 0; j < currentMesh->mNumFaces; j++)
+      {
+          // Assume mesh is already triangulated.
+          indices->emplace_back(currntVerticesIndex + currentMesh->mFaces[j].mIndices[0]);
+          indices->emplace_back(currntVerticesIndex + currentMesh->mFaces[j].mIndices[1]);
+          indices->emplace_back(currntVerticesIndex + currentMesh->mFaces[j].mIndices[2]);
+      }
+    }
+
+  {
+    Sponza.InstanceData.resize(Sponza.NumInstances);
+    InstanceBlock &instanceData = Sponza.InstanceData[0];
+    instanceData.ModelMat =
+        Mat4::translate({0, 0, 0}) * Mat4::scale({0.1f, 0.1f, 0.1f});
+    instanceData.InvModelMat = instanceData.ModelMat.inverse();
+
+    Sponza.InstanceBuffer = createInstanceBuffer(Sponza.NumInstances);
+    updateInstanceBufferMemory(Sponza.InstanceBuffer, Sponza.InstanceData);
+  }
+    
+    Sponza.VertexBuffer = createVertexBuffer(*vertices);
+    Sponza.NumVertices = vertices->size();
+    Sponza.IndexBuffer = createIndexBuffer(*indices);
+    Sponza.NumIndices = indices->size();
+
+    delete vertices;
+    delete indices;
+
+    // const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
+    // std::vector<Vertex> shaderBallVertices;
+    // shaderBallVertices.reserve(shaderBallMesh->mNumFaces * 3);
+    // for (unsigned int i = 0; i < shaderBallMesh->mNumFaces; ++i) {
+    //   const aiFace &face = shaderBallMesh->mFaces[i];
+    //   BB_ASSERT(face.mNumIndices == 3);
+
+    //   for (int j = 0; j < 3; ++j) {
+    //     unsigned int vi = face.mIndices[j];
+
+    //     Vertex v = {};
+    //     v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[vi]);
+    //     v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
+    //     v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
+    //     v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
+    //     shaderBallVertices.push_back(v);
+    //   }
+    }
+
+    //Sponza.VertexBuffer = createVertexBuffer(shaderBallVertices);
+    //Sponza.NumVertices = shaderBallVertices.size();
+}
+
+void SponzaScene::updateGUI(float /*_dt*/)
+{
+
+}
+
+void SponzaScene::updateScene(float /*_dt*/)
+{
+
+}
+
+void SponzaScene::drawScene(const Frame & _frame)
+{
+  VkCommandBuffer cmd = _frame.CmdBuffer;
+  const StandardPipelineLayout &standardPipelineLayout =
+      *Common->StandardPipelineLayout;
+
+  vkCmdBindDescriptorSets(
+      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, standardPipelineLayout.Handle, 2, 1,
+      &_frame.MaterialDescriptorSets[2], 0, nullptr);
+
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &Sponza.VertexBuffer.Handle, &offset);
+  vkCmdBindVertexBuffers(cmd, 1, 1, &Sponza.InstanceBuffer.Handle, &offset);
+  vkCmdBindIndexBuffer(cmd, Sponza.IndexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
+
+
+
+  vkCmdDrawIndexed(cmd, Sponza.NumIndices, 1, 0, 0, 0);
+}
+
+SponzaScene::~SponzaScene() {
+  const Renderer &renderer = *Common->Renderer;
+
+  destroyBuffer(renderer, Sponza.VertexBuffer);
+  destroyBuffer(renderer, Sponza.IndexBuffer);
+  destroyBuffer(renderer, Sponza.InstanceBuffer);
+}
+
 } // namespace bb

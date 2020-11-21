@@ -44,10 +44,11 @@ static LightSources gLightSources;
 
 static StandardPipelineLayout gStandardPipelineLayout;
 
-enum class SceneType { Triangle, ShaderBalls, COUNT };
+enum class SceneType { Triangle, ShaderBalls, Sponza, COUNT };
 
 static EnumArray<SceneType, const char *> gSceneLabels = {"Triangle",
-                                                          "Shader Balls"};
+                                                          "Shader Balls",
+                                                          "Sponza"};
 static EnumArray<SceneType, SceneBase *> gScenes;
 static SceneType gCurrentSceneType = SceneType::ShaderBalls;
 
@@ -1177,6 +1178,9 @@ int main(int _argc, char **_argv) {
         break;
       case SceneType::ShaderBalls:
         gScenes[gCurrentSceneType] = new ShaderBallScene(&commonSceneResources);
+        break;
+      case SceneType::Sponza:
+        gScenes[gCurrentSceneType] = new SponzaScene(&commonSceneResources);
         break;
       }
     }
