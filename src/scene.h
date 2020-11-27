@@ -231,10 +231,10 @@ struct SponzaScene : SceneBase {
     Buffer InstanceBuffer;
   } Sponza;
 
-  struct Mesh{
-    uint32_t Index;
-    uint32_t NumIndies;
-    uint32_t Offset;
+  struct Mesh {
+    uint32_t MaterialIndex = 0;
+    uint32_t NumIndies = 0;
+    uint32_t IndexOffset = 0;
   };
 
   std::vector<Mesh> MeshGroups;

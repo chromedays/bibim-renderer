@@ -210,13 +210,10 @@ void ShaderBallScene::drawScene(const Frame &_frame) {
   vkCmdDrawIndexed(cmd, Plane.NumIndices, Plane.NumInstances, 0, 0, 0);
 }
 
-
-SponzaScene::SponzaScene(CommonSceneResources *_common)
-    : SceneBase(_common) {
+SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   const Renderer &renderer = *Common->Renderer;
   VkCommandPool transientCmdPool = Common->TransientCmdPool;
   const PBRMaterialSet &materialSet = *Common->MaterialSet;
-
 
   Lights.resize(1);
   Light *light = &Lights[0];
@@ -232,27 +229,74 @@ SponzaScene::SponzaScene(CommonSceneResources *_common)
         importer.ReadFile(createCommonResourcePath("sponza_crytek//sponza.obj"),
                           aiProcess_Triangulate | aiProcess_CalcTangentSpace);
 
+    ImageLoader loader;
+    BB_DEFER(destroyImageLoader(loader));
 
-    MeshGroups.resize(sponzaScene->mNumMeshes);
-
-    
     uint32_t indexOffset = 0;
-    std::vector<Vertex>* vertices = new std::vector<Vertex>;
-    std::vector<uint32_t>* indices = new std::vector<uint32_t>;
+    std::vector<Vertex> *vertices = new std::vector<Vertex>;
+    std::vector<uint32_t> *indices = new std::vector<uint32_t>;
+    std::string textureRoot = createCommonResourcePath("sponza_crytek/");
 
     // Build vertex chunk
-    for(unsigned i = 0; i < sponzaScene->mNumMeshes; i++)
-    {
-      aiMesh* currentMesh = sponzaScene->mMeshes[i];
+    for (unsigned i = 0; i < sponzaScene->mNumMeshes; i++) {
+      aiMesh *currentMesh = sponzaScene->mMeshes[i];
+      aiMaterial *currentMat =
+          sponzaScene->mMaterials[currentMesh->mMaterialIndex];
       uint32_t currntVerticesIndex = vertices->size();
 
-      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies = currentMesh->mNumFaces * 3;
-      MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].Offset = indexOffset;
+      PBRMaterial pbrMaterial = {};
+      pbrMaterial.Name = std::string(currentMesh->mName.C_Str());
 
-      indexOffset += MeshGroups[sponzaScene->mMeshes[i]->mMaterialIndex].NumIndies;
+      for (unsigned j = aiTextureType_NONE; j < aiTextureType_UNKNOWN; j++) {
+        aiTextureType currentType = (aiTextureType)j;
+        unsigned numTextures = currentMat->GetTextureCount(currentType);
 
-      for(unsigned j = 0; j < currentMesh->mNumVertices; j++)
-      {
+        if (numTextures > 0) {
+          BB_ASSERT(numTextures <= 1);
+
+          aiString texturePath;
+          currentMat->GetTexture(currentType, 0, &texturePath);
+          std::string name(texturePath.C_Str());
+
+          switch (currentType) {
+          case aiTextureType_DIFFUSE:
+            enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
+                                 pbrMaterial.Maps[PBRMapType::Albedo]);
+            break;
+          case aiTextureType_SPECULAR:
+            enqueueImageLoadTask(
+                loader, renderer, joinPaths(textureRoot, name),
+                pbrMaterial
+                    .Maps[PBRMapType::Metallic]); // TODO : Metalic => Specular
+            break;
+          case aiTextureType_AMBIENT:
+            // Same with diffuse?
+            break;
+          case aiTextureType_HEIGHT:
+            enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
+                                 pbrMaterial.Maps[PBRMapType::Height]);
+            break;
+          case aiTextureType_OPACITY:
+            enqueueImageLoadTask(
+                loader, renderer, joinPaths(textureRoot, name),
+                pbrMaterial.Maps[PBRMapType::AO]); // TODO : AO => Mask
+            break;
+          }
+        }
+
+        finalizeAllImageLoads(loader, renderer, transientCmdPool);
+      }
+
+      Mesh mesh = {};
+      mesh.MaterialIndex = currentMesh->mMaterialIndex;
+      mesh.NumIndies = currentMesh->mNumFaces * 3;
+      mesh.IndexOffset = indexOffset;
+
+      indexOffset += mesh.NumIndies;
+
+      MeshGroups.push_back(mesh);
+
+      for (unsigned j = 0; j < currentMesh->mNumVertices; j++) {
         Vertex v = {};
         v.Pos = aiVector3DToFloat3(currentMesh->mVertices[j]);
         v.UV = aiVector3DToFloat2(currentMesh->mTextureCoords[0][j]);
@@ -262,26 +306,28 @@ SponzaScene::SponzaScene(CommonSceneResources *_common)
         vertices->push_back(v);
       }
 
-      for(unsigned j = 0; j < currentMesh->mNumFaces; j++)
-      {
-          // Assume mesh is already triangulated.
-          indices->emplace_back(currntVerticesIndex + currentMesh->mFaces[j].mIndices[0]);
-          indices->emplace_back(currntVerticesIndex + currentMesh->mFaces[j].mIndices[1]);
-          indices->emplace_back(currntVerticesIndex + currentMesh->mFaces[j].mIndices[2]);
+      for (unsigned j = 0; j < currentMesh->mNumFaces; j++) {
+        // Assume mesh is already triangulated.
+        indices->emplace_back(currntVerticesIndex +
+                              currentMesh->mFaces[j].mIndices[0]);
+        indices->emplace_back(currntVerticesIndex +
+                              currentMesh->mFaces[j].mIndices[1]);
+        indices->emplace_back(currntVerticesIndex +
+                              currentMesh->mFaces[j].mIndices[2]);
       }
     }
 
-  {
-    Sponza.InstanceData.resize(Sponza.NumInstances);
-    InstanceBlock &instanceData = Sponza.InstanceData[0];
-    instanceData.ModelMat =
-        Mat4::translate({0, 0, 0}) * Mat4::scale({0.1f, 0.1f, 0.1f});
-    instanceData.InvModelMat = instanceData.ModelMat.inverse();
+    {
+      Sponza.InstanceData.resize(Sponza.NumInstances);
+      InstanceBlock &instanceData = Sponza.InstanceData[0];
+      instanceData.ModelMat =
+          Mat4::translate({0, 0, 0}) * Mat4::scale({0.01f, 0.01f, 0.01f});
+      instanceData.InvModelMat = instanceData.ModelMat.inverse();
 
-    Sponza.InstanceBuffer = createInstanceBuffer(Sponza.NumInstances);
-    updateInstanceBufferMemory(Sponza.InstanceBuffer, Sponza.InstanceData);
-  }
-    
+      Sponza.InstanceBuffer = createInstanceBuffer(Sponza.NumInstances);
+      updateInstanceBufferMemory(Sponza.InstanceBuffer, Sponza.InstanceData);
+    }
+
     Sponza.VertexBuffer = createVertexBuffer(*vertices);
     Sponza.NumVertices = vertices->size();
     Sponza.IndexBuffer = createIndexBuffer(*indices);
@@ -307,40 +353,34 @@ SponzaScene::SponzaScene(CommonSceneResources *_common)
     //     v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
     //     shaderBallVertices.push_back(v);
     //   }
-    }
+  }
 
-    //Sponza.VertexBuffer = createVertexBuffer(shaderBallVertices);
-    //Sponza.NumVertices = shaderBallVertices.size();
+  // Sponza.VertexBuffer = createVertexBuffer(shaderBallVertices);
+  // Sponza.NumVertices = shaderBallVertices.size();
 }
 
-void SponzaScene::updateGUI(float /*_dt*/)
-{
+void SponzaScene::updateGUI(float /*_dt*/) {}
 
-}
+void SponzaScene::updateScene(float /*_dt*/) {}
 
-void SponzaScene::updateScene(float /*_dt*/)
-{
-
-}
-
-void SponzaScene::drawScene(const Frame & _frame)
-{
+void SponzaScene::drawScene(const Frame &_frame) {
   VkCommandBuffer cmd = _frame.CmdBuffer;
   const StandardPipelineLayout &standardPipelineLayout =
       *Common->StandardPipelineLayout;
 
-  vkCmdBindDescriptorSets(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, standardPipelineLayout.Handle, 2, 1,
-      &_frame.MaterialDescriptorSets[2], 0, nullptr);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          standardPipelineLayout.Handle, 2, 1,
+                          &_frame.MaterialDescriptorSets[2], 0, nullptr);
 
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &Sponza.VertexBuffer.Handle, &offset);
   vkCmdBindVertexBuffers(cmd, 1, 1, &Sponza.InstanceBuffer.Handle, &offset);
   vkCmdBindIndexBuffer(cmd, Sponza.IndexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
 
-
-
-  vkCmdDrawIndexed(cmd, Sponza.NumIndices, 1, 0, 0, 0);
+  for (unsigned i = 0; i < MeshGroups.size(); i++) {
+    vkCmdDrawIndexed(cmd, MeshGroups[i].NumIndies, 1, MeshGroups[i].IndexOffset,
+                     0, 0);
+  }
 }
 
 SponzaScene::~SponzaScene() {
