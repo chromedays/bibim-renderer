@@ -238,6 +238,9 @@ struct SponzaScene : SceneBase {
   };
 
   std::vector<Mesh> MeshGroups;
+  PBRMaterialSet MaterialSet;
+  std::vector<VkDescriptorSet> MaterialDescriptorSets;
+  VkDescriptorPool DescriptorPool;
 
   explicit SponzaScene(CommonSceneResources *_common);
   ~SponzaScene() override;

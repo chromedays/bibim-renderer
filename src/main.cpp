@@ -35,8 +35,6 @@
 
 namespace bb {
 
-constexpr int numFrames = 2;
-
 static Gizmo gGizmo;
 static GBufferVisualize gBufferVisualize;
 static TBNVisualize gTBN;
@@ -46,9 +44,8 @@ static StandardPipelineLayout gStandardPipelineLayout;
 
 enum class SceneType { Triangle, ShaderBalls, Sponza, COUNT };
 
-static EnumArray<SceneType, const char *> gSceneLabels = {"Triangle",
-                                                          "Shader Balls",
-                                                          "Sponza"};
+static EnumArray<SceneType, const char *> gSceneLabels = {
+    "Triangle", "Shader Balls", "Sponza"};
 static EnumArray<SceneType, SceneBase *> gScenes;
 static SceneType gCurrentSceneType = SceneType::ShaderBalls;
 
@@ -323,6 +320,7 @@ int main(int _argc, char **_argv) {
   VkDescriptorPool standardDescriptorPool = createStandardDescriptorPool(
       renderer, gStandardPipelineLayout,
       {numFrames, 1, (uint32_t)materialSet.Materials.size(), 1});
+
   RenderPass deferredRenderPass;
 
   VkPipeline forwardPipeline;

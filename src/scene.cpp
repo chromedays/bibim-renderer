@@ -213,7 +213,9 @@ void ShaderBallScene::drawScene(const Frame &_frame) {
 SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   const Renderer &renderer = *Common->Renderer;
   VkCommandPool transientCmdPool = Common->TransientCmdPool;
-  const PBRMaterialSet &materialSet = *Common->MaterialSet;
+  // const PBRMaterialSet &materialSet = *Common->MaterialSet;
+  const StandardPipelineLayout &standardPipelineLayout =
+      *Common->StandardPipelineLayout;
 
   Lights.resize(1);
   Light *light = &Lights[0];
@@ -222,13 +224,13 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   light->Color = {1.0f, 1.0f, 1.0f};
   light->Intensity = 10.f;
 
+  Assimp::Importer importer;
+  const aiScene *sponzaScene =
+      importer.ReadFile(createCommonResourcePath("sponza_crytek//sponza.obj"),
+                        aiProcess_Triangulate | aiProcess_CalcTangentSpace);
+
   // Setup buffers
   {
-    Assimp::Importer importer;
-    const aiScene *sponzaScene =
-        importer.ReadFile(createCommonResourcePath("sponza_crytek//sponza.obj"),
-                          aiProcess_Triangulate | aiProcess_CalcTangentSpace);
-
     ImageLoader loader;
     BB_DEFER(destroyImageLoader(loader));
 
@@ -237,6 +239,11 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
     std::vector<uint32_t> *indices = new std::vector<uint32_t>;
     std::string textureRoot = createCommonResourcePath("sponza_crytek/");
 
+    MaterialSet.DefaultMaterial = Common->MaterialSet->DefaultMaterial;
+    MaterialSet.Materials.resize(
+        sponzaScene->mNumMaterials -
+        1); // ?? it actually gives me numMaterials + 1, maybe because its index
+            // started from 1?
     // Build vertex chunk
     for (unsigned i = 0; i < sponzaScene->mNumMeshes; i++) {
       aiMesh *currentMesh = sponzaScene->mMeshes[i];
@@ -245,7 +252,7 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
       uint32_t currntVerticesIndex = vertices->size();
 
       PBRMaterial pbrMaterial = {};
-      pbrMaterial.Name = std::string(currentMesh->mName.C_Str());
+      pbrMaterial.Name = std::string(currentMat->GetName().C_Str());
 
       for (unsigned j = aiTextureType_NONE; j < aiTextureType_UNKNOWN; j++) {
         aiTextureType currentType = (aiTextureType)j;
@@ -288,13 +295,14 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
       }
 
       Mesh mesh = {};
-      mesh.MaterialIndex = currentMesh->mMaterialIndex;
+      mesh.MaterialIndex = currentMesh->mMaterialIndex - 1;
       mesh.NumIndies = currentMesh->mNumFaces * 3;
       mesh.IndexOffset = indexOffset;
 
       indexOffset += mesh.NumIndies;
 
       MeshGroups.push_back(mesh);
+      MaterialSet.Materials[currentMesh->mMaterialIndex - 1] = pbrMaterial;
 
       for (unsigned j = 0; j < currentMesh->mNumVertices; j++) {
         Vertex v = {};
@@ -335,28 +343,89 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
 
     delete vertices;
     delete indices;
+  }
+  // Create descriptor pool
+  DescriptorPool = createStandardDescriptorPool(
+      renderer, standardPipelineLayout,
+      {numFrames, 1, (uint32_t)MaterialSet.Materials.size(), 1});
 
-    // const aiMesh *shaderBallMesh = shaderBallScene->mMeshes[0];
-    // std::vector<Vertex> shaderBallVertices;
-    // shaderBallVertices.reserve(shaderBallMesh->mNumFaces * 3);
-    // for (unsigned int i = 0; i < shaderBallMesh->mNumFaces; ++i) {
-    //   const aiFace &face = shaderBallMesh->mFaces[i];
-    //   BB_ASSERT(face.mNumIndices == 3);
+  // Allocate descriptor sets
+  {
+    std::vector<VkDescriptorSetLayout> materialDescriptorSetLayouts(
+        sponzaScene->mNumMaterials,
+        standardPipelineLayout
+            .DescriptorSetLayouts[DescriptorFrequency::PerMaterial]
+            .Handle);
+    MaterialDescriptorSets.resize(sponzaScene->mNumMaterials);
 
-    //   for (int j = 0; j < 3; ++j) {
-    //     unsigned int vi = face.mIndices[j];
+    VkDescriptorSetAllocateInfo descriptorSetAllocInfo = {};
+    descriptorSetAllocInfo.sType =
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocInfo.descriptorPool = DescriptorPool;
 
-    //     Vertex v = {};
-    //     v.Pos = aiVector3DToFloat3(shaderBallMesh->mVertices[vi]);
-    //     v.UV = aiVector3DToFloat2(shaderBallMesh->mTextureCoords[0][vi]);
-    //     v.Normal = aiVector3DToFloat3(shaderBallMesh->mNormals[vi]);
-    //     v.Tangent = aiVector3DToFloat3(shaderBallMesh->mTangents[vi]);
-    //     shaderBallVertices.push_back(v);
-    //   }
+    descriptorSetAllocInfo.descriptorSetCount =
+        materialDescriptorSetLayouts.size();
+    descriptorSetAllocInfo.pSetLayouts = materialDescriptorSetLayouts.data();
+
+    BB_VK_ASSERT(vkAllocateDescriptorSets(renderer.Device,
+                                          &descriptorSetAllocInfo,
+                                          MaterialDescriptorSets.data()));
   }
 
-  // Sponza.VertexBuffer = createVertexBuffer(shaderBallVertices);
-  // Sponza.NumVertices = shaderBallVertices.size();
+  // Link descriptor sets to actual resources
+  {
+    std::vector<VkWriteDescriptorSet> writeInfos;
+    VkWriteDescriptorSet writeInfo = {};
+    writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+
+    // uMaterialTextures
+    std::vector<EnumArray<PBRMapType, VkDescriptorImageInfo>>
+        materialImagesInfos;
+    materialImagesInfos.reserve(MaterialSet.Materials.size());
+
+    for (int i = 0; i < MaterialSet.Materials.size(); ++i) {
+      EnumArray<PBRMapType, VkDescriptorImageInfo> imageInfos = {};
+      imageInfos[PBRMapType::Albedo].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Albedo].imageView =
+          getPBRMapOrDefault(MaterialSet, i, PBRMapType::Albedo).View;
+      imageInfos[PBRMapType::Metallic].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Metallic].imageView =
+          getPBRMapOrDefault(MaterialSet, i, PBRMapType::Metallic).View;
+      imageInfos[PBRMapType::Roughness].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Roughness].imageView =
+          getPBRMapOrDefault(MaterialSet, i, PBRMapType::Roughness).View;
+      imageInfos[PBRMapType::AO].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::AO].imageView =
+          getPBRMapOrDefault(MaterialSet, i, PBRMapType::AO).View;
+      imageInfos[PBRMapType::Normal].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Normal].imageView =
+          getPBRMapOrDefault(MaterialSet, i, PBRMapType::Normal).View;
+      imageInfos[PBRMapType::Height].imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfos[PBRMapType::Height].imageView =
+          getPBRMapOrDefault(MaterialSet, i, PBRMapType::Height).View;
+
+      materialImagesInfos.push_back(imageInfos);
+    }
+
+    int materialIndex = 0;
+    for (const auto &materialImagesInfo : materialImagesInfos) {
+      writeInfo.dstSet = MaterialDescriptorSets[materialIndex++];
+      writeInfo.dstBinding = 0;
+      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      writeInfo.descriptorCount = PBRMaterial::NumImages;
+      writeInfo.pImageInfo = materialImagesInfo.data();
+      writeInfos.push_back(writeInfo);
+    }
+
+    vkUpdateDescriptorSets(renderer.Device, writeInfos.size(),
+                           writeInfos.data(), 0, nullptr);
+  }
 }
 
 void SponzaScene::updateGUI(float /*_dt*/) {}
@@ -368,16 +437,16 @@ void SponzaScene::drawScene(const Frame &_frame) {
   const StandardPipelineLayout &standardPipelineLayout =
       *Common->StandardPipelineLayout;
 
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          standardPipelineLayout.Handle, 2, 1,
-                          &_frame.MaterialDescriptorSets[2], 0, nullptr);
-
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &Sponza.VertexBuffer.Handle, &offset);
   vkCmdBindVertexBuffers(cmd, 1, 1, &Sponza.InstanceBuffer.Handle, &offset);
   vkCmdBindIndexBuffer(cmd, Sponza.IndexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
 
   for (unsigned i = 0; i < MeshGroups.size(); i++) {
+    vkCmdBindDescriptorSets(
+        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, standardPipelineLayout.Handle, 2,
+        1, &MaterialDescriptorSets[MeshGroups[i].MaterialIndex], 0, nullptr);
+
     vkCmdDrawIndexed(cmd, MeshGroups[i].NumIndies, 1, MeshGroups[i].IndexOffset,
                      0, 0);
   }
@@ -389,6 +458,8 @@ SponzaScene::~SponzaScene() {
   destroyBuffer(renderer, Sponza.VertexBuffer);
   destroyBuffer(renderer, Sponza.IndexBuffer);
   destroyBuffer(renderer, Sponza.InstanceBuffer);
+
+  vkDestroyDescriptorPool(renderer.Device, DescriptorPool, nullptr);
 }
 
 } // namespace bb

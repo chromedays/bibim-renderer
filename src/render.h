@@ -11,7 +11,7 @@
 #include <array>
 
 namespace bb {
-
+constexpr int numFrames = 2;
 struct SwapChainSupportDetails {
   VkSurfaceCapabilitiesKHR Capabilities;
   std::vector<VkSurfaceFormatKHR> Formats;
