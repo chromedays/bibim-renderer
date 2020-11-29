@@ -42,8 +42,9 @@ ScopeGuard<Fn>::ScopeGuard(ScopeGuard &&_other)
   other.Active = false;
 }
 template <typename Fn> ScopeGuard<Fn>::~ScopeGuard() {
-  if (Active)
+  if (Active) {
     Func();
+  }
 }
 
 } // namespace bb

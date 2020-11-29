@@ -1,0 +1,16 @@
+#version 450
+
+#define WORK_GROUP_SIZE 32
+layout (local_size_x = WORK_GROUP_SIZE, local_size_y = WORK_GROUP_SIZE, local_size_z = 1) in;
+
+layout (set = 0, binding = 0, rgba8) uniform writeonly image2D outImage;
+
+void main() {
+    ivec2 size = imageSize(outImage);
+    if (gl_GlobalInvocationID.x >= size.x || gl_GlobalInvocationID.y >= size.y) {
+        return;
+    }
+    imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(
+        float(mod(gl_GlobalInvocationID.x, WORK_GROUP_SIZE)) / WORK_GROUP_SIZE, 0,
+        float(mod(gl_GlobalInvocationID.y, WORK_GROUP_SIZE)) / WORK_GROUP_SIZE, 1.0));
+}

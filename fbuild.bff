@@ -134,6 +134,7 @@ Settings
     'tbn.vert',
     'tbn.geom',
     'tbn.frag',
+    'diffuse_irradiance_bake.comp',
 }
 
 ForEach (.Shader in .Shaders)

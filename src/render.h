@@ -286,6 +286,7 @@ enum class SamplerType { Nearest, Linear, COUNT };
 struct DescriptorBinding {
   VkDescriptorType Type;
   uint32_t NumDescriptors;
+  VkSampler *ImmutableSamplers;
 };
 
 constexpr uint32_t maxNumDescriptorBindings = 16;
@@ -295,6 +296,10 @@ struct DescriptorSetLayout {
   DescriptorBinding Bindings[maxNumDescriptorBindings];
   uint32_t NumBindings;
 };
+
+DescriptorSetLayout
+createDescriptorSetLayout(const Renderer &_renderer,
+                          const std::vector<DescriptorBinding> &_bindings);
 
 struct StandardPipelineLayout {
   EnumArray<SamplerType, VkSampler> ImmutableSamplers;
@@ -313,6 +318,22 @@ void destroyStandardPipelineLayout(const Renderer &_renderer,
 VkDescriptorPool createStandardDescriptorPool(
     const Renderer &_renderer, const StandardPipelineLayout &_layout,
     const EnumArray<DescriptorFrequency, uint32_t> &_numSets);
+
+    
+struct ComputePipelineLayout {
+  DescriptorSetLayout DescriptorSetLayout;
+  VkPipelineLayout Handle;
+};
+
+struct ComputePipeline {
+
+  DescriptorSetLayout DescriptorSetLayout;
+  VkPipelineLayout PipelineLayout;
+    VkPipeline Handle;
+};
+
+ComputePipeline createComputePipeline(const Renderer& _renderer, const std::vector<DescriptorBinding> &_bindings, const Shader& _shader);
+void destroyComputePipelineL(const Renderer& _renderer, ComputePipeline& _pipeline);
 
 struct alignas(16) Light {
   Float3 Pos;

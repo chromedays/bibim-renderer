@@ -1381,6 +1381,45 @@ Image getPBRMapOrDefault(const PBRMaterialSet &_materialSet, int _materialIndex,
   return *map;
 }
 
+DescriptorSetLayout
+createDescriptorSetLayout(const Renderer &_renderer,
+                          const std::vector<DescriptorBinding> &_bindings) {
+  VkDescriptorSetLayoutBinding bindings[maxNumDescriptorBindings] = {};
+  for (size_t i = 0; i < _bindings.size(); ++i) {
+    bindings[i].binding = i;
+    bindings[i].descriptorType = _bindings[i].Type;
+    bindings[i].descriptorCount = _bindings[i].NumDescriptors;
+    bindings[i].stageFlags = 
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[i].pImmutableSamplers = _bindings[i].ImmutableSamplers;
+  }
+
+  VkDescriptorSetLayoutCreateInfo createInfo = {};
+  createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  createInfo.bindingCount = _bindings.size();
+  createInfo.pBindings = bindings;
+
+  DescriptorSetLayout setLayout = {};
+  setLayout.NumBindings = _bindings.size();
+  std::copy(_bindings.begin(), _bindings.end(), setLayout.Bindings);
+
+  BB_VK_ASSERT(vkCreateDescriptorSetLayout(_renderer.Device, &createInfo,
+                                           nullptr, &setLayout.Handle));
+
+  return setLayout;
+}
+
+template <typename Container>
+std::vector<VkDescriptorSetLayout>
+convertDescriptorSetLayoutsToVulkanHandleArray(const Container &_setLayouts) {
+  std::vector<VkDescriptorSetLayout> setLayoutHandles;
+  setLayoutHandles.reserve(std::size(_setLayouts));
+  for (const DescriptorSetLayout &setLayout : _setLayouts) {
+    setLayoutHandles.push_back(setLayout.Handle);
+  }
+  return setLayoutHandles;
+};
+
 EnumArray<SamplerType, VkSampler>
 createImmutableSamplers(const Renderer &_renderer) {
   EnumArray<SamplerType, VkSampler> immutableSamplers;
@@ -1421,17 +1460,6 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
 
   layout.ImmutableSamplers = std::move(createImmutableSamplers(_renderer));
 
-  VkDescriptorSetLayoutBinding bindings[16] = {};
-  for (size_t i = 0; i < std::size(bindings); ++i) {
-    bindings[i].binding = (uint32_t)i;
-    bindings[i].stageFlags =
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  }
-  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-  descriptorSetLayoutCreateInfo.sType =
-      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  descriptorSetLayoutCreateInfo.pBindings = bindings;
-
   // Create descriptor set layouts with the predefined metadata
   {
     EnumArray<DescriptorFrequency, std::vector<DescriptorBinding>>
@@ -1440,7 +1468,8 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
             {
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
                 {VK_DESCRIPTOR_TYPE_SAMPLER,
-                 (uint32_t)layout.ImmutableSamplers.size()},
+                 (uint32_t)layout.ImmutableSamplers.size(),
+                 layout.ImmutableSamplers.data()},
                 {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, numGBufferAttachments},
                 {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
             },
@@ -1459,29 +1488,8 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
         }};
 
     for (auto frequency : AllEnums<DescriptorFrequency>) {
-
-      uint32_t numBindings = 0;
-
-      for (auto [descriptorType, numDescriptors] : bindingsTable[frequency]) {
-        VkDescriptorSetLayoutBinding &binding = bindings[numBindings++];
-        binding.descriptorType = descriptorType;
-        binding.descriptorCount = numDescriptors;
-        if ((frequency == DescriptorFrequency::PerFrame) &&
-            (descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER)) {
-          binding.pImmutableSamplers = layout.ImmutableSamplers.data();
-        }
-      }
-
-      descriptorSetLayoutCreateInfo.bindingCount = numBindings;
-
-      BB_VK_ASSERT(vkCreateDescriptorSetLayout(
-          _renderer.Device, &descriptorSetLayoutCreateInfo, nullptr,
-          &layout.DescriptorSetLayouts[frequency].Handle));
-      std::copy(bindingsTable[frequency].begin(),
-                bindingsTable[frequency].end(),
-                layout.DescriptorSetLayouts[frequency].Bindings);
-      layout.DescriptorSetLayouts[frequency].NumBindings =
-          bindingsTable[frequency].size();
+      layout.DescriptorSetLayouts[frequency] =
+          createDescriptorSetLayout(_renderer, bindingsTable[frequency]);
     }
   }
 
@@ -1489,15 +1497,11 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
   pipelineLayoutCreateInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-  descriptorSetLayouts.reserve(layout.DescriptorSetLayouts.size());
-  for (const DescriptorSetLayout &descriptorSetLayout :
-       layout.DescriptorSetLayouts) {
-    descriptorSetLayouts.push_back(descriptorSetLayout.Handle);
-  }
-  pipelineLayoutCreateInfo.setLayoutCount =
-      (uint32_t)descriptorSetLayouts.size();
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts =
+      convertDescriptorSetLayoutsToVulkanHandleArray(
+          layout.DescriptorSetLayouts);
   pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts.data();
+  pipelineLayoutCreateInfo.setLayoutCount = descriptorSetLayouts.size();
   vkCreatePipelineLayout(_renderer.Device, &pipelineLayoutCreateInfo, nullptr,
                          &layout.Handle);
 
@@ -1572,6 +1576,41 @@ VkDescriptorPool createStandardDescriptorPool(
   }
 
   return standardDescriptorPool;
+}
+
+ComputePipeline
+createComputePipeline(const Renderer &_renderer,
+                      const std::vector<DescriptorBinding> &_bindings,
+                      const Shader &_shader) {
+  ComputePipeline pipeline = {};
+  pipeline.DescriptorSetLayout =
+      createDescriptorSetLayout(_renderer, _bindings);
+  VkPipelineLayoutCreateInfo layoutCreateInfo = {};
+  layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  layoutCreateInfo.setLayoutCount = 1;
+  layoutCreateInfo.pSetLayouts = &pipeline.DescriptorSetLayout.Handle;
+
+  BB_VK_ASSERT(vkCreatePipelineLayout(_renderer.Device, &layoutCreateInfo,
+                                      nullptr, &pipeline.PipelineLayout));
+
+  VkComputePipelineCreateInfo createInfo = {};
+  createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  createInfo.stage = _shader.getStageInfo();
+  createInfo.layout = pipeline.PipelineLayout;
+  BB_VK_ASSERT(vkCreateComputePipelines(_renderer.Device, VK_NULL_HANDLE, 1,
+                                        &createInfo, nullptr,
+                                        &pipeline.Handle));
+
+  return pipeline;
+}
+
+void destroyComputePipeline(const Renderer &_renderer,
+                            ComputePipeline &_pipeline) {
+  vkDestroyPipeline(_renderer.Device, _pipeline.Handle, nullptr);
+  vkDestroyDescriptorSetLayout(_renderer.Device,
+                               _pipeline.DescriptorSetLayout.Handle, nullptr);
+  vkDestroyPipelineLayout(_renderer.Device, _pipeline.PipelineLayout, nullptr);
+  _pipeline = {};
 }
 
 Frame createFrame(
