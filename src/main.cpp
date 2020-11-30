@@ -1754,6 +1754,12 @@ int main(int _argc, char **_argv) {
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
 
+  vkDestroyDescriptorPool(renderer.Device,
+                          gSky.DiffuseIrradianceBaking.DescriptorPool, nullptr);
+  destroyComputePipeline(renderer, gSky.DiffuseIrradianceBaking.CompPipeline);
+  destroyShader(renderer, gSky.DiffuseIrradianceBaking.CompShader);
+  destroyImage(renderer, gSky.DiffuseIrradianceMap);
+
   destroyImage(renderer, gSky.EnvMap);
 
   for (FrameSync &frameSyncObject : frameSyncObjects) {

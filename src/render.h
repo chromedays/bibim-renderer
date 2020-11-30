@@ -337,8 +337,8 @@ ComputePipeline
 createComputePipeline(const Renderer &_renderer,
                       const std::vector<DescriptorBinding> &_bindings,
                       const Shader &_shader);
-void destroyComputePipelineL(const Renderer &_renderer,
-                             ComputePipeline &_pipeline);
+void destroyComputePipeline(const Renderer &_renderer,
+                            ComputePipeline &_pipeline);
 
 struct alignas(16) Light {
   Float3 Pos;
