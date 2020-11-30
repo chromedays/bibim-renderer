@@ -1382,6 +1382,24 @@ int main(int _argc, char **_argv) {
                            writeInfos.data(), 0, nullptr);
   }
 
+  // Write diffuse irradiance map to frame view descriptor set
+  // uDiffuseIrradianceMap
+  {
+    for (const Frame &frame : frames) {
+      VkWriteDescriptorSet writeInfo = {};
+      writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writeInfo.dstSet = frame.ViewDescriptorSet;
+      writeInfo.dstBinding = 2;
+      writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      writeInfo.descriptorCount = 1;
+      VkDescriptorImageInfo imageInfo = {};
+      imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfo.imageView = gSky.DiffuseIrradianceMap.View;
+      writeInfo.pImageInfo = &imageInfo;
+      vkUpdateDescriptorSets(renderer.Device, 1, &writeInfo, 0, nullptr);
+    }
+  }
+
   // Important : You need to delete every cmd used by swapchain
   // through queue. Dont forget to add it here too when you add another cmd.
   auto onWindowResize = [&] {

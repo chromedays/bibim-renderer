@@ -34,3 +34,14 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float k) {
 vec3 fresnelSchlick(vec3 H, vec3 V, vec3 F0) {
     return F0 + (1 - F0) * pow(1 - max(dot(H, V), 0), 5);
 }
+
+vec2 sampleEquirectangularMap(vec3 normal) {
+    const vec2 invAtan = vec2(0.1591, 0.3183);
+    vec2 uv = vec2(atan(normal.z, normal.x), asin(normal.y));
+    uv *= invAtan;
+    uv += 0.5;
+    uv.x = 1.0 - uv.x;
+    uv.y = 1.0 - uv.y;
+
+    return uv;
+}

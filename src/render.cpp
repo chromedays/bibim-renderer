@@ -1485,6 +1485,7 @@ StandardPipelineLayout createStandardPipelineLayout(const Renderer &_renderer) {
             {
                 {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
                 {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
+                {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
             },
             // PerMaterial
             {

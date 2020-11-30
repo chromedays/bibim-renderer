@@ -26,6 +26,10 @@ void main() {
 
     vec3 Lo = vec3(0);
 
+    vec3 V = normalize(uViewPos - vPosWorld);
+    vec3 N = normalize(normal);
+    vec3 F0 = vec3(0.04);
+
     for (int i = 0; i < uNumLights; ++i) {
         Light light = uLights[i];
         vec3 L;
@@ -48,13 +52,10 @@ void main() {
             att = 1;
         }
             
-        vec3 V = normalize(uViewPos - vPosWorld);
-        vec3 N = normalize(normal);
         vec3 H = normalize(L + V);
 
         float D = distributionGGX(N, H, roughness);
 
-        vec3 F0 = vec3(0.04);
         F0 = mix(F0, albedo, metallic);
         vec3 F = fresnelSchlick(H, V, F0);
         float G = geometrySmith(N, V, L, roughness);
@@ -69,7 +70,13 @@ void main() {
         Lo += (kD * albedo / PI + specular) * radiance * max(dot(N, L), 0);
     }
 
-    vec3 ambient = vec3(0.03) * albedo * ao;
+    vec3 kS = fresnelSchlick(N, V, F0);
+    vec3 kD = vec3(1.0) - kS;
+    kD *= (1 - metallic);
+    vec3 irradiance = texture(sampler2D(uDiffuseIrradianceMap, uSamplers[SMP_LINEAR]), sampleEquirectangularMap(N)).rgb;
+    vec3 diffuse = irradiance * albedo;
+    vec3 ambient = kD * diffuse * ao;
+
     vec3 color = ambient + Lo;
 
     outColor = vec4(color, 1);
