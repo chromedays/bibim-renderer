@@ -838,6 +838,9 @@ Image createImage(const Renderer &_renderer, const ImageParams &_params) {
   BB_VK_ASSERT(vkCreateImageView(_renderer.Device, &imageViewCreateInfo,
                                  nullptr, &image.View));
 
+  image.Width = _params.Width;
+  image.Height = _params.Height;
+
   return image;
 }
 
@@ -885,6 +888,9 @@ Image createImageFromFile(const Renderer &_renderer,
     return {};
   }
 
+  result.Width = textureDims.X;
+  result.Height = textureDims.Y;
+
   uint32_t bytesPerPixel = getFormatSize(format);
   VkDeviceSize textureSize = textureDims.X * textureDims.Y * bytesPerPixel;
 
@@ -912,8 +918,9 @@ Image createImageFromFile(const Renderer &_renderer,
   imageCreateInfo.format = format;
   imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  imageCreateInfo.usage =
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                          VK_IMAGE_USAGE_SAMPLED_BIT |
+                          VK_IMAGE_USAGE_STORAGE_BIT;
   imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
   imageCreateInfo.flags = 0;
@@ -1389,8 +1396,9 @@ createDescriptorSetLayout(const Renderer &_renderer,
     bindings[i].binding = i;
     bindings[i].descriptorType = _bindings[i].Type;
     bindings[i].descriptorCount = _bindings[i].NumDescriptors;
-    bindings[i].stageFlags = 
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[i].stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+        VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
     bindings[i].pImmutableSamplers = _bindings[i].ImmutableSamplers;
   }
 

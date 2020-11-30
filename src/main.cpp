@@ -44,13 +44,6 @@ static TBNVisualize gTBN;
 static LightSources gLightSources;
 
 static struct {
-  Image DiffuseIrradianceMap;
-  struct {
-    Shader CompShader;
-    ComputePipeline CompPipeline;
-    VkDescriptorPool DescriptorPool;
-    VkDescriptorSet DescriptorSet;
-  } DiffuseIrradianceBaking;
 
   Shader VertShader;
   Shader FragShader;
@@ -62,6 +55,14 @@ static struct {
   Image EnvMap;
 
   std::vector<VkDescriptorSet> ViewDescriptorSets;
+
+  Image DiffuseIrradianceMap;
+  struct {
+    Shader CompShader;
+    ComputePipeline CompPipeline;
+    VkDescriptorPool DescriptorPool;
+    VkDescriptorSet DescriptorSet;
+  } DiffuseIrradianceBaking;
 } gSky;
 
 static StandardPipelineLayout gStandardPipelineLayout;
@@ -355,116 +356,6 @@ int main(int _argc, char **_argv) {
       createShaderFromFile(renderer, "buffer_visualize.vert.spv");
   gBufferVisualize.FragShader =
       createShaderFromFile(renderer, "buffer_visualize.frag.spv");
-
-  {
-    ImageParams params = {};
-    params.Width = width;
-    params.Height = height;
-    params.Format = VK_FORMAT_R8G8B8A8_UNORM;
-    params.Usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    gSky.DiffuseIrradianceMap = createImage(renderer, params);
-  }
-  gSky.DiffuseIrradianceBaking.CompShader =
-      createShaderFromFile(renderer, "diffuse_irradiance_bake.comp.spv");
-  gSky.DiffuseIrradianceBaking.CompPipeline =
-      createComputePipeline(renderer, {{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}},
-                            gSky.DiffuseIrradianceBaking.CompShader);
-  {
-    std::vector<VkDescriptorPoolSize> poolSizes = {};
-    for (int i = 0; i < gSky.DiffuseIrradianceBaking.CompPipeline
-                            .DescriptorSetLayout.NumBindings;
-         ++i) {
-      const DescriptorBinding &binding =
-          gSky.DiffuseIrradianceBaking.CompPipeline.DescriptorSetLayout
-              .Bindings[i];
-      poolSizes.push_back({binding.Type, binding.NumDescriptors});
-    }
-    VkDescriptorPoolCreateInfo createInfo = {};
-    createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    createInfo.pPoolSizes = poolSizes.data();
-    createInfo.poolSizeCount = poolSizes.size();
-    createInfo.maxSets = 1;
-    BB_VK_ASSERT(
-        vkCreateDescriptorPool(renderer.Device, &createInfo, nullptr,
-                               &gSky.DiffuseIrradianceBaking.DescriptorPool));
-    VkDescriptorSetAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = gSky.DiffuseIrradianceBaking.DescriptorPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts =
-        &gSky.DiffuseIrradianceBaking.CompPipeline.DescriptorSetLayout.Handle;
-    BB_VK_ASSERT(
-        vkAllocateDescriptorSets(renderer.Device, &allocInfo,
-                                 &gSky.DiffuseIrradianceBaking.DescriptorSet));
-
-    VkDescriptorImageInfo imageInfo = {};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imageInfo.imageView = gSky.DiffuseIrradianceMap.View;
-    VkWriteDescriptorSet writeInfo = {};
-    writeInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeInfo.pImageInfo = &imageInfo;
-    writeInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writeInfo.descriptorCount = 1;
-    writeInfo.dstSet = gSky.DiffuseIrradianceBaking.DescriptorSet;
-    writeInfo.dstBinding = 0;
-    vkUpdateDescriptorSets(renderer.Device, 1, &writeInfo, 0, nullptr);
-  }
-  {
-
-    VkCommandBufferAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = transientCmdPool;
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &allocInfo, &cmd));
-
-    VkCommandBufferBeginInfo beginInfo = {};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    BB_VK_ASSERT(vkBeginCommandBuffer(cmd, &beginInfo));
-
-    VkImageMemoryBarrier barrier = {};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.image = gSky.DiffuseIrradianceMap.Handle;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount =1 ;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &barrier);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                      gSky.DiffuseIrradianceBaking.CompPipeline.Handle);
-    vkCmdBindDescriptorSets(
-        cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-        gSky.DiffuseIrradianceBaking.CompPipeline.PipelineLayout, 0, 1,
-        &gSky.DiffuseIrradianceBaking.DescriptorSet, 0, 0);
-
-    Float2 numDispatchGroups = {};
-    numDispatchGroups.X = (width - 1) / computeWorkGroupSize + 1;
-    numDispatchGroups.Y = (height - 1) / computeWorkGroupSize + 1;
-    vkCmdDispatch(cmd, numDispatchGroups.X, numDispatchGroups.Y, 1);
-
-    BB_VK_ASSERT(vkEndCommandBuffer(cmd));
-
-    vkQueueWaitIdle(renderer.Queue);
-    VkSubmitInfo submitInfo = {};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmd;
-    vkQueueSubmit(renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(renderer.Queue);
-  }
 
   gSky.VertShader = createShaderFromFile(renderer, "sky.vert.spv");
   gSky.FragShader = createShaderFromFile(renderer, "sky.frag.spv");
@@ -1280,6 +1171,183 @@ int main(int _argc, char **_argv) {
         createCommonResourcePath("env/Newport_Loft/Newport_Loft_Ref.hdr");
     gSky.EnvMap = createImageFromFile(renderer, transientCmdPool, envFilePath);
     BB_ASSERT(gSky.EnvMap.Handle != VK_NULL_HANDLE);
+
+    // Bake diffuse irradiance map
+    {
+      ImageParams params = {};
+      params.Width = gSky.EnvMap.Width / 10;
+      params.Height = gSky.EnvMap.Height / 10;
+      params.Format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      params.Usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      gSky.DiffuseIrradianceMap = createImage(renderer, params);
+    }
+    gSky.DiffuseIrradianceBaking.CompShader =
+        createShaderFromFile(renderer, "diffuse_irradiance_bake.comp.spv");
+    gSky.DiffuseIrradianceBaking.CompPipeline =
+        createComputePipeline(renderer,
+                              {{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
+                               {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}},
+                              gSky.DiffuseIrradianceBaking.CompShader);
+    {
+      std::vector<VkDescriptorPoolSize> poolSizes = {};
+      for (int i = 0; i < gSky.DiffuseIrradianceBaking.CompPipeline
+                              .DescriptorSetLayout.NumBindings;
+           ++i) {
+        const DescriptorBinding &binding =
+            gSky.DiffuseIrradianceBaking.CompPipeline.DescriptorSetLayout
+                .Bindings[i];
+        poolSizes.push_back({binding.Type, binding.NumDescriptors});
+      }
+      VkDescriptorPoolCreateInfo createInfo = {};
+      createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+      createInfo.pPoolSizes = poolSizes.data();
+      createInfo.poolSizeCount = poolSizes.size();
+      createInfo.maxSets = 1;
+      BB_VK_ASSERT(
+          vkCreateDescriptorPool(renderer.Device, &createInfo, nullptr,
+                                 &gSky.DiffuseIrradianceBaking.DescriptorPool));
+      VkDescriptorSetAllocateInfo allocInfo = {};
+      allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      allocInfo.descriptorPool = gSky.DiffuseIrradianceBaking.DescriptorPool;
+      allocInfo.descriptorSetCount = 1;
+      allocInfo.pSetLayouts =
+          &gSky.DiffuseIrradianceBaking.CompPipeline.DescriptorSetLayout.Handle;
+      BB_VK_ASSERT(vkAllocateDescriptorSets(
+          renderer.Device, &allocInfo,
+          &gSky.DiffuseIrradianceBaking.DescriptorSet));
+
+      VkDescriptorImageInfo imageInfos[2] = {};
+      imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      imageInfos[0].imageView = gSky.DiffuseIrradianceMap.View;
+      imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      imageInfos[1].imageView = gSky.EnvMap.View;
+      VkWriteDescriptorSet writeInfos[2] = {};
+      writeInfos[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writeInfos[0].pImageInfo = &imageInfos[0];
+      writeInfos[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      writeInfos[0].descriptorCount = 1;
+      writeInfos[0].dstSet = gSky.DiffuseIrradianceBaking.DescriptorSet;
+      writeInfos[0].dstBinding = 0;
+      writeInfos[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writeInfos[1].pImageInfo = &imageInfos[1];
+      writeInfos[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      writeInfos[1].descriptorCount = 1;
+      writeInfos[1].dstSet = gSky.DiffuseIrradianceBaking.DescriptorSet;
+      writeInfos[1].dstBinding = 1;
+      vkUpdateDescriptorSets(renderer.Device, std::size(writeInfos), writeInfos,
+                             0, nullptr);
+    }
+    {
+      VkCommandBufferAllocateInfo allocInfo = {};
+      allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+      allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+      allocInfo.commandPool = transientCmdPool;
+      allocInfo.commandBufferCount = 1;
+
+      VkCommandBuffer cmd;
+      BB_VK_ASSERT(vkAllocateCommandBuffers(renderer.Device, &allocInfo, &cmd));
+
+      VkCommandBufferBeginInfo beginInfo = {};
+      beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+      beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      BB_VK_ASSERT(vkBeginCommandBuffer(cmd, &beginInfo));
+
+      {
+        VkImageMemoryBarrier barriers[2] = {};
+        barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[0].image = gSky.DiffuseIrradianceMap.Handle;
+        barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barriers[0].srcAccessMask = 0;
+        barriers[0].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barriers[0].subresourceRange.baseMipLevel = 0;
+        barriers[0].subresourceRange.levelCount = 1;
+        barriers[0].subresourceRange.baseArrayLayer = 0;
+        barriers[0].subresourceRange.layerCount = 1;
+
+        barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[1].image = gSky.EnvMap.Handle;
+        barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barriers[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barriers[1].srcAccessMask = 0;
+        barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barriers[1].subresourceRange.baseMipLevel = 0;
+        barriers[1].subresourceRange.levelCount = 1;
+        barriers[1].subresourceRange.baseArrayLayer = 0;
+        barriers[1].subresourceRange.layerCount = 1;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, std::size(barriers),
+                             barriers);
+      }
+
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        gSky.DiffuseIrradianceBaking.CompPipeline.Handle);
+      vkCmdBindDescriptorSets(
+          cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+          gSky.DiffuseIrradianceBaking.CompPipeline.PipelineLayout, 0, 1,
+          &gSky.DiffuseIrradianceBaking.DescriptorSet, 0, 0);
+
+      Float2 numDispatchGroups = {};
+      numDispatchGroups.X =
+          (gSky.DiffuseIrradianceMap.Width - 1) / computeWorkGroupSize + 1;
+      numDispatchGroups.Y =
+          (gSky.DiffuseIrradianceMap.Height - 1) / computeWorkGroupSize + 1;
+      vkCmdDispatch(cmd, numDispatchGroups.X, numDispatchGroups.Y, 1);
+
+      {
+        VkImageMemoryBarrier barriers[2] = {};
+        barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[0].image = gSky.DiffuseIrradianceMap.Handle;
+        barriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barriers[0].subresourceRange.baseMipLevel = 0;
+        barriers[0].subresourceRange.levelCount = 1;
+        barriers[0].subresourceRange.baseArrayLayer = 0;
+        barriers[0].subresourceRange.layerCount = 1;
+
+        barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[1].image = gSky.EnvMap.Handle;
+        barriers[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barriers[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barriers[1].subresourceRange.baseMipLevel = 0;
+        barriers[1].subresourceRange.levelCount = 1;
+        barriers[1].subresourceRange.baseArrayLayer = 0;
+        barriers[1].subresourceRange.layerCount = 1;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 0, nullptr,
+                             0, nullptr, std::size(barriers), barriers);
+      }
+
+      BB_VK_ASSERT(vkEndCommandBuffer(cmd));
+
+      vkQueueWaitIdle(renderer.Queue);
+      VkSubmitInfo submitInfo = {};
+      submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+      submitInfo.commandBufferCount = 1;
+      submitInfo.pCommandBuffers = &cmd;
+      BB_VK_ASSERT(
+          vkQueueSubmit(renderer.Queue, 1, &submitInfo, VK_NULL_HANDLE));
+      vkQueueWaitIdle(renderer.Queue);
+    }
 
     VkDescriptorBufferInfo bufferInfos[numFrames] = {};
     VkDescriptorImageInfo imageInfos[numFrames] = {};

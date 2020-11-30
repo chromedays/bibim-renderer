@@ -165,6 +165,8 @@ struct Image {
   VkImage Handle;
   VkDeviceMemory Memory;
   VkImageView View;
+  uint32_t Width;
+  uint32_t Height;
 };
 
 struct ImageParams {
@@ -319,7 +321,6 @@ VkDescriptorPool createStandardDescriptorPool(
     const Renderer &_renderer, const StandardPipelineLayout &_layout,
     const EnumArray<DescriptorFrequency, uint32_t> &_numSets);
 
-    
 struct ComputePipelineLayout {
   DescriptorSetLayout DescriptorSetLayout;
   VkPipelineLayout Handle;
@@ -329,11 +330,15 @@ struct ComputePipeline {
 
   DescriptorSetLayout DescriptorSetLayout;
   VkPipelineLayout PipelineLayout;
-    VkPipeline Handle;
+  VkPipeline Handle;
 };
 
-ComputePipeline createComputePipeline(const Renderer& _renderer, const std::vector<DescriptorBinding> &_bindings, const Shader& _shader);
-void destroyComputePipelineL(const Renderer& _renderer, ComputePipeline& _pipeline);
+ComputePipeline
+createComputePipeline(const Renderer &_renderer,
+                      const std::vector<DescriptorBinding> &_bindings,
+                      const Shader &_shader);
+void destroyComputePipelineL(const Renderer &_renderer,
+                             ComputePipeline &_pipeline);
 
 struct alignas(16) Light {
   Float3 Pos;
