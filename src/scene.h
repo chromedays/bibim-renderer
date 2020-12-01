@@ -242,6 +242,9 @@ struct SponzaScene : SceneBase {
   std::vector<VkDescriptorSet> MaterialDescriptorSets;
   VkDescriptorPool DescriptorPool;
 
+  bool IsMoving = false;
+  std::vector<Float3> Velocities;
+
   explicit SponzaScene(CommonSceneResources *_common);
   ~SponzaScene() override;
   void updateGUI(float _dt) override;

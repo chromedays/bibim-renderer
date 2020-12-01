@@ -47,7 +47,7 @@ enum class SceneType { Triangle, ShaderBalls, Sponza, COUNT };
 static EnumArray<SceneType, const char *> gSceneLabels = {
     "Triangle", "Shader Balls", "Sponza"};
 static EnumArray<SceneType, SceneBase *> gScenes;
-static SceneType gCurrentSceneType = SceneType::ShaderBalls;
+static SceneType gCurrentSceneType = SceneType::Sponza;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,

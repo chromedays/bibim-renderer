@@ -218,11 +218,16 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
       *Common->StandardPipelineLayout;
 
   Lights.resize(1);
+  Velocities.resize(1);
   Light *light = &Lights[0];
-  light->Dir = {-1, -1, 0};
-  light->Type = LightType::Directional;
+  //light->Dir = {-1, 1000, 0};
+  light->Pos = {-1, 10, 0};
+  light->Type = LightType::Point;
   light->Color = {1.0f, 1.0f, 1.0f};
   light->Intensity = 10.f;
+
+  Float3& velocity = Velocities[0];
+  velocity = {10, 0, 0};
 
   Assimp::Importer importer;
   const aiScene *sponzaScene =
@@ -270,18 +275,21 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
             enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
                                  pbrMaterial.Maps[PBRMapType::Albedo]);
             break;
-          case aiTextureType_SPECULAR:
+          case aiTextureType_HEIGHT: // PBR texrues provider binds normal map to height map in .mtl.
             enqueueImageLoadTask(
                 loader, renderer, joinPaths(textureRoot, name),
                 pbrMaterial
-                    .Maps[PBRMapType::Metallic]); // TODO : Metalic => Specular
+                    .Maps[PBRMapType::Normal]);
             break;
-          case aiTextureType_AMBIENT:
-            // Same with diffuse?
+          case aiTextureType_AMBIENT: // PBR texrues provider binds metalic map to ambient map in .mtl.
+            enqueueImageLoadTask(
+                loader, renderer, joinPaths(textureRoot, name),
+                pbrMaterial
+                    .Maps[PBRMapType::Metallic]);
             break;
-          case aiTextureType_HEIGHT:
+          case aiTextureType_SHININESS:
             enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
-                                 pbrMaterial.Maps[PBRMapType::Height]);
+                                 pbrMaterial.Maps[PBRMapType::Roughness]);
             break;
           case aiTextureType_OPACITY:
             enqueueImageLoadTask(
@@ -304,10 +312,14 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
       MeshGroups.push_back(mesh);
       MaterialSet.Materials[currentMesh->mMaterialIndex - 1] = pbrMaterial;
 
+      assert(!(currentMesh->GetNumUVChannels() > 1));
+
       for (unsigned j = 0; j < currentMesh->mNumVertices; j++) {
         Vertex v = {};
+        
         v.Pos = aiVector3DToFloat3(currentMesh->mVertices[j]);
         v.UV = aiVector3DToFloat2(currentMesh->mTextureCoords[0][j]);
+        v.UV.Y = 1.0f - v.UV.Y;
         v.Normal = aiVector3DToFloat3(currentMesh->mNormals[j]);
         v.Tangent = aiVector3DToFloat3(currentMesh->mTangents[j]);
 
@@ -428,9 +440,31 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   }
 }
 
-void SponzaScene::updateGUI(float /*_dt*/) {}
+void SponzaScene::updateGUI(float /*_dt*/) 
+{
+  if (ImGui::Begin("Sponza"))
+  {
+    ImGui::Checkbox("Move lights", &IsMoving);
 
-void SponzaScene::updateScene(float /*_dt*/) {}
+    if(!IsMoving)
+      ImGui::SliderFloat3("LightPos", &Lights[0].Pos.X, -20.0f, 20.0f);
+  }
+  ImGui::End();
+}
+
+void SponzaScene::updateScene(float _dt) 
+{
+  if(IsMoving)
+  {
+    for(int i = 0; i < Lights.size();i++)
+    {
+      Lights[i].Pos += Velocities[i] * _dt;
+
+      if(abs(Lights[i].Pos.X) > 10)
+        Velocities[i].X = -Velocities[i].X;
+    }
+  }
+}
 
 void SponzaScene::drawScene(const Frame &_frame) {
   VkCommandBuffer cmd = _frame.CmdBuffer;
