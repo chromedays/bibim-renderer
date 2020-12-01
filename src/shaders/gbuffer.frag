@@ -19,7 +19,11 @@ void main()
     float metallic = texture(sampler2D(uMaterialTextures[TEX_METALLIC], uSamplers[SMP_LINEAR]), vUV).r;
     float roughness = texture(sampler2D(uMaterialTextures[TEX_ROUGHNESS], uSamplers[SMP_LINEAR]), vUV).r;
     float ao = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
+    float mask = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
     float height = texture(sampler2D(uMaterialTextures[TEX_HEIGHT], uSamplers[SMP_LINEAR]), vUV).r;
+
+    if(mask < 1)
+        discard;
 
     outPosWorld = vPosWorld;
     if (uEnableNormalMap != 0) {
