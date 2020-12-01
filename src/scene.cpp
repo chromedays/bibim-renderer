@@ -6,7 +6,7 @@
 #include "external/assimp/postprocess.h"
 #include "external/imgui/imgui_impl_vulkan.h"
 #include <numeric>
-
+#include <random>
 namespace bb {
 
 ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
@@ -217,17 +217,43 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   const StandardPipelineLayout &standardPipelineLayout =
       *Common->StandardPipelineLayout;
 
+  constexpr unsigned numLights = 99 -1;
   Lights.resize(1);
   Velocities.resize(1);
-  Light *light = &Lights[0];
-  //light->Dir = {-1, 1000, 0};
-  light->Pos = {-1, 10, 0};
-  light->Type = LightType::Point;
-  light->Color = {1.0f, 1.0f, 1.0f};
-  light->Intensity = 10.f;
+  AngularVelocities.resize(1);
 
-  Float3& velocity = Velocities[0];
-  velocity = {10, 0, 0};
+
+  Light *light = &Lights[0];
+  light->Pos = {2, -100, 1}; // Hide
+  light->Dir = {-1, -1, -1};
+  light->Type = LightType::Directional;
+  light->Color = {253.0f / 255.0f, 184.0f / 255.0f, 19.0f / 255.0f}; // Sun light
+  light->Intensity = 1.f;
+
+  Velocities[0] = {0, 0, 0};
+  AngularVelocities[0] = 0.0f;
+
+  std::random_device randomDevice;
+  std::mt19937 generator(randomDevice());
+  std::uniform_real_distribution<float> xDist(-12.0f, 12.0f);
+  std::uniform_real_distribution<float> yDist(-15.0f, 15.0f);
+  std::uniform_real_distribution<float> zDist(-12.0f, 12.0f);
+  std::uniform_real_distribution<float> colorDist(0, 1);
+  std::uniform_real_distribution<float> velocityDist(0, twoPi32);
+
+  for(unsigned i =0; i < numLights; i++)
+  {
+    Light newLight = {};
+    newLight.Pos = {xDist(generator), yDist(generator), zDist(generator)}; // Hide
+    newLight.Type = LightType::Point;
+    newLight.Color = {colorDist(generator), colorDist(generator), colorDist(generator)}; // Sun light
+    newLight.Intensity = 5.f;
+
+    Lights.push_back(newLight);
+
+    AngularVelocities.push_back(velocityDist(generator));
+  }
+
 
   Assimp::Importer importer;
   const aiScene *sponzaScene =
@@ -458,10 +484,20 @@ void SponzaScene::updateScene(float _dt)
   {
     for(int i = 0; i < Lights.size();i++)
     {
-      Lights[i].Pos += Velocities[i] * _dt;
+      if(AngularVelocities[i])
+      {
+        Float3 prev = Lights[i].Pos;
 
-      if(abs(Lights[i].Pos.X) > 10)
-        Velocities[i].X = -Velocities[i].X;
+        Lights[i].Pos.X  = prev.X * std::cos(AngularVelocities[i] * _dt) 
+        - prev.Z * std::sin(AngularVelocities[i] * _dt);
+
+        Lights[i].Pos.Z  = prev.X * std::sin(AngularVelocities[i] * _dt) 
+        + prev.Z * std::cos(AngularVelocities[i] * _dt);
+      }
+      else
+      {
+
+      }
     }
   }
 }

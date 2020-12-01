@@ -244,6 +244,7 @@ struct SponzaScene : SceneBase {
 
   bool IsMoving = false;
   std::vector<Float3> Velocities;
+  std::vector<float> AngularVelocities;
 
   explicit SponzaScene(CommonSceneResources *_common);
   ~SponzaScene() override;
