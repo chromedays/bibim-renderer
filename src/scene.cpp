@@ -7,6 +7,7 @@
 #include "external/imgui/imgui_impl_vulkan.h"
 #include <numeric>
 #include <random>
+#include <iostream>
 namespace bb {
 
 ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
@@ -217,17 +218,17 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   const StandardPipelineLayout &standardPipelineLayout =
       *Common->StandardPipelineLayout;
 
-  constexpr unsigned numLights = 99 -1;
+  constexpr unsigned numLights = 99 - 1;
   Lights.resize(1);
   Velocities.resize(1);
   AngularVelocities.resize(1);
-
 
   Light *light = &Lights[0];
   light->Pos = {2, -100, 1}; // Hide
   light->Dir = {-1, -1, -1};
   light->Type = LightType::Directional;
-  light->Color = {253.0f / 255.0f, 184.0f / 255.0f, 19.0f / 255.0f}; // Sun light
+  light->Color = {253.0f / 255.0f, 184.0f / 255.0f,
+                  19.0f / 255.0f}; // Sun light
   light->Intensity = 1.f;
 
   Velocities[0] = {0, 0, 0};
@@ -241,19 +242,19 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   std::uniform_real_distribution<float> colorDist(0, 1);
   std::uniform_real_distribution<float> velocityDist(0, twoPi32);
 
-  for(unsigned i =0; i < numLights; i++)
-  {
+  for (unsigned i = 0; i < numLights; i++) {
     Light newLight = {};
-    newLight.Pos = {xDist(generator), yDist(generator), zDist(generator)}; // Hide
+    newLight.Pos = {xDist(generator), yDist(generator),
+                    zDist(generator)}; // Hide
     newLight.Type = LightType::Point;
-    newLight.Color = {colorDist(generator), colorDist(generator), colorDist(generator)}; // Sun light
+    newLight.Color = {colorDist(generator), colorDist(generator),
+                      colorDist(generator)}; // Sun light
     newLight.Intensity = 5.f;
 
     Lights.push_back(newLight);
 
     AngularVelocities.push_back(velocityDist(generator));
   }
-
 
   Assimp::Importer importer;
   const aiScene *sponzaScene =
@@ -282,50 +283,62 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
           sponzaScene->mMaterials[currentMesh->mMaterialIndex];
       uint32_t currntVerticesIndex = vertices->size();
 
+      bool isLoaded =
+          !MaterialSet.Materials[currentMesh->mMaterialIndex - 1].Name.empty();
+
       PBRMaterial pbrMaterial = {};
-      pbrMaterial.Name = std::string(currentMat->GetName().C_Str());
 
-      for (unsigned j = aiTextureType_NONE; j < aiTextureType_UNKNOWN; j++) {
-        aiTextureType currentType = (aiTextureType)j;
-        unsigned numTextures = currentMat->GetTextureCount(currentType);
+      if (!isLoaded) {
+        pbrMaterial.Name = std::string(currentMat->GetName().C_Str());
 
-        if (numTextures > 0) {
-          BB_ASSERT(numTextures <= 1);
+        for (unsigned j = aiTextureType_NONE; j < aiTextureType_UNKNOWN; j++) {
+          aiTextureType currentType = (aiTextureType)j;
+          unsigned numTextures = currentMat->GetTextureCount(currentType);
 
-          aiString texturePath;
-          currentMat->GetTexture(currentType, 0, &texturePath);
-          std::string name(texturePath.C_Str());
+          std::string nname;
 
-          switch (currentType) {
-          case aiTextureType_DIFFUSE:
-            enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
-                                 pbrMaterial.Maps[PBRMapType::Albedo]);
-            break;
-          case aiTextureType_HEIGHT: // PBR texrues provider binds normal map to height map in .mtl.
-            enqueueImageLoadTask(
-                loader, renderer, joinPaths(textureRoot, name),
-                pbrMaterial
-                    .Maps[PBRMapType::Normal]);
-            break;
-          case aiTextureType_AMBIENT: // PBR texrues provider binds metalic map to ambient map in .mtl.
-            enqueueImageLoadTask(
-                loader, renderer, joinPaths(textureRoot, name),
-                pbrMaterial
-                    .Maps[PBRMapType::Metallic]);
-            break;
-          case aiTextureType_SHININESS:
-            enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
-                                 pbrMaterial.Maps[PBRMapType::Roughness]);
-            break;
-          case aiTextureType_OPACITY:
-            enqueueImageLoadTask(
-                loader, renderer, joinPaths(textureRoot, name),
-                pbrMaterial.Maps[PBRMapType::AO]); // TODO : AO => Mask
-            break;
+          if (numTextures > 0) {
+            BB_ASSERT(numTextures <= 1);
+
+            aiString texturePath;
+            currentMat->GetTexture(currentType, 0, &texturePath);
+            std::string name(texturePath.C_Str());
+
+            switch (currentType) {
+            case aiTextureType_DIFFUSE:
+              enqueueImageLoadTask(loader, renderer,
+                                   joinPaths(textureRoot, name),
+                                   pbrMaterial.Maps[PBRMapType::Albedo]);
+              break;
+            case aiTextureType_HEIGHT: // PBR texrues provider binds normal map
+                                       // to height map in .mtl.
+              enqueueImageLoadTask(loader, renderer,
+                                   joinPaths(textureRoot, name),
+                                   pbrMaterial.Maps[PBRMapType::Normal]);
+              break;
+            case aiTextureType_AMBIENT: // PBR texrues provider binds metalic
+                                        // map to ambient map in .mtl.
+              enqueueImageLoadTask(loader, renderer,
+                                   joinPaths(textureRoot, name),
+                                   pbrMaterial.Maps[PBRMapType::Metallic]);
+              break;
+            case aiTextureType_SHININESS:
+              enqueueImageLoadTask(loader, renderer,
+                                   joinPaths(textureRoot, name),
+                                   pbrMaterial.Maps[PBRMapType::Roughness]);
+              break;
+            case aiTextureType_OPACITY:
+              enqueueImageLoadTask(
+                  loader, renderer, joinPaths(textureRoot, name),
+                  pbrMaterial.Maps[PBRMapType::AO]); // TODO : AO => Mask
+              break;
+            }
           }
+
+          finalizeAllImageLoads(loader, renderer, transientCmdPool);
         }
 
-        finalizeAllImageLoads(loader, renderer, transientCmdPool);
+        MaterialSet.Materials[currentMesh->mMaterialIndex - 1] = pbrMaterial;
       }
 
       Mesh mesh = {};
@@ -336,13 +349,12 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
       indexOffset += mesh.NumIndies;
 
       MeshGroups.push_back(mesh);
-      MaterialSet.Materials[currentMesh->mMaterialIndex - 1] = pbrMaterial;
 
       assert(!(currentMesh->GetNumUVChannels() > 1));
 
       for (unsigned j = 0; j < currentMesh->mNumVertices; j++) {
         Vertex v = {};
-        
+
         v.Pos = aiVector3DToFloat3(currentMesh->mVertices[j]);
         v.UV = aiVector3DToFloat2(currentMesh->mTextureCoords[0][j]);
         v.UV.Y = 1.0f - v.UV.Y;
@@ -466,37 +478,28 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
   }
 }
 
-void SponzaScene::updateGUI(float /*_dt*/) 
-{
-  if (ImGui::Begin("Sponza"))
-  {
+void SponzaScene::updateGUI(float /*_dt*/) {
+  if (ImGui::Begin("Sponza")) {
     ImGui::Checkbox("Move lights", &IsMoving);
 
-    if(!IsMoving)
+    if (!IsMoving)
       ImGui::SliderFloat3("LightPos", &Lights[0].Pos.X, -20.0f, 20.0f);
   }
   ImGui::End();
 }
 
-void SponzaScene::updateScene(float _dt) 
-{
-  if(IsMoving)
-  {
-    for(int i = 0; i < Lights.size();i++)
-    {
-      if(AngularVelocities[i])
-      {
+void SponzaScene::updateScene(float _dt) {
+  if (IsMoving) {
+    for (int i = 0; i < Lights.size(); i++) {
+      if (AngularVelocities[i]) {
         Float3 prev = Lights[i].Pos;
 
-        Lights[i].Pos.X  = prev.X * std::cos(AngularVelocities[i] * _dt) 
-        - prev.Z * std::sin(AngularVelocities[i] * _dt);
+        Lights[i].Pos.X = prev.X * std::cos(AngularVelocities[i] * _dt) -
+                          prev.Z * std::sin(AngularVelocities[i] * _dt);
 
-        Lights[i].Pos.Z  = prev.X * std::sin(AngularVelocities[i] * _dt) 
-        + prev.Z * std::cos(AngularVelocities[i] * _dt);
-      }
-      else
-      {
-
+        Lights[i].Pos.Z = prev.X * std::sin(AngularVelocities[i] * _dt) +
+                          prev.Z * std::cos(AngularVelocities[i] * _dt);
+      } else {
       }
     }
   }
@@ -528,6 +531,10 @@ SponzaScene::~SponzaScene() {
   destroyBuffer(renderer, Sponza.VertexBuffer);
   destroyBuffer(renderer, Sponza.IndexBuffer);
   destroyBuffer(renderer, Sponza.InstanceBuffer);
+
+  MaterialSet
+      .DefaultMaterial = {}; // Prevent Default material from destroying..
+  destroyPBRMaterialSet(renderer, MaterialSet);
 
   vkDestroyDescriptorPool(renderer.Device, DescriptorPool, nullptr);
 }
