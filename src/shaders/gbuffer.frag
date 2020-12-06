@@ -22,7 +22,7 @@ void main()
     float mask = texture(sampler2D(uMaterialTextures[TEX_AO], uSamplers[SMP_LINEAR]), vUV).r;
     float height = texture(sampler2D(uMaterialTextures[TEX_HEIGHT], uSamplers[SMP_LINEAR]), vUV).r;
 
-    if(mask < 1)
+    if(mask <= 0)
         discard;
 
     outPosWorld = vPosWorld;

@@ -1301,8 +1301,8 @@ int main(int _argc, char **_argv) {
           (int)gBufferVisualize.CurrentOption;
     }
 
-    static bool enableNormalMap;
-    static bool enableToneMapping;
+    static bool enableNormalMap = true;
+    static bool enableToneMapping = true;
     static float exposure = 1.f;
     if (ImGui::Begin("Settings")) {
       ImGui::Checkbox("Enable Normal Map", &enableNormalMap);
