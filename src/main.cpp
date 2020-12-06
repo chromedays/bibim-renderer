@@ -35,7 +35,7 @@
 
 namespace bb {
 
-constexpr int numFrames = 2;
+// constexpr int numFrames = 2;
 constexpr int computeWorkGroupSize = 32;
 
 static Gizmo gGizmo;
@@ -67,12 +67,12 @@ static struct {
 
 static StandardPipelineLayout gStandardPipelineLayout;
 
-enum class SceneType { Triangle, ShaderBalls, COUNT };
+enum class SceneType { Triangle, ShaderBalls, Sponza, COUNT };
 
-static EnumArray<SceneType, const char *> gSceneLabels = {"Triangle",
-                                                          "Shader Balls"};
+static EnumArray<SceneType, const char *> gSceneLabels = {
+    "Triangle", "Shader Balls", "Sponza"};
 static EnumArray<SceneType, SceneBase *> gScenes;
-static SceneType gCurrentSceneType = SceneType::ShaderBalls;
+static SceneType gCurrentSceneType = SceneType::Sponza;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
@@ -1539,6 +1539,9 @@ int main(int _argc, char **_argv) {
         break;
       case SceneType::ShaderBalls:
         gScenes[gCurrentSceneType] = new ShaderBallScene(&commonSceneResources);
+        break;
+      case SceneType::Sponza:
+        gScenes[gCurrentSceneType] = new SponzaScene(&commonSceneResources);
         break;
       }
     }
