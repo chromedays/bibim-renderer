@@ -7,6 +7,7 @@
 #include "external/imgui/imgui_impl_vulkan.h"
 #include <numeric>
 #include <random>
+#include <iostream>
 namespace bb {
 
 ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
@@ -282,51 +283,65 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
           sponzaScene->mMaterials[currentMesh->mMaterialIndex];
       uint32_t currntVerticesIndex = vertices->size();
 
+      bool isLoaded = !MaterialSet.Materials[currentMesh->mMaterialIndex - 1].Name.empty();
+
+
       PBRMaterial pbrMaterial = {};
-      pbrMaterial.Name = std::string(currentMat->GetName().C_Str());
 
-      for (unsigned j = aiTextureType_NONE; j < aiTextureType_UNKNOWN; j++) {
-        aiTextureType currentType = (aiTextureType)j;
-        unsigned numTextures = currentMat->GetTextureCount(currentType);
+      if(!isLoaded)
+      {
+        pbrMaterial.Name = std::string(currentMat->GetName().C_Str());
+      
+        for (unsigned j = aiTextureType_NONE; j < aiTextureType_UNKNOWN; j++) {
+          aiTextureType currentType = (aiTextureType)j;
+          unsigned numTextures = currentMat->GetTextureCount(currentType);
 
-        if (numTextures > 0) {
-          BB_ASSERT(numTextures <= 1);
+          std::string nname;
 
-          aiString texturePath;
-          currentMat->GetTexture(currentType, 0, &texturePath);
-          std::string name(texturePath.C_Str());
+          if (numTextures > 0) {
+            BB_ASSERT(numTextures <= 1);
 
-          switch (currentType) {
-          case aiTextureType_DIFFUSE:
-            enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
-                                 pbrMaterial.Maps[PBRMapType::Albedo]);
-            break;
-          case aiTextureType_HEIGHT: // PBR texrues provider binds normal map to height map in .mtl.
-            enqueueImageLoadTask(
-                loader, renderer, joinPaths(textureRoot, name),
-                pbrMaterial
-                    .Maps[PBRMapType::Normal]);
-            break;
-          case aiTextureType_AMBIENT: // PBR texrues provider binds metalic map to ambient map in .mtl.
-            enqueueImageLoadTask(
-                loader, renderer, joinPaths(textureRoot, name),
-                pbrMaterial
-                    .Maps[PBRMapType::Metallic]);
-            break;
-          case aiTextureType_SHININESS:
-            enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
-                                 pbrMaterial.Maps[PBRMapType::Roughness]);
-            break;
-          case aiTextureType_OPACITY:
-            enqueueImageLoadTask(
-                loader, renderer, joinPaths(textureRoot, name),
-                pbrMaterial.Maps[PBRMapType::AO]); // TODO : AO => Mask
-            break;
+            aiString texturePath;
+            currentMat->GetTexture(currentType, 0, &texturePath);
+            std::string name(texturePath.C_Str());
+
+            
+            switch (currentType) {
+            case aiTextureType_DIFFUSE:
+              enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
+                                  pbrMaterial.Maps[PBRMapType::Albedo]);
+              break;
+            case aiTextureType_HEIGHT: // PBR texrues provider binds normal map to height map in .mtl.
+              enqueueImageLoadTask(
+                  loader, renderer, joinPaths(textureRoot, name),
+                  pbrMaterial
+                      .Maps[PBRMapType::Normal]);
+              break;
+            case aiTextureType_AMBIENT: // PBR texrues provider binds metalic map to ambient map in .mtl.
+              enqueueImageLoadTask(
+                  loader, renderer, joinPaths(textureRoot, name),
+                  pbrMaterial
+                      .Maps[PBRMapType::Metallic]);
+              break;
+            case aiTextureType_SHININESS:
+              enqueueImageLoadTask(loader, renderer, joinPaths(textureRoot, name),
+                                  pbrMaterial.Maps[PBRMapType::Roughness]);
+              break;
+            case aiTextureType_OPACITY:
+              enqueueImageLoadTask(
+                  loader, renderer, joinPaths(textureRoot, name),
+                  pbrMaterial.Maps[PBRMapType::AO]); // TODO : AO => Mask
+              break;
+            }
           }
+
+          finalizeAllImageLoads(loader, renderer, transientCmdPool);
         }
 
-        finalizeAllImageLoads(loader, renderer, transientCmdPool);
+        MaterialSet.Materials[currentMesh->mMaterialIndex - 1] = pbrMaterial;
       }
+
+      
 
       Mesh mesh = {};
       mesh.MaterialIndex = currentMesh->mMaterialIndex - 1;
@@ -336,7 +351,6 @@ SponzaScene::SponzaScene(CommonSceneResources *_common) : SceneBase(_common) {
       indexOffset += mesh.NumIndies;
 
       MeshGroups.push_back(mesh);
-      MaterialSet.Materials[currentMesh->mMaterialIndex - 1] = pbrMaterial;
 
       assert(!(currentMesh->GetNumUVChannels() > 1));
 
@@ -528,6 +542,9 @@ SponzaScene::~SponzaScene() {
   destroyBuffer(renderer, Sponza.VertexBuffer);
   destroyBuffer(renderer, Sponza.IndexBuffer);
   destroyBuffer(renderer, Sponza.InstanceBuffer);
+
+  MaterialSet.DefaultMaterial = {}; // Prevent Default material from destroying..
+  destroyPBRMaterialSet(renderer, MaterialSet);
 
   vkDestroyDescriptorPool(renderer.Device, DescriptorPool, nullptr);
 }
