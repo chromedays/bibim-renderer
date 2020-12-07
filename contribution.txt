@@ -1,0 +1,12 @@
+Ilgwon Ha
+- Vulkan project setup
+- BRDF
+- IBL
+- Material system
+- Asset loader
+
+Jaejun Jang
+- Instanced rendering
+- Sponza model loading
+- Texture masking
+- Deferred rendering

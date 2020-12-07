@@ -1,0 +1,11 @@
+Volk, https://github.com/zeux/volk, MIT
+SDL2, https://www.libsdl.org/, zlib
+Assimp, https://github.com/assimp/assimp, BSD
+Dear Imgui, https://github.com/ocornut/imgui, MIT
+stb_image, https://github.com/nothings/stb, Public Domain
+toml, https://github.com/cktan/tomlc99, MIT
+libfmt, https://github.com/fmtlib/fmt, MIT
+PBR Materials,https://cc0textures.com/, Public Domain
+Sponza Model, https://casual-effects.com/data, CC BY 3.0
+Shader Ball Model, https://github.com/derkreature/ShaderBall, Public Domain
+IBL Environment Texture, http://www.hdrlabs.com/sibl/archive.html, CC BY-NC-SA 3.0 US
