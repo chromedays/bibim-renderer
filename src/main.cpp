@@ -42,7 +42,8 @@ static Gizmo gGizmo;
 static GBufferVisualize gBufferVisualize;
 static TBNVisualize gTBN;
 static LightSources gLightSources;
-
+static ImTextureID gLogo;
+static Image gLogoImage;
 static struct {
 
   Shader VertShader;
@@ -1482,6 +1483,11 @@ int main(int _argc, char **_argv) {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
+  std::string logoFilePath = createCommonResourcePath("DigiPen_RED_1024px.png");
+  gLogoImage = createImageFromFile(renderer, transientCmdPool,logoFilePath );
+  gLogo = ImGui_ImplVulkan_AddTexture(gStandardPipelineLayout.ImmutableSamplers[SamplerType::Nearest], gLogoImage.View,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
   FreeLookCamera cam = {};
   commonSceneResources.Cam = &cam;
 
@@ -1533,6 +1539,23 @@ int main(int _argc, char **_argv) {
         }
         ImGui::EndCombo();
       }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Credit")) 
+    {
+      ImGui::Image(gLogo, {1024, 247});
+      ImGui::NewLine();
+      
+      ImGui::Text("Professors: Andy Kaplan, Jen Sward and Matt Picioccio");
+      ImGui::Text("Team members: Ilgwon Ha and Jaejun Jang");
+      ImGui::NewLine();
+
+      ImGui::Text("Created at DigiPen Institute of Technology");
+      ImGui::Text("President: Claude Comair");
+      ImGui::Text("Executives: Jason Chu, Samir Abou Samra, Michele Comair, Angela Kugler, Erik Mohrmann, Benjamin Ellinger, and Melvin Gonsalvez");
+      ImGui::Text("www.digipen.edu");
+      ImGui::Text("Copyright (c) 2020 by DigiPen (USA), LLC. All Rights Reserved");
     }
     ImGui::End();
 
@@ -1776,6 +1799,7 @@ int main(int _argc, char **_argv) {
   destroyImage(renderer, gSky.DiffuseIrradianceMap);
 
   destroyImage(renderer, gSky.EnvMap);
+  destroyImage(renderer, gLogoImage);
 
   for (FrameSync &frameSyncObject : frameSyncObjects) {
     vkDestroyFence(renderer.Device, frameSyncObject.FrameAvailableFence,
