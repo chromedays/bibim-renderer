@@ -72,7 +72,7 @@ enum class SceneType { Triangle, ShaderBalls, Sponza, COUNT };
 static EnumArray<SceneType, const char *> gSceneLabels = {
     "Triangle", "Shader Balls", "Sponza"};
 static EnumArray<SceneType, SceneBase *> gScenes;
-static SceneType gCurrentSceneType = SceneType::Sponza;
+static SceneType gCurrentSceneType = SceneType::ShaderBalls;
 
 void recordCommand(VkRenderPass _deferredRenderPass,
                    VkFramebuffer _deferredFramebuffer,
@@ -1167,8 +1167,7 @@ int main(int _argc, char **_argv) {
                                           &descriptorSetAllocInfo,
                                           gSky.ViewDescriptorSets.data()));
 
-    std::string envFilePath =
-        createCommonResourcePath("env/Newport_Loft/Newport_Loft_Ref.hdr");
+    std::string envFilePath = createCommonResourcePath("env/env.hdr");
     gSky.EnvMap = createImageFromFile(renderer, transientCmdPool, envFilePath);
     BB_ASSERT(gSky.EnvMap.Handle != VK_NULL_HANDLE);
 
@@ -1484,6 +1483,8 @@ int main(int _argc, char **_argv) {
   }
 
   FreeLookCamera cam = {};
+  commonSceneResources.Cam = &cam;
+
   Input input = {};
 
   bool running = true;
@@ -1517,12 +1518,15 @@ int main(int _argc, char **_argv) {
     ImGui_ImplSDL2_NewFrame(window);
     ImGui::NewFrame();
 
+    bool isSceneChanged = false;
+
     if (ImGui::Begin("Scene")) {
       if (ImGui::BeginCombo("Select Scene", gSceneLabels[gCurrentSceneType])) {
         for (SceneType sceneType : AllEnums<SceneType>) {
           if (ImGui::Selectable(gSceneLabels[sceneType],
                                 sceneType == gCurrentSceneType)) {
 
+            isSceneChanged = true;
             gCurrentSceneType = sceneType;
             ImGui::SetItemDefaultFocus();
           }
@@ -1544,6 +1548,10 @@ int main(int _argc, char **_argv) {
         gScenes[gCurrentSceneType] = new SponzaScene(&commonSceneResources);
         break;
       }
+
+      gScenes[gCurrentSceneType]->onLoad();
+    } else if (isSceneChanged) {
+      gScenes[gCurrentSceneType]->onLoad();
     }
 
     SceneBase *currentScene = gScenes[gCurrentSceneType];
@@ -1604,6 +1612,10 @@ int main(int _argc, char **_argv) {
       cam.Pitch -= (float)input.CursorScreenDelta.Y * 0.6f;
       cam.Pitch = std::clamp(cam.Pitch, -88.f, 88.f);
     }
+
+    BB_LOG_INFO("Pos: {}, {}, {}", cam.Pos.X, cam.Pos.Y, cam.Pos.Z);
+    BB_LOG_INFO("Yaw: {}", cam.Yaw);
+    BB_LOG_INFO("Pitch: {}", cam.Pitch);
 
     Int2 direction = {};
     if (input.isKeyDown(SDLK_a)) {

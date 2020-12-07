@@ -48,7 +48,7 @@ ShaderBallScene::ShaderBallScene(CommonSceneResources *_common)
     Plane.InstanceData.resize(Plane.NumInstances);
     InstanceBlock &planeInstanceData = Plane.InstanceData[0];
     planeInstanceData.ModelMat =
-        Mat4::translate({0, -10, 0}) * Mat4::scale({100.f, 100.f, 100.f});
+        Mat4::translate({0, -1, 0}) * Mat4::scale({100.f, 1.f, 100.f});
     planeInstanceData.InvModelMat = planeInstanceData.ModelMat.inverse();
     Plane.InstanceBuffer = createInstanceBuffer(Plane.NumInstances);
     updateInstanceBufferMemory(Plane.InstanceBuffer, Plane.InstanceData);
@@ -129,58 +129,52 @@ ShaderBallScene::~ShaderBallScene() {
 void ShaderBallScene::updateGUI(float _dt) {
   const PBRMaterialSet &materialSet = *Common->MaterialSet;
 
-  if (ImGui::Begin("Shader Balls")) {
-    for (size_t i = 0; i < ShaderBall.InstanceData.size(); ++i) {
-      std::string label = fmt::format("Shader Ball {}", i);
-      if (ImGui::Selectable(label.c_str(),
-                            i == GUI.SelectedShaderBallInstance)) {
-        GUI.SelectedShaderBallInstance = i;
-      }
-    }
-  }
-  ImGui::End();
+  // if (ImGui::Begin("Material Selector")) {
+  //   for (int i = 0; i < GUI.MaterialTextureIds.size(); ++i) {
 
-  if (ImGui::Begin("Material Selector")) {
-    for (int i = 0; i < GUI.MaterialTextureIds.size(); ++i) {
+  //     if (ImGui::Selectable(materialSet.Materials[i].Name.c_str(),
+  //                           GUI.SelectedMaterial == i)) {
+  //       GUI.SelectedMaterial = i;
+  //     }
+  //   }
+  // }
+  // ImGui::End();
 
-      if (ImGui::Selectable(materialSet.Materials[i].Name.c_str(),
-                            GUI.SelectedMaterial == i)) {
-        GUI.SelectedMaterial = i;
-      }
-    }
-  }
-  ImGui::End();
+  // int numCols = 3;
+  // int col = 0;
 
-  int numCols = 3;
-  int col = 0;
+  // if (ImGui::Begin("Current Material")) {
+  //   const auto &textureIds = GUI.MaterialTextureIds[GUI.SelectedMaterial];
 
-  if (ImGui::Begin("Current Material")) {
-    const auto &textureIds = GUI.MaterialTextureIds[GUI.SelectedMaterial];
-
-    for (auto textureId : textureIds) {
-      ImGui::Image(textureId, {50, 50});
-      ++col;
-      if (col < numCols) {
-        ImGui::SameLine();
-      } else {
-        col = 0;
-      }
-    }
-  }
-  ImGui::End();
+  //   for (auto textureId : textureIds) {
+  //     ImGui::Image(textureId, {50, 50});
+  //     ++col;
+  //     if (col < numCols) {
+  //       ImGui::SameLine();
+  //     } else {
+  //       col = 0;
+  //     }
+  //   }
+  // }
+  // ImGui::End();
 }
 
 void ShaderBallScene::updateScene(float _dt) {
   const Renderer &renderer = *Common->Renderer;
+  const PBRMaterialSet &materialSet = *Common->MaterialSet;
 
   // ShaderBall.Angle += 30.f * dt;
   if (ShaderBall.Angle > 360) {
     ShaderBall.Angle -= 360;
   }
 
+  int col = 4;
+  int row = materialSet.Materials.size() / col;
+
   for (int i = 0; i < ShaderBall.InstanceData.size(); i++) {
     ShaderBall.InstanceData[i].ModelMat =
-        Mat4::translate({(float)(i * 2), -1, 2}) *
+        Mat4::translate({-(col - 1) + (float)(i % col * 2), -1,
+                         (float)(-(row - 1) + (i / col * 2))}) *
         Mat4::rotateY(ShaderBall.Angle) * Mat4::rotateX(-90) *
         Mat4::scale({0.01f, 0.01f, 0.01f});
     ShaderBall.InstanceData[i].InvModelMat =
@@ -196,14 +190,28 @@ void ShaderBallScene::drawScene(const Frame &_frame) {
   const StandardPipelineLayout &standardPipelineLayout =
       *Common->StandardPipelineLayout;
 
-  vkCmdBindDescriptorSets(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, standardPipelineLayout.Handle, 2, 1,
-      &_frame.MaterialDescriptorSets[GUI.SelectedMaterial], 0, nullptr);
-
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &ShaderBall.VertexBuffer.Handle, &offset);
   vkCmdBindVertexBuffers(cmd, 1, 1, &ShaderBall.InstanceBuffer.Handle, &offset);
-  vkCmdDraw(cmd, ShaderBall.NumVertices, ShaderBall.NumInstances, 0, 0);
+  for (int i = 0; i < _frame.MaterialDescriptorSets.size(); ++i) {
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            standardPipelineLayout.Handle, 2, 1,
+                            &_frame.MaterialDescriptorSets[i], 0, nullptr);
+    vkCmdDraw(cmd, ShaderBall.NumVertices, 1, 0, i);
+  }
+  const PBRMaterialSet &materialSet = *Common->MaterialSet;
+
+  for (int i = 0; i < _frame.MaterialDescriptorSets.size(); ++i) {
+
+    if (materialSet.Materials[i].Name == "empty") {
+
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              standardPipelineLayout.Handle, 2, 1,
+                              &_frame.MaterialDescriptorSets[i], 0, nullptr);
+      break;
+    }
+  }
 
   vkCmdBindVertexBuffers(cmd, 0, 1, &Plane.VertexBuffer.Handle, &offset);
   vkCmdBindVertexBuffers(cmd, 1, 1, &Plane.InstanceBuffer.Handle, &offset);

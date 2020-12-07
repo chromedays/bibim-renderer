@@ -1,5 +1,6 @@
 #pragma once
 #include "render.h"
+#include "camera.h"
 #include "external/imgui/imgui.h"
 
 namespace bb {
@@ -70,6 +71,7 @@ struct CommonSceneResources {
   VkCommandPool TransientCmdPool;
   StandardPipelineLayout *StandardPipelineLayout;
   PBRMaterialSet *MaterialSet;
+  FreeLookCamera *Cam;
 };
 
 struct SceneBase {
@@ -82,6 +84,7 @@ struct SceneBase {
   virtual void updateGUI(float _dt) = 0;
   virtual void updateScene(float _dt) = 0;
   virtual void drawScene(const Frame &_frame) = 0;
+  virtual void onLoad(){};
 
   template <typename Container>
   Buffer createVertexBuffer(const Container &_vertices) const {
@@ -181,6 +184,11 @@ struct TriangleScene : SceneBase {
     vkCmdBindVertexBuffers(cmd, 1, 1, &InstanceBuffer.Handle, &offset);
     vkCmdDraw(cmd, NumVertices, 1, 0, 0);
   }
+  void onLoad() override {
+    Common->Cam->Pos = {0.027963903, -0.11843462, 0.8203987};
+    Common->Cam->Yaw = 0;
+    Common->Cam->Pitch = 1.7999971;
+  }
 };
 
 struct ShaderBallScene : SceneBase {
@@ -198,7 +206,7 @@ struct ShaderBallScene : SceneBase {
     Buffer VertexBuffer;
     uint32_t NumVertices;
 
-    uint32_t NumInstances = 1;
+    uint32_t NumInstances = 100;
     std::vector<InstanceBlock> InstanceData;
     Buffer InstanceBuffer;
 
@@ -217,6 +225,11 @@ struct ShaderBallScene : SceneBase {
   void updateGUI(float _dt) override;
   void updateScene(float _dt) override;
   void drawScene(const Frame &_frame) override;
+  void onLoad() override {
+    Common->Cam->Pos = {0.038565528, 2.1717987, -4.70331};
+    Common->Cam->Yaw = 0.6000005;
+    Common->Cam->Pitch = -35.4;
+  }
 };
 
 struct SponzaScene : SceneBase {
@@ -251,6 +264,11 @@ struct SponzaScene : SceneBase {
   void updateGUI(float _dt) override;
   void updateScene(float _dt) override;
   void drawScene(const Frame &_frame) override;
+  void onLoad() override {
+    Common->Cam->Pos = {-8.804568, 0.39031845, -0.65517324};
+    Common->Cam->Yaw = -87.59998;
+    Common->Cam->Pitch = 25.800001;
+  }
 };
 
 } // namespace bb
