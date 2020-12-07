@@ -1636,9 +1636,9 @@ int main(int _argc, char **_argv) {
       cam.Pitch = std::clamp(cam.Pitch, -88.f, 88.f);
     }
 
-    BB_LOG_INFO("Pos: {}, {}, {}", cam.Pos.X, cam.Pos.Y, cam.Pos.Z);
-    BB_LOG_INFO("Yaw: {}", cam.Yaw);
-    BB_LOG_INFO("Pitch: {}", cam.Pitch);
+    // BB_LOG_INFO("Pos: {}, {}, {}", cam.Pos.X, cam.Pos.Y, cam.Pos.Z);
+    // BB_LOG_INFO("Yaw: {}", cam.Yaw);
+    // BB_LOG_INFO("Pitch: {}", cam.Pitch);
 
     Int2 direction = {};
     if (input.isKeyDown(SDLK_a)) {
